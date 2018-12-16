@@ -412,7 +412,7 @@ after_sack_rexmit:
 				if (cwin < 0)
 					cwin = 0;
 				len = imin(len, cwin);
-			}
+			} //TODO: Add Rescue Retransmission here?
 		}
 	}
 
@@ -1108,6 +1108,7 @@ send:
 				flags |= TH_ECE|TH_CWR;
 		} else
 			flags |= TH_ECE|TH_CWR;
+		//TODO: AccECN Syn here.
 	}
 	
 	if (tp->t_state == TCPS_ESTABLISHED &&
@@ -1127,6 +1128,7 @@ send:
 				ip->ip_tos |= IPTOS_ECN_ECT0;
 			TCPSTAT_INC(tcps_ecn_ect0);
 		}
+		// TODO: Add ECN+ here
 		
 		/*
 		 * Reply with proper ECN notifications.

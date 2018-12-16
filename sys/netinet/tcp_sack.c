@@ -360,13 +360,18 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 
 	num_sack_blks = 0;
 	sack_changed = 0;
+	tp->sackhint.delivered_data = 0;
 	/*
 	 * If SND.UNA will be advanced by SEG.ACK, and if SACK holes exist,
 	 * treat [SND.UNA, SEG.ACK) as if it is a SACK block.
+	 * Account changes to SND.UNA always in delivered data.
 	 */
-	if (SEQ_LT(tp->snd_una, th_ack) && !TAILQ_EMPTY(&tp->snd_holes)) {
-		sack_blocks[num_sack_blks].start = tp->snd_una;
-		sack_blocks[num_sack_blks++].end = th_ack;
+	if SEQ_LT(tp->snd_una, th_ack) {
+		tp->sackhint.delivered_data = th_ack - tp->snd_una;
+		if(!TAILQ_EMPTY(&tp->snd_holes)) {
+			sack_blocks[num_sack_blks].start = tp->snd_una;
+			sack_blocks[num_sack_blks++].end = th_ack;
+		}
 	}
 	/*
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
@@ -444,6 +449,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		 */
 		temp = tcp_sackhole_insert(tp, tp->snd_fack,sblkp->start,NULL);
 		if (temp != NULL) {
+			tp->sackhint.delivered_data += sblkp->end - sblkp->start;
 			tp->snd_fack = sblkp->end;
 			/* Go to the previous sack block. */
 			sblkp--;
@@ -462,10 +468,12 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				sblkp--;
 			if (sblkp >= sack_blocks && 
 			    SEQ_LT(tp->snd_fack, sblkp->end))
+				tp->sackhint.delivered_data += sblkp->end - tp->snd_fack;
 				tp->snd_fack = sblkp->end;
 		}
 	} else if (SEQ_LT(tp->snd_fack, sblkp->end)) {
 		/* fack is advanced. */
+		tp->sackhint.delivered_data += sblkp->end - tp->snd_fack;
 		tp->snd_fack = sblkp->end;
 		sack_changed = 1;
 	}
@@ -499,6 +507,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			/* Data acks at least the beginning of hole. */
 			if (SEQ_GEQ(sblkp->end, cur->end)) {
 				/* Acks entire hole, so delete hole. */
+				tp->sackhint.delivered_data += (cur->end - cur->start);
 				temp = cur;
 				cur = TAILQ_PREV(cur, sackhole_head, scblink);
 				tcp_sackhole_remove(tp, temp);
@@ -510,6 +519,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				continue;
 			} else {
 				/* Move start of hole forward. */
+				tp->sackhint.delivered_data += (sblkp->end - cur->start);
 				cur->start = sblkp->end;
 				cur->rxmit = SEQ_MAX(cur->rxmit, cur->start);
 			}
@@ -517,6 +527,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			/* Data acks at least the end of hole. */
 			if (SEQ_GEQ(sblkp->end, cur->end)) {
 				/* Move end of hole backward. */
+				tp->sackhint.delivered_data += (cur->end - sblkp->start);
 				cur->end = sblkp->start;
 				cur->rxmit = SEQ_MIN(cur->rxmit, cur->end);
 			} else {
@@ -536,6 +547,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 					cur->end = sblkp->start;
 					cur->rxmit = SEQ_MIN(cur->rxmit,
 					    cur->end);
+					tp->sackhint.delivered_data += (sblkp->end - sblkp->start);
 				}
 			}
 		}

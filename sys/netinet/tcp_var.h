@@ -70,11 +70,13 @@ struct sackhole {
 
 struct sackhint {
 	struct sackhole	*nexthole;
-	int		sack_bytes_rexmit;
+	int32_t		sack_bytes_rexmit;
 	tcp_seq		last_sack_ack;	/* Most recent/largest sacked ack */
 
-	int		ispare;		/* explicit pad for 64bit alignment */
-	int             sacked_bytes;	/*
+	int32_t		delivered_data; /* 
+					 * Newly acked data from last SACK 
+					 */
+	int32_t		sacked_bytes;	/*
 					 * Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
@@ -853,6 +855,7 @@ void	tcp_pulloutofband(struct socket *,
 		     struct tcphdr *, struct mbuf *, int);
 void	tcp_xmit_timer(struct tcpcb *, int);
 void	tcp_newreno_partial_ack(struct tcpcb *, struct tcphdr *);
+void	tcp_prr_partial_ack(struct tcpcb *, struct tcphdr *);
 void	cc_ack_received(struct tcpcb *tp, struct tcphdr *th,
 			    uint16_t nsegs, uint16_t type);
 void 	cc_conn_init(struct tcpcb *tp);
