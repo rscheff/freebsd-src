@@ -74,14 +74,15 @@ struct sackhint {
 	tcp_seq		last_sack_ack;	/* Most recent/largest sacked ack */
 
 	int32_t		delivered_data; /* 
-					 * Newly acked data from last SACK 
-					 */
-	int32_t		sacked_bytes;	/*
-					 * Total sacked bytes reported by the
+								 * Newly acked data from last SACK 
+								 */
+	int32_t     sacked_bytes;	/*
+								 * Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
-	uint32_t	_pad1[1];	/* TBD */
-	uint64_t	_pad[1];	/* TBD */
+	uint32_t	recover_fs;	/* Flight Size at the start of Loss recovery */
+	uint32_t	prr_delivered; /* Total bytes delivered using PRR */
+	uint32_t	_pad[1];	/* TBD */
 };
 
 #define SEGQ_EMPTY(tp) TAILQ_EMPTY(&(tp)->t_segq)
@@ -855,7 +856,7 @@ void	tcp_pulloutofband(struct socket *,
 		     struct tcphdr *, struct mbuf *, int);
 void	tcp_xmit_timer(struct tcpcb *, int);
 void	tcp_newreno_partial_ack(struct tcpcb *, struct tcphdr *);
-void	tcp_prr_partial_ack(struct tcpcb *, struct tcphdr *);
+void	tcp_prr_partialack(struct tcpcb *, struct tcphdr *);
 void	cc_ack_received(struct tcpcb *tp, struct tcphdr *th,
 			    uint16_t nsegs, uint16_t type);
 void 	cc_conn_init(struct tcpcb *tp);
@@ -941,6 +942,7 @@ void	 tcp_update_sack_list(struct tcpcb *tp, tcp_seq rcv_laststart, tcp_seq rcv_
 void	 tcp_clean_sackreport(struct tcpcb *tp);
 void	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
+void     tcp_prr_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
 int	 tcp_newreno(struct tcpcb *, struct tcphdr *);

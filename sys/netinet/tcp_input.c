@@ -2571,21 +2571,21 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					     * will be 0. Pipe is the amount of data we
 					     * estimate to be in the network.
 					     */
-					    del_data = tp->diff_in_sack;
+					    del_data = tp->sackhint.delivered_data;
 					    pipe = (tp->snd_nxt - tp->snd_fack) +
-						tp->sackhint.sack_bytes_rexmit;
-					    tp->prr_delivered += del_data;
+							tp->sackhint.sack_bytes_rexmit;
+					    tp->sackhint.prr_delivered += del_data; 
 					    if (pipe > tp->snd_ssthresh) {
-						snd_cnt = (tp->prr_delivered *
-						    tp->snd_ssthresh / tp->recover_fs) +
-						    1 - tp->prr_out;
+						snd_cnt = (tp->sackhint.prr_delivered *
+						    tp->snd_ssthresh / tp->sackhint.recover_fs) +
+						    1 - tp->sackhint.sack_bytes_rexmit;
 					    }
 					    else {
 						if (V_tcp_do_prr_conservative)
-						    limit = tp->prr_delivered - tp->prr_out;
+						    limit = tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit;
 						else
-						    if ((tp->prr_delivered - tp->prr_out) > del_data)
-							limit = tp->prr_delivered - tp->prr_out +
+						    if ((tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit) > del_data)
+							limit = tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit +
 							    tp->t_maxseg;
 						    else
 							limit = del_data + tp->t_maxseg;
@@ -2669,10 +2669,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					     * snd_ssthresh is already updated by 
 					     * cc_cong_signal.
 					     */
-					    tp->prr_delivered = 0;
-					    tp->prr_out = 0;
-					    if (!(tp->recover_fs = tp->snd_nxt - tp->snd_una))
-						tp->recover_fs = 1;
+					    tp->sackhint.prr_delivered = 0;
+					    tp->sackhint.sack_bytes_rexmit = 0;
+					    if (!(tp->sackhint.recover_fs = tp->snd_nxt - tp->snd_una))
+						tp->sackhint.recover_fs = 1;
 					}
 					if (tp->t_flags & TF_SACK_PERMIT) {
 						TCPSTAT_INC(
@@ -3848,7 +3848,7 @@ tcp_mssopt(struct in_conninfo *inc)
 }
 
 void
-tcp_prr_partial_ack(struct tcpcb *tp, struct tcphdr *th)
+tcp_prr_partialack(struct tcpcb *tp, struct tcphdr *th)
 {
 	long snd_cnt = 0, limit = 0, del_data = 0, pipe = 0;
 	
@@ -3863,21 +3863,21 @@ tcp_prr_partial_ack(struct tcpcb *tp, struct tcphdr *th)
 	 */
 	if (SEQ_GEQ(th->th_ack, tp->snd_una))
 		del_data = BYTES_THIS_ACK(tp, th);
-	del_data += tp->diff_in_sack;
+	del_data += tp->sackhint.delivered_data;
 	pipe = (tp->snd_nxt - tp->snd_fack) + tp->sackhint.sack_bytes_rexmit;
-	tp->prr_delivered += del_data;
+	tp->sackhint.prr_delivered += del_data;
 	/*
 	 * Proportional Rate Reduction
 	 */
 	if (pipe > tp->snd_ssthresh)
-		snd_cnt = (tp->prr_delivered * tp->snd_ssthresh / tp->recover_fs) -
-		    tp->prr_out;
+		snd_cnt = (tp->sackhint.prr_delivered * tp->snd_ssthresh / tp->sackhint.recover_fs) -
+		    tp->sackhint.sack_bytes_rexmit;
 	else {
 		if (V_tcp_do_prr_conservative)
-			limit = tp->prr_delivered - tp->prr_out;
+			limit = tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit;
 		else
-			if ((tp->prr_delivered - tp->prr_out) > del_data)
-				limit = tp->prr_delivered - tp->prr_out + tp->t_maxseg;
+			if ((tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit) > del_data)
+				limit = tp->sackhint.prr_delivered - tp->sackhint.sack_bytes_rexmit + tp->t_maxseg;
 			else
 				limit = del_data + tp->t_maxseg;
 		snd_cnt = min((tp->snd_ssthresh - pipe), limit);
