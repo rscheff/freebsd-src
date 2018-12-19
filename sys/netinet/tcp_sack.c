@@ -469,6 +469,17 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		tp->snd_fack = sblkp->end;
 		sack_changed = 1;
 	}
+	/*
+	 * Lost Retransmission Detection
+	 * Check is FACK is >= than the end of the leftmost hole.
+	 * if yes, we start sending from still existing holes
+	 */
+	if ((temp = TAILQ_FIRST(&tp->snd_holes, sackhole_head)) != NULL) {
+		if (SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+			temp->rxmit = temp->start;
+			tp->sackhint.nexthole = temp;
+		}
+	}
 	cur = TAILQ_LAST(&tp->snd_holes, sackhole_head); /* Last SACK hole. */
 	/*
 	 * Since the incoming sack blocks are sorted, we can process them
@@ -518,7 +529,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			if (SEQ_GEQ(sblkp->end, cur->end)) {
 				/* Move end of hole backward. */
 				cur->end = sblkp->start;
-				cur->rxmit = SEQ_MIN(cur->rxmit, cur->end);
+				if (SEQ_GEQ(cur->rxmit, cur->end))
+					cur->rxmit = tp->snd_recover;
 			} else {
 				/*
 				 * ACKs some data in middle of a hole; need
@@ -534,8 +546,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 						    - temp->start);
 					}
 					cur->end = sblkp->start;
-					cur->rxmit = SEQ_MIN(cur->rxmit,
-					    cur->end);
+					if (SEQ_GEQ(cur->rxmit, cur->end))
+						cur->rxmit = tp->snd_recover;
 				}
 			}
 		}
