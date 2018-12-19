@@ -474,7 +474,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	 * Check is FACK is >= than the end of the leftmost hole.
 	 * if yes, we start sending from still existing holes
 	 */
-	if ((temp = TAILQ_FIRST(&tp->snd_holes, sackhole_head)) != NULL) {
+	if ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) {
 		if (SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
 			temp->rxmit = temp->start;
 			tp->sackhint.nexthole = temp;
@@ -502,7 +502,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			cur = TAILQ_PREV(cur, sackhole_head, scblink);
 			continue;
 		}
-		tp->sackhint.sack_bytes_rexmit -= (cur->rxmit - cur->start);
+		tp->sackhint.sack_bytes_rexmit -= (SEQ_MIN(cur->rxmit, 
+			cur->end)  - cur->start);
 		KASSERT(tp->sackhint.sack_bytes_rexmit >= 0,
 		    ("sackhint bytes rtx >= 0"));
 		sack_changed = 1;
@@ -542,8 +543,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 					if (SEQ_GT(cur->rxmit, temp->rxmit)) {
 						temp->rxmit = cur->rxmit;
 						tp->sackhint.sack_bytes_rexmit
-						    += (temp->rxmit
-						    - temp->start);
+						    += (SEQ_MIN(temp->rxmit,
+						    temp->end) - temp->start);
 					}
 					cur->end = sblkp->start;
 					if (SEQ_GEQ(cur->rxmit, cur->end))
@@ -551,7 +552,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				}
 			}
 		}
-		tp->sackhint.sack_bytes_rexmit += (cur->rxmit - cur->start);
+		tp->sackhint.sack_bytes_rexmit += (SEQ_MIN(cur->rxmit, 
+			cur->end) - cur->start);
 		/*
 		 * Testing sblkp->start against cur->start tells us whether
 		 * we're done with the sack block or the sack hole.
@@ -630,7 +632,7 @@ tcp_sack_output_debug(struct tcpcb *tp, int *sack_bytes_rexmt)
 			*sack_bytes_rexmt += (p->rxmit - p->start);
 			break;
 		}
-		*sack_bytes_rexmt += (p->rxmit - p->start);
+		*sack_bytes_rexmt += (SEQ_MIN(p->rxmit, p->end) - p->start);
 	}
 	return (p);
 }
