@@ -1532,7 +1532,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 #endif
 	thflags = th->th_flags;
 	inc = &tp->t_inpcb->inp_inc;
-	tp->sackhint.last_sack_ack = 0;
 	sack_changed = 0;
 	nsegs = max(1, m->m_pkthdr.lro_nsegs);
 	/*
