@@ -71,13 +71,13 @@ struct sackhole {
 struct sackhint {
 	struct sackhole	*nexthole;
 	int32_t		sack_bytes_rexmit;
-	int32_t		pad2[1];	/* retiring last_sack_ack, as unused */
+	tcp_seq		last_sack_ack;	/* Most recent/largest sacked ack */
 
 	int32_t		delivered_data; /* 
-					 * Newly acked data from last SACK 
-					 */
-	int32_t		sacked_bytes;	/*
-					 * Total sacked bytes reported by the
+								 * Newly acked data from last SACK 
+								 */
+	int32_t     sacked_bytes;	/*
+								 * Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
 	uint32_t	_pad1[1];	/* TBD */
