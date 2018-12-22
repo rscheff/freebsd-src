@@ -2467,15 +2467,25 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		}
 		if ((tp->t_flags & TF_SACK_PERMIT) &&
 		    ((to.to_flags & TOF_SACK) ||
-		     !TAILQ_EMPTY(&tp->snd_holes)))
+		    !TAILQ_EMPTY(&tp->snd_holes))) {
 			sack_changed = tcp_sack_doack(tp, &to, th->th_ack);
-		else
+			LOGTCPCBSTATE;
+			if (TAILQ_EMPTY(&tp->snd_holes) &&
+			    !(to.to_flags & TOF_SACK) &&
+			    ((tp->snd_max - th->th_ack) == sbavail(&so->so_snd)) &&
+			    SEQ_LT(th->th_ack, tp->snd_recover)) {
+				if (so->so_options & SO_DEBUG)
+					log(LOG_DEBUG,"rfc6675 rescue retransmission\n");
+			}
+		} else {
 			/*
 			 * Reset the value so that previous (valid) value
 			 * from the last ack with SACK doesn't get used.
 			 */
 			tp->sackhint.sacked_bytes = 0;
-
+			tp->sackhint.sacked_bytes_old = 0;
+			LOGTCPCBSTATE;
+		}
 #ifdef TCP_HHOOK
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
 		hhook_run_tcp_est_in(tp, th, &to);
@@ -2518,7 +2528,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 * window size so do congestion avoidance
 				 * (set ssthresh to half the current window
 				 * and pull our congestion window back to
-				 * the new ssthresh).
+				 * the new ssthresh09).
 				 *
 				 * Dup acks mean that packets have left the
 				 * network (they're now cached at the receiver)
@@ -2540,9 +2550,17 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 */
 				if (th->th_ack != tp->snd_una ||
 				    ((tp->t_flags & TF_SACK_PERMIT) &&
-				    !sack_changed))
+				    !sack_changed)) {
+//				        log(LOG_DEBUG,"tcp_input:2569 falling through here %u\n", tp->snd_fack);
+//					if (SEQ_LT(th->th_ack, tp->snd_recover) &&
+//					    (tp->t_flags & TF_SACK_PERMIT) &&
+//					    TAILQ_EMPTY(&tp->snd_holes) &&
+//					    ((tp->snd_max - tp->snd_una) == sbavail(&so->so_snd))) {
+//						log(LOG_DEBUG,"adding hole for rescue rexmit\n");
+//						tcp_sackhole_insert(tp, tp->snd_una, tp->snd_max, NULL);
+//					}
 					break;
-				else if (!tcp_timer_active(tp, TT_REXMT))
+				} else if (!tcp_timer_active(tp, TT_REXMT))
 					tp->t_dupacks = 0;
 				else if (++tp->t_dupacks > tcprexmtthresh ||
 				     IN_FASTRECOVERY(tp->t_flags)) {
@@ -2571,9 +2589,23 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						}
 					} else
 						tp->snd_cwnd += maxseg;
+					
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
-				} else if (tp->t_dupacks == tcprexmtthresh) {
+				} else if ((tp->t_dupacks == tcprexmtthresh) ||
+					/*
+					 * Add RFC6675 trigger condition of more 
+					 * than (dupthresh-1)*mss sacked data.
+					 * If the count of holes in the 
+					 * scoreboard is >= dupthresh, we could
+					 * also enter loss recovery, but don't
+					 * have that value readily available.
+					 */
+					((tp->t_flags & TF_SACK_PERMIT) &&
+					 (V_tcp_do_rfc6675_pipe) && 
+					 (tp->sackhint.sacked_bytes > 
+					 (tcprexmtthresh - 1) * maxseg))) {
+					tp->t_dupacks = tcprexmtthresh;
 					tcp_seq onxt = tp->snd_nxt;
 
 					/*
@@ -2686,8 +2718,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			 * If this ack also has new SACK info, increment the
 			 * counter as per rfc6675.
 			 */
-			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed)
+			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
+			}
+			LOGTCPCBSTATE;
 		}
 
 		KASSERT(SEQ_GT(th->th_ack, tp->snd_una),

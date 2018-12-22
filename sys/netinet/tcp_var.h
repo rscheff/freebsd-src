@@ -43,6 +43,89 @@
 #include <sys/mbuf.h>
 #endif
 
+#define STRIPPATH(s)\
+    (sizeof(s) > 2 && (s)[sizeof(s)-2] == '/' ? (s) + sizeof(s) - 1 : \
+    sizeof(s) > 3 && (s)[sizeof(s)-3] == '/' ? (s) + sizeof(s) - 2 : \
+    sizeof(s) > 4 && (s)[sizeof(s)-4] == '/' ? (s) + sizeof(s) - 3 : \
+    sizeof(s) > 5 && (s)[sizeof(s)-5] == '/' ? (s) + sizeof(s) - 4 : \
+    sizeof(s) > 6 && (s)[sizeof(s)-6] == '/' ? (s) + sizeof(s) - 5 : \
+    sizeof(s) > 7 && (s)[sizeof(s)-7] == '/' ? (s) + sizeof(s) - 6 : \
+    sizeof(s) > 8 && (s)[sizeof(s)-8] == '/' ? (s) + sizeof(s) - 7 : \
+    sizeof(s) > 9 && (s)[sizeof(s)-9] == '/' ? (s) + sizeof(s) - 8 : \
+    sizeof(s) > 10 && (s)[sizeof(s)-10] == '/' ? (s) + sizeof(s) - 9 : \
+    sizeof(s) > 11 && (s)[sizeof(s)-11] == '/' ? (s) + sizeof(s) - 10 : \
+    sizeof(s) > 12 && (s)[sizeof(s)-12] == '/' ? (s) + sizeof(s) - 11 : \
+    sizeof(s) > 13 && (s)[sizeof(s)-13] == '/' ? (s) + sizeof(s) - 12 : \
+    sizeof(s) > 14 && (s)[sizeof(s)-14] == '/' ? (s) + sizeof(s) - 13 : \
+    sizeof(s) > 15 && (s)[sizeof(s)-15] == '/' ? (s) + sizeof(s) - 14 : (s))
+
+#define __JUSTFILE__ STRIPPATH(__FILE__)
+
+#define LOGTCPCBSTATE do { \
+	if (so->so_options & SO_DEBUG) { \
+		log(LOG_DEBUG,"%12s:%-4d una:%5u ack:%5u fack:%5u rp:%5u new:%5u max:%5u nxt:%5u " \
+			"cwnd:%5u dup:%2d pipe ori:%5u old:%5u new:%5u sack re:%5u old:%5u by:%5u dd:%5u avail:%5u %s %s %s\n", \
+			__JUSTFILE__, \
+			__LINE__, \
+			tp->snd_una - tp->iss, \
+			th->th_ack  - tp->iss, \
+			(tp->snd_fack == 0) ? 0 : tp->snd_fack - tp->iss, \
+			tp->snd_recover - tp->iss, \
+			(tp->sack_newdata == 0) ? 0 : tp->sack_newdata - tp->iss, \
+			tp->snd_max - tp->iss, \
+			tp->snd_nxt - tp->iss, \
+			tp->snd_cwnd, \
+			tp->t_dupacks, \
+			tp->snd_nxt - tp->snd_fack + tp->sackhint.sack_bytes_rexmit, \
+			tp->snd_max - tp->snd_una + tp->sackhint.sack_bytes_rexmit - tp->sackhint.sacked_bytes_old, \
+			tp->snd_max - tp->snd_una + tp->sackhint.sack_bytes_rexmit - tp->sackhint.sacked_bytes, \
+			\
+			tp->sackhint.sack_bytes_rexmit, \
+			tp->sackhint.sacked_bytes_old, \
+			tp->sackhint.sacked_bytes, \
+			tp->sackhint.delivered_data, \
+			\
+			sbavail(&so->so_snd), \
+			IN_RECOVERY(tp->t_flags) ? "LR" : "  ", \
+			(to.to_flags & TOF_SACK) ? "sack" : "    ", \
+			TAILQ_EMPTY(&tp->snd_holes) ? "empty":"     " \
+			); \
+		} \
+	} while (0)
+
+#define LOGTCPCBSTATE2 do { \
+	if (so->so_options & SO_DEBUG) { \
+		log(LOG_DEBUG,"%12s:%-4d una:%5u ack:----- fack:%5u rp:%5u new:%5u max:%5u nxt:%5u " \
+			"cwnd:%5u dup:%2d pipe ori:%5u old:%5u new:%5u sack re:%5u old:%5u by:%5u dd:%5u avail:%5u %s %s %s\n", \
+			__JUSTFILE__, \
+			__LINE__, \
+			tp->snd_una - tp->iss, \
+			 \
+			(tp->snd_fack == 0) ? 0 : tp->snd_fack - tp->iss, \
+			tp->snd_recover - tp->iss, \
+			(tp->sack_newdata == 0) ? 0 : tp->sack_newdata - tp->iss, \
+			tp->snd_max - tp->iss, \
+			tp->snd_nxt - tp->iss, \
+			tp->snd_cwnd, \
+			tp->t_dupacks, \
+			tp->snd_nxt - tp->snd_fack + tp->sackhint.sack_bytes_rexmit, \
+			tp->snd_max - tp->snd_una + tp->sackhint.sack_bytes_rexmit - tp->sackhint.sacked_bytes_old, \
+			tp->snd_max - tp->snd_una + tp->sackhint.sack_bytes_rexmit - tp->sackhint.sacked_bytes, \
+			\
+			tp->sackhint.sack_bytes_rexmit, \
+			tp->sackhint.sacked_bytes_old, \
+			tp->sackhint.sacked_bytes, \
+			tp->sackhint.delivered_data, \
+			\
+			sbavail(&so->so_snd), \
+			IN_RECOVERY(tp->t_flags) ? "LR" : "  ", \
+			"----", \
+			TAILQ_EMPTY(&tp->snd_holes) ? "empty":"     " \
+			); \
+		} \
+	} while (0)
+
+
 #if defined(_KERNEL) || defined(_WANT_TCPCB)
 /* TCP segment queue entry */
 struct tseg_qent {
@@ -78,7 +161,8 @@ struct sackhint {
 	int32_t		sacked_bytes;	/* Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
-	uint32_t	_pad1[1];	/* TBD */
+	int32_t		sacked_bytes_old; /* just for demonstration */
+//	uint32_t	_pad1[1];	/* TBD */
 	uint64_t	_pad[1];	/* TBD */
 };
 
