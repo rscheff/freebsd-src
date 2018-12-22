@@ -1409,7 +1409,7 @@ send:
 		TCP_PROBE5(connect__request, NULL, tp, ip, tp, th);
 
 	TCP_PROBE5(send, NULL, tp, ip, tp, th);
-	if (so->so_options & SO_DEBUG) 
+	if (so->so_options & SO_DEBUG)
 	    log(LOG_DEBUG, "%12s:%-4d  hand off to IP\n", __JUSTFILE__, __LINE__);
 
 #ifdef TCPPCAP

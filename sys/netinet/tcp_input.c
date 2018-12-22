@@ -2578,16 +2578,16 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					goto drop;
 				} else if ((tp->t_dupacks == tcprexmtthresh) ||
 					/*
-					 * Add RFC6675 trigger condition of more 
+					 * Add RFC6675 trigger condition of more
 					 * than (dupthresh-1)*mss sacked data.
-					 * If the count of holes in the 
+					 * If the count of holes in the
 					 * scoreboard is >= dupthresh, we could
 					 * also enter loss recovery, but don't
 					 * have that value readily available.
 					 */
 					((tp->t_flags & TF_SACK_PERMIT) &&
-					 (V_tcp_do_rfc6675_pipe) && 
-					 (tp->sackhint.sacked_bytes > 
+					 (V_tcp_do_rfc6675_pipe) &&
+					 (tp->sackhint.sacked_bytes >
 					 (tcprexmtthresh - 1) * maxseg))) {
 					tp->t_dupacks = tcprexmtthresh;
 					tcp_seq onxt = tp->snd_nxt;
@@ -2702,7 +2702,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			 * If this ack also has new SACK info, increment the
 			 * counter as per rfc6675.
 			 */
-			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed) 
+			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed)
 				tp->t_dupacks++;
 /**/			LOGTCPCBSTATE;
 		}

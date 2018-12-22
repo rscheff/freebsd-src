@@ -371,7 +371,6 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		sack_blocks[num_sack_blks].start = tp->snd_una;
 		sack_blocks[num_sack_blks++].end = th_ack;
 	}
-	}
 	/*
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
 	 * received new blocks from the other side.
@@ -622,12 +621,19 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	tp->t_flags |= TF_ACKNOW;
 	/*
 	 * RFC6675 rescue retransmission
-	 * Add a hole between th_ack (una is not yet set) and snd_max,
+	 * Add a hole between th_ack (snd_una is not yet set) and snd_max,
 	 * if this was a pure cumulative ACK and no data was send beyond
-	 * recovery point. Since the data in the socket has not been freed 
-	 * at this point, this may still happen when more new data is ready to 
-	 * send. The rescue retransmission may be slightly premature 
+	 * recovery point. Since the data in the socket has not been freed
+	 * at this point, we check if the scoreboard is empty, and the ACK
+	 * delivered some new data, indicating a full ACK. Also, if the
+	 * recovery point is still at snd_max, we are probably application
+	 * limited. However, this inference might not always be true. The
+	 * rescue retransmission may rarely be slightly premature
 	 * compared to RFC6675.
+	 * The corresponding ACK+SACK will cause any further outstanding
+	 * segments to be retransmitted. This addresses a corner case, when
+	 * the trailing packets of a window are lost and no further data
+	 * is available for sending.
 	 */
 	if ((V_tcp_do_rfc6675_pipe) &&
 	    SEQ_LT(th->th_ack, tp->snd_recover) &&
