@@ -287,70 +287,45 @@ again:
 	len = 0;
 	p = NULL;
 	
-	LOGTCPCBSTATE2;
-	
-	if ((tp->t_flags & TF_SACK_PERMIT) && IN_FASTRECOVERY(tp->t_flags)) {
-		p = tcp_sack_output(tp, &sack_bytes_rxmt);
-		/*
-		 * RFC6675 Rescue Retransmission
-		 * when no new data is available, and
-		 * all Scoreboard Holes were retransmitted, 
-		 * resend 1 MSS just beneath snd_max
-		 */
+/**/	LOGTCPCBSTATE2;
+	if ((tp->t_flags & TF_SACK_PERMIT) && IN_FASTRECOVERY(tp->t_flags) &&
+	    (p = tcp_sack_output(tp, &sack_bytes_rxmt))) {
 		uint32_t cwin;
 		
 		cwin =
 		    imax(min(tp->snd_wnd, tp->snd_cwnd) - sack_bytes_rxmt, 0);
-/*		if (V_tcp_do_rfc6675_pipe && (p == NULL) && 
-		    SEQ_GT(tp->snd_max, tp->snd_una) && 
-		    ((tp->snd_max - tp->snd_una) == sbavail(&so->so_snd))) {
-//		        if (so->so_options & SO_DEBUG) {
-//		            log(LOG_DEBUG,"rfc6675 rescue retransmission");
-//		        }
-			len = ((int32_t)ulmin(tp->t_maxseg, cwin));
-			tp->snd_nxt = tp->snd_max - len - tp->snd_una;
-			sendalot = 1;
-			TCPSTAT_INC(tcps_sack_rescxmits);
-			TCPSTAT_ADD(tcps_sack_rescxmit_bytes, len);
-		} 
-*/		if (p != NULL) {
-			/* Do not retransmit SACK segments beyond snd_recover */
-			if (SEQ_GT(p->end, tp->snd_recover)) {
+		if (p != NULL) {
+		/* Do not retransmit SACK segments beyond snd_recover */
+		if (SEQ_GT(p->end, tp->snd_recover)) {
+			/*
+			 * (At least) part of sack hole extends beyond
+			 * snd_recover. Check to see if we can rexmit data
+			 * for this hole.
+			 */
+			if (SEQ_GEQ(p->rxmit, tp->snd_recover)) {
 				/*
-				 * (At least) part of sack hole extends beyond
-				 * snd_recover. Check to see if we can rexmit data
-				 * for this hole.
+				 * Can't rexmit any more data for this hole.
+				 * That data will be rexmitted in the next
+				 * sack recovery episode, when snd_recover
+				 * moves past p->rxmit.
 				 */
-				if (SEQ_GEQ(p->rxmit, tp->snd_recover)) {
-					/*
-					 * Can't rexmit any more data for this hole.
-					 * That data will be rexmitted in the next
-					 * sack recovery episode, when snd_recover
-					 * moves past p->rxmit.
-					 */
-					p = NULL;
-					goto after_sack_rexmit;
-				} else
-					/* Can rexmit part of the current hole */
-					len = ((int32_t)ulmin(cwin,
-						   tp->snd_recover - p->rxmit));
+				p = NULL;
+				goto after_sack_rexmit;
 			} else
-				len = ((int32_t)ulmin(cwin, p->end - p->rxmit));
-			off = p->rxmit - tp->snd_una;
-			if (off < 0) {
-			    log(LOG_DEBUG,"near panic: una: %u, rxmit: %u, start: %u, end:%u, len: %i\n",
-				tp->snd_una - tp->iss, p->rxmit - tp->iss, p->start - tp->iss, p->end - tp->iss, len);
-			    off = 0;
-			}
-			KASSERT(off >= 0,("%s: sack block to the left of una : %d",
-			    __func__, off));
-			if (len > 0) {
-				sack_rxmit = 1;
-				sendalot = 1;
-				TCPSTAT_INC(tcps_sack_rexmits);
-				TCPSTAT_ADD(tcps_sack_rexmit_bytes,
-				    min(len, tp->t_maxseg));
-			}
+				/* Can rexmit part of the current hole */
+				len = ((int32_t)ulmin(cwin,
+						   tp->snd_recover - p->rxmit));
+		} else
+			len = ((int32_t)ulmin(cwin, p->end - p->rxmit));
+		off = p->rxmit - tp->snd_una;
+		KASSERT(off >= 0,("%s: sack block to the left of una : %d",
+		    __func__, off));
+		if (len > 0) {
+			sack_rxmit = 1;
+			sendalot = 1;
+			TCPSTAT_INC(tcps_sack_rexmits);
+			TCPSTAT_ADD(tcps_sack_rexmit_bytes,
+			    min(len, tp->t_maxseg));
 		}
 	}
 after_sack_rexmit:
@@ -1435,7 +1410,7 @@ send:
 
 	TCP_PROBE5(send, NULL, tp, ip, tp, th);
 	if (so->so_options & SO_DEBUG) 
-	    log(LOG_DEBUG, "tcp_output:1444 hand off to IP\n");
+	    log(LOG_DEBUG, "%12s:%-4d  hand off to IP\n", __JUSTFILE__, __LINE__);
 
 #ifdef TCPPCAP
 	/* Save packet, if requested. */

@@ -345,9 +345,7 @@ tcp_sackhole_remove(struct tcpcb *tp, struct sackhole *hole)
  * tp->snd_holes is an ordered list of holes (oldest to newest, in terms of
  * the sequence space).
  * Returns 1 if incoming ACK has previously unknown SACK information,
- * 0 otherwise. Note: We treat (snd_una, th_ack) as a sack block so any changes
- * to that (i.e. left edge moving) would also be considered a change in SACK
- * information which is slightly different than rfc6675.
+ * 0 otherwise.
  */
 int
 tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
@@ -368,20 +366,18 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	 * treat [SND.UNA, SEG.ACK) as if it is a SACK block.
 	 * Account changes to SND.UNA always in delivered data.
 	 */
-	if SEQ_LT(tp->snd_una, th_ack) {
-//		delivered_data = th_ack - tp->snd_una;
+	if (SEQ_LT(tp->snd_una, th_ack) && !TAILQ_EMPTY(&tp->snd_holes)) {
 		left_edge_delta = th_ack - tp->snd_una;
-		if(!TAILQ_EMPTY(&tp->snd_holes)) {
-			sack_blocks[num_sack_blks].start = tp->snd_una;
-			sack_blocks[num_sack_blks++].end = th_ack;
-		}
+		sack_blocks[num_sack_blks].start = tp->snd_una;
+		sack_blocks[num_sack_blks++].end = th_ack;
+	}
 	}
 	/*
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
 	 * received new blocks from the other side.
 	 */
 	if (to->to_flags & TOF_SACK) {
-		tp->sackhint.sacked_bytes_old = 0; /* reset */
+/**/		tp->sackhint.sacked_bytes_old = 0; /* reset */
 		for (i = 0; i < to->to_nsacks; i++) {
 			bcopy((to->to_sacks + i * TCPOLEN_SACK),
 			    &sack, sizeof(sack));
@@ -394,8 +390,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			    SEQ_GT(sack.end, tp->snd_una) &&
 			    SEQ_LEQ(sack.end, tp->snd_max)) {
 				sack_blocks[num_sack_blks++] = sack;
-				tp->sackhint.sacked_bytes_old +=
-				    (sack.end - sack.start);
+/**/				tp->sackhint.sacked_bytes_old +=
+/**/				    (sack.end - sack.start);
 			}
 		}
 	}
@@ -641,25 +637,24 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		struct sackhole *hole;
 		int maxseg = tcp_maxseg(tp);
 		hole = tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack, tp->snd_max - maxseg), tp->snd_max, NULL);
-//		if ((tp->snd_max - th->th_ack) > maxseg) { // do this with PRR to avoid bursts.
-			/*
-			 * have to insert lower hole after
-			 * rescue retransmission, for 
-			 * sackhint updates to pick this up
-			 */
-//			hole = tcp_sackhole_insert(tp, th->th_ack, tp->snd_max - maxseg, NULL);
-//			log(LOG_DEBUG,"low hole %u - %u <- %u\n", hole->start - tp->iss, hole->end - tp->iss, hole->rxmit - tp->iss);
-//		}
-		log(LOG_DEBUG,"high hole %u - %u <- %u\n", tp->sackhint.nexthole->start - tp->iss, tp->sackhint.nexthole->end - tp->iss, tp->sackhint.nexthole->rxmit - tp->iss);
-		log(LOG_DEBUG,"nexthole: %p (%u)  hole: %p (%u)\n", 
-		    (void *)tp->sackhint.nexthole, tp->sackhint.nexthole->start - tp->iss,
-		    (void *)hole, hole->start - tp->iss);
+/**///		if ((tp->snd_max - th->th_ack) > maxseg) { // do this with PRR to avoid bursts.
+/**/			/*
+/**/			 * have to insert lower hole after
+/**/			 * rescue retransmission, for 
+/**/			 * sackhint updates to pick this up
+/**/			 */
+/**///			hole = tcp_sackhole_insert(tp, th->th_ack, tp->snd_max - maxseg, NULL);
+/**///			log(LOG_DEBUG,"low hole %u - %u <- %u\n", hole->start - tp->iss, hole->end - tp->iss, hole->rxmit - tp->iss);
+/**///		}
+/**/		log(LOG_DEBUG,"high hole %u - %u <- %u\n", tp->sackhint.nexthole->start - tp->iss, tp->sackhint.nexthole->end - tp->iss, tp->sackhint.nexthole->rxmit - tp->iss);
+/**/		log(LOG_DEBUG,"nexthole: %p (%u)  hole: %p (%u)\n", 
+/**/		    (void *)tp->sackhint.nexthole, tp->sackhint.nexthole->start - tp->iss,
+/**/		    (void *)hole, hole->start - tp->iss);
 	} 
-	
 	(void) tp->t_fb->tfb_tcp_output(tp);
 
-	struct socket *so = tp->t_inpcb->inp_socket;
-	LOGTCPCBSTATE2;
+/**/	struct socket *so = tp->t_inpcb->inp_socket;
+/**/	LOGTCPCBSTATE2;
 }
 
 #if 0
@@ -713,8 +708,8 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 	*sack_bytes_rexmt = tp->sackhint.sack_bytes_rexmit;
 	hole = tp->sackhint.nexthole;
-	struct socket *so = tp->t_inpcb->inp_socket;
-	LOGTCPCBSTATE2;
+/**/	struct socket *so = tp->t_inpcb->inp_socket;
+/**/	LOGTCPCBSTATE2;
 	if (hole == NULL || SEQ_LT(hole->rxmit, hole->end))
 		goto out;
 	while ((hole = TAILQ_NEXT(hole, scblink)) != NULL) {
