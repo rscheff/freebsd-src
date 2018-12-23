@@ -2710,16 +2710,15 @@ enter_recovery:
 				maxseg = tcp_maxseg(tp); /* also when we jump */
 				if ((tp->sackhint.sacked_bytes >
 				    ((tcprexmtthresh - 1) * maxseg)) &&
-				    TAILQ_EMPTY(tp->snd_holes)) {
-					if (so->so_options & SO_DEBUG)
-					    log(LOG_DEBUG,"rfc6675 fast recovery"
+				    !IN_FASTRECOVERY(tp->t_flags)) {
+/**/					if (so->so_options & SO_DEBUG)
+/**/					    log(LOG_DEBUG,"rfc6675 fast recovery\n");
 					goto enter_recovery;
-
 				}
 			}
-resume_partialack:/**/			LOGTCPCBSTATE;
 		}
-
+resume_partialack:
+/**/		LOGTCPCBSTATE;
 		KASSERT(SEQ_GT(th->th_ack, tp->snd_una),
 		    ("%s: th_ack <= snd_una", __func__));
 
