@@ -294,7 +294,7 @@ again:
 		
 		cwin =
 		    imax(min(tp->snd_wnd, tp->snd_cwnd) - sack_bytes_rxmt, 0);
-		if (p != NULL) {
+		
 		/* Do not retransmit SACK segments beyond snd_recover */
 		if (SEQ_GT(p->end, tp->snd_recover)) {
 			/*
