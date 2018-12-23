@@ -2483,10 +2483,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
 		hhook_run_tcp_est_in(tp, th, &to);
 #endif
-
+		u_int maxseg;
 		if (SEQ_LEQ(th->th_ack, tp->snd_una)) {
-			u_int maxseg;
-
 			maxseg = tcp_maxseg(tp);
 			if (tlen == 0 &&
 			    (tiwin == tp->snd_wnd ||
@@ -2707,8 +2705,9 @@ enter_recovery:
 			if ((V_tcp_do_rfc6675_pipe) &&
 			    (tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
+				maxseg = tcp_maxseg(tp); /* also when we jump */
 				if (tp->sackhint.sacked_bytes >
-				    (tcprexmtthresh - 1) * tcp_maxseg(tp))
+				    (tcprexmtthresh - 1) * maxseg) 
 					goto enter_recovery;
 			}
 /**/			LOGTCPCBSTATE;
