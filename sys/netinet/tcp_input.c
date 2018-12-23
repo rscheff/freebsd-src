@@ -2621,6 +2621,8 @@ enter_recovery:
 						tp->sack_newdata = tp->snd_nxt;
 						tp->snd_cwnd = maxseg;
 						(void) tp->t_fb->tfb_tcp_output(tp);
+						if (SEQ_GT(th->th_ack, tp->snd_una))
+							goto resume_partialack;
 						goto drop;
 					}
 					tp->snd_nxt = th->th_ack;
@@ -2706,11 +2708,16 @@ enter_recovery:
 			    (tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
 				maxseg = tcp_maxseg(tp); /* also when we jump */
-				if (tp->sackhint.sacked_bytes >
-				    (tcprexmtthresh - 1) * maxseg) 
+				if ((tp->sackhint.sacked_bytes >
+				    ((tcprexmtthresh - 1) * maxseg)) &&
+				    TAILQ_EMPTY(tp->snd_holes)) {
+					if (so->so_options & SO_DEBUG)
+					    log(LOG_DEBUG,"rfc6675 fast recovery"
 					goto enter_recovery;
+
+				}
 			}
-/**/			LOGTCPCBSTATE;
+resume_partialack:/**/			LOGTCPCBSTATE;
 		}
 
 		KASSERT(SEQ_GT(th->th_ack, tp->snd_una),
