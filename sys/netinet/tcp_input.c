@@ -2701,14 +2701,14 @@ enter_recovery:
 			/*
 			 * If this ack also has new SACK info, increment the
 			 * counter as per rfc6675. Start FastRecovery if
-			 * suffiecient SACKed bytes were part of this
+			 * sufficient SACKed bytes were part of this
 			 * partial ACK.
 			 */
-			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
+			if ((V_tcp_do_rfc6675_pipe) &&
+			    (tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
-				if ((V_tcp_do_rfc6675_pipe) &&
-				    (tp->sackhint.sacked_bytes >
-				    (tcprexmtthresh - 1) * maxseg))
+				if (tp->sackhint.sacked_bytes >
+				    (tcprexmtthresh - 1) * tcp_maxseg(tp))
 					goto enter_recovery;
 			}
 /**/			LOGTCPCBSTATE;
