@@ -644,11 +644,11 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		int maxseg = tcp_maxseg(tp);
 		hole = tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack, tp->snd_max - maxseg), tp->snd_max, NULL);
 /**///		if ((tp->snd_max - th->th_ack) > maxseg) { // do this with PRR to avoid bursts.
-/**/			/*
-/**/			 * have to insert lower hole after
-/**/			 * rescue retransmission, for 
-/**/			 * sackhint updates to pick this up
-/**/			 */
+//			/*
+//			 * have to insert lower hole after
+//			 * rescue retransmission, for 
+//			 * sackhint updates to pick this up
+//			 */
 /**///			hole = tcp_sackhole_insert(tp, th->th_ack, tp->snd_max - maxseg, NULL);
 /**///			log(LOG_DEBUG,"low hole %u - %u <- %u\n", hole->start - tp->iss, hole->end - tp->iss, hole->rxmit - tp->iss);
 /**///		}

@@ -2589,9 +2589,9 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					 (V_tcp_do_rfc6675_pipe) &&
 					 (tp->sackhint.sacked_bytes >
 					 (tcprexmtthresh - 1) * maxseg))) {
+enter_recovery:
 					tp->t_dupacks = tcprexmtthresh;
 					tcp_seq onxt = tp->snd_nxt;
-
 					/*
 					 * If we're doing sack, check to
 					 * see if we're already in sack
@@ -2700,10 +2700,17 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			tp->t_dupacks = 0;
 			/*
 			 * If this ack also has new SACK info, increment the
-			 * counter as per rfc6675.
+			 * counter as per rfc6675. Start FastRecovery if
+			 * suffiecient SACKed bytes were part of this
+			 * partial ACK.
 			 */
-			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed)
+			if ((tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
+				if ((V_tcp_do_rfc6675_pipe) &&
+				    (tp->sackhint.sacked_bytes >
+				    (tcprexmtthresh - 1) * maxseg))
+					goto enter_recovery;
+			}
 /**/			LOGTCPCBSTATE;
 		}
 

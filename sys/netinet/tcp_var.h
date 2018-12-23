@@ -64,7 +64,7 @@
 #define LOGTCPCBSTATE do { \
 	if (so->so_options & SO_DEBUG) { \
 		log(LOG_DEBUG,"%12s:%-4d una:%5u ack:%5u fack:%5u rp:%5u new:%5u max:%5u nxt:%5u " \
-			"cwnd:%5u dup:%2d pipe ori:%5u old:%5u new:%5u sack re:%5u old:%5u by:%5u dd:%5u avail:%5u %s %s %s\n", \
+			"cwnd:%5u dup:%2d pipe ori:%5i old:%5i new:%5i sack re:%5i old:%5i by:%5i dd:%5i avail:%5u %s %s %s\n", \
 			__JUSTFILE__, \
 			__LINE__, \
 			tp->snd_una - tp->iss, \
@@ -96,7 +96,7 @@
 #define LOGTCPCBSTATE2 do { \
 	if (so->so_options & SO_DEBUG) { \
 		log(LOG_DEBUG,"%12s:%-4d una:%5u ack:----- fack:%5u rp:%5u new:%5u max:%5u nxt:%5u " \
-			"cwnd:%5u dup:%2d pipe ori:%5u old:%5u new:%5u sack re:%5u old:%5u by:%5u dd:%5u avail:%5u %s %s %s\n", \
+			"cwnd:%5u dup:%2d pipe ori:%5i old:%5i new:%5i sack re:%5i old:%5i by:%5i dd:%5i avail:%5u %s %s %s\n", \
 			__JUSTFILE__, \
 			__LINE__, \
 			tp->snd_una - tp->iss, \
