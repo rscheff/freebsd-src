@@ -2707,10 +2707,11 @@ enter_recovery:
 			if ((V_tcp_do_rfc6675_pipe) &&
 			    (tp->t_flags & TF_SACK_PERMIT) && sack_changed) {
 				tp->t_dupacks++;
-				maxseg = tcp_maxseg(tp); /* also when we jump */
-				if ((tp->sackhint.sacked_bytes >
-				    ((tcprexmtthresh - 1) * maxseg)) &&
-				    !IN_FASTRECOVERY(tp->t_flags)) {
+				/* limit overhead by setting maxseg last */
+				if (!IN_FASTRECOVERY(tp->t_flags) &&
+				    (tp->sackhint.sacked_bytes >
+				    ((tcprexmtthresh - 1) * 
+				    (maxseg = tcp_maxseg(tp))))) {
 /**/					if (so->so_options & SO_DEBUG)
 /**/					    log(LOG_DEBUG,"rfc6675 fast recovery\n");
 					goto enter_recovery;
