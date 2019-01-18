@@ -498,6 +498,7 @@ vendor ASAHIOPTICAL	0x0a17	Asahi Optical
 vendor BOCASYSTEMS	0x0a43	Boca Systems
 vendor SHANTOU		0x0a46	ShanTou
 vendor MEDIAGEAR	0x0a48	MediaGear
+vendor PLOYTEC		0x0a4a	Ploytec GmbH
 vendor BROADCOM		0x0a5c	Broadcom
 vendor GREENHOUSE	0x0a6b	GREENHOUSE
 vendor MEDELI		0x0a67	Medeli
@@ -560,6 +561,7 @@ vendor NETAC		0x0dd8	Netac
 vendor SITECOMEU	0x0df6	Sitecom Europe
 vendor MOBILEACTION	0x0df7	Mobile Action
 vendor AMIGO		0x0e0b	Amigo Technology
+vendor SMART2		0x0e39	Smart Modular Technologies
 vendor SPEEDDRAGON	0x0e55	Speed Dragon Multimedia
 vendor HAWKING		0x0e66	Hawking
 vendor FOSSIL		0x0e67	Fossil, Inc
@@ -3693,6 +3695,9 @@ product PLANEX2 GWUSNANO	0xab28	GW-USNano
 /* Plextor Corp. */
 product PLEXTOR 40_12_40U	0x0011	PlexWriter 40/12/40U
 
+/* Ploytec GmbH */
+product PLOYTEC SPL_CRIMSON_1	0xc150	SPL Crimson Revision 1
+
 /* PLX products */
 product PLX TESTBOARD		0x9060	test board
 product PLX CA42		0xac70	CA-42
@@ -3953,6 +3958,7 @@ product REALTEK RTL8187B_2	0x8198	RTL8187B Wireless Adapter
 product REALTEK RTL8712		0x8712	RTL8712
 product REALTEK RTL8713		0x8713	RTL8713
 product REALTEK RTL8188CU_COMBO	0x8754	RTL8188CU
+product REALTEK RTL8821AU	0xa811	RTL8821AU
 product REALTEK RTL8723BU	0xb720	RTL8723BU
 product REALTEK RTL8192SU	0xc512	RTL8192SU
 product REALTEK RTL8812AU	0x8812  RTL8812AU Wireless Adapter
@@ -3994,6 +4000,8 @@ product ROLAND SD20		0x0027	SD-20 MIDI Synth
 product ROLAND SD80		0x0029	SD-80 MIDI Synth
 product ROLAND UA700		0x002b	UA-700 Audio I/F
 product ROLAND PCR300		0x0033  EDIROL PCR-300 MIDI I/F
+product ROLAND UA25EX_AD	0x00e6  EDIROL UA-25EX (Advanced Driver)
+product ROLAND UA25EX_CC	0x00e7  EDIROL UA-25EX (Class Compliant)
 
 /* Rockfire products */
 product ROCKFIRE GAMEPAD	0x2033	gamepad 203USB
@@ -4366,6 +4374,9 @@ product SKANHEX SX_520Z		0x5200	SX 520z Camera
 /* Smart Technologies products */
 product SMART PL2303		0x2303	Serial adapter
 
+/* Smart Modular Technologies products */
+product SMART2 G2MEMKEY		0x1700	G2 Memory Key
+
 /* SmartBridges products */
 product SMARTBRIDGES SMARTLINK	0x0001	SmartLink USB Ethernet
 product SMARTBRIDGES SMARTNIC	0x0003	smartNIC 2 PnP Ethernet
@@ -4610,6 +4621,7 @@ product TOSHIBA TRANSMEMORY	0x6545	USB ThumbDrive
 
 /* TP-Link products */
 product TPLINK T4U		0x0101	Archer T4U
+product TPLINK WN821NV5		0x0107	TL-WN821N v5
 product TPLINK WN822NV4		0x0108	TL-WN822N v4
 product TPLINK WN823NV2		0x0109	TL-WN823N v2
 product TPLINK WN722NV2		0x010c	TL-WN722N v2

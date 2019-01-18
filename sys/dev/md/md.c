@@ -231,7 +231,7 @@ static LIST_HEAD(, md_s) md_softc_list = LIST_HEAD_INITIALIZER(md_softc_list);
 #define NMASK	(NINDIR-1)
 static int nshift;
 
-static int md_vnode_pbuf_freecnt;
+static uma_zone_t md_pbuf_zone;
 
 struct indir {
 	uintptr_t	*array;
@@ -962,7 +962,7 @@ mdstart_vnode(struct md_s *sc, struct bio *bp)
 		auio.uio_iovcnt = piov - auio.uio_iov;
 		piov = auio.uio_iov;
 	} else if ((bp->bio_flags & BIO_UNMAPPED) != 0) {
-		pb = getpbuf(&md_vnode_pbuf_freecnt);
+		pb = uma_zalloc(md_pbuf_zone, M_WAITOK);
 		bp->bio_resid = len;
 unmapped_step:
 		npages = atop(min(MAXPHYS, round_page(len + (ma_offs &
@@ -1013,7 +1013,7 @@ unmapped_step:
 			if (len > 0)
 				goto unmapped_step;
 		}
-		relpbuf(pb, &md_vnode_pbuf_freecnt);
+		uma_zfree(md_pbuf_zone, pb);
 	}
 
 	free(piov, M_MD);
@@ -1241,12 +1241,22 @@ md_kthread(void *arg)
 			error = sc->start(sc, bp);
 		}
 
+		if (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE) {
+			/*
+			 * Devstat uses (bio_bcount, bio_resid) for
+			 * determining the length of the completed part of
+			 * the i/o.  g_io_deliver() will translate from
+			 * bio_completed to that, but it also destroys the
+			 * bio so we must do our own translation.
+			 */
+			bp->bio_bcount = bp->bio_length;
+			bp->bio_resid = (error == -1 ? bp->bio_bcount : 0);
+			devstat_end_transaction_bio(sc->devstat, bp);
+		}
 		if (error != -1) {
 			bp->bio_completed = bp->bio_length;
 			g_io_deliver(bp, error);
 		}
-		if (bp->bio_cmd == BIO_READ || bp->bio_cmd == BIO_WRITE)
-			devstat_end_transaction_bio(sc->devstat, bp);
 	}
 }
 
@@ -2108,7 +2118,7 @@ g_md_init(struct g_class *mp __unused)
 			sx_xunlock(&md_sx);
 		}
 	}
-	md_vnode_pbuf_freecnt = nswbuf / 10;
+	md_pbuf_zone = pbuf_zsecond_create("mdpbuf", nswbuf / 10);
 	status_dev = make_dev(&mdctl_cdevsw, INT_MAX, UID_ROOT, GID_WHEEL,
 	    0600, MDCTL_NAME);
 	g_topology_lock();
@@ -2204,5 +2214,6 @@ g_md_fini(struct g_class *mp __unused)
 	sx_destroy(&md_sx);
 	if (status_dev != NULL)
 		destroy_dev(status_dev);
+	uma_zdestroy(md_pbuf_zone);
 	delete_unrhdr(md_uh);
 }
