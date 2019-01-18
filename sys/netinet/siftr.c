@@ -272,6 +272,7 @@ static volatile unsigned int siftr_exit_pkt_manager_thread = 0;
 static unsigned int siftr_enabled = 0;
 static unsigned int siftr_pkts_per_log = 1;
 static unsigned int siftr_generate_hashes = 0;
+static unsigned int siftr_port_filter = 0;
 /* static unsigned int siftr_binary_log = 0; */
 static char siftr_logfile[PATH_MAX] = "/var/log/siftr.log";
 static char siftr_logfile_shadow[PATH_MAX] = "/var/log/siftr.log";
@@ -316,6 +317,10 @@ SYSCTL_UINT(_net_inet_siftr, OID_AUTO, ppl, CTLFLAG_RW,
 SYSCTL_UINT(_net_inet_siftr, OID_AUTO, genhashes, CTLFLAG_RW,
     &siftr_generate_hashes, 0,
     "enable packet hash generation");
+
+SYSCTL_UINT(_net_inet_siftr, OID_AUTO, port_filter, CTLFLAG_RW,
+    &siftr_port_filter, 0,
+    "enable packet filter on a TCP port");
 
 /* XXX: TODO
 SYSCTL_UINT(_net_inet_siftr, OID_AUTO, binary, CTLFLAG_RW,
@@ -907,6 +912,15 @@ siftr_chkpkt(void *arg, struct mbuf **m, struct ifnet *ifp, int dir,
 		goto inp_unlock;
 	}
 
+	/*
+	 * Only pkts selected by the tcp port filter
+	 * can be inserted into the pkt_queue
+	 */
+	if (siftr_port_filter && (siftr_port_filter != ntohs(inp->inp_lport)) &&
+	    (siftr_port_filter != ntohs(inp->inp_fport))) {
+		goto inp_unlock;
+	}
+
 	pn = malloc(sizeof(struct pkt_node), M_SIFTR_PKTNODE, M_NOWAIT|M_ZERO);
 
 	if (pn == NULL) {
@@ -1199,8 +1213,10 @@ siftr_manage_ops(uint8_t action)
 	struct timeval tval;
 	struct flow_hash_node *counter, *tmp_counter;
 	struct sbuf *s;
-	int i, key_index, error;
-	uint32_t bytes_to_write, total_skipped_pkts;
+	int i, key_index, error = 0;
+	uint32_t bytes_to_write, total_skipped_pkts = 0;
+	struct sbuf sb;
+	char buf[480];
 	uint16_t lport, fport;
 	uint8_t *key, ipver __unused;
 
@@ -1216,7 +1232,7 @@ siftr_manage_ops(uint8_t action)
 	total_skipped_pkts = 0;
 
 	/* Init an autosizing sbuf that initially holds 200 chars. */
-	if ((s = sbuf_new(NULL, NULL, 200, SBUF_AUTOEXTEND)) == NULL)
+	if ((s = sbuf_new(&sb, buf, sizeof(buf), SBUF_FIXEDLEN)) == NULL)
 		return (-1);
 
 	if (action == SIFTR_ENABLE) {
@@ -1445,13 +1461,15 @@ siftr_sysctl_enabled_handler(SYSCTL_HANDLER_ARGS)
 
 	new = siftr_enabled;
 	error = sysctl_handle_int(oidp, &new, 0, req);
-	if (error != 0 && req->newptr != NULL) {
-		if (new > 1)
+	if (error == 0 && req->newptr != NULL) {
+		if ((new > 1) || (new < 0))
 			return (EINVAL);
 		else if (new != siftr_enabled) {
-			error = siftr_manage_ops(new);
-			if (error != 0)
+			if ((error = siftr_manage_ops(new)) == 0) {
+				siftr_enabled = new;
+			} else {
 				siftr_manage_ops(SIFTR_DISABLE);
+			}
 		}
 	}
 
@@ -1462,7 +1480,9 @@ siftr_sysctl_enabled_handler(SYSCTL_HANDLER_ARGS)
 static void
 siftr_shutdown_handler(void *arg)
 {
-	siftr_manage_ops(SIFTR_DISABLE);
+	if (siftr_enabled == 1) {
+		siftr_manage_ops(SIFTR_DISABLE);
+	}
 }
 
 
