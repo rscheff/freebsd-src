@@ -65,7 +65,8 @@
 		.priv = ccalgo						\
 	};								\
 	DECLARE_MODULE(ccname, cc_##ccname,				\
-	    SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY)
+	    SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY);			\
+	MODULE_VERSION(ccname, __FreeBSD__);
 
 int	cc_modevent(module_t mod, int type, void *data);
 
