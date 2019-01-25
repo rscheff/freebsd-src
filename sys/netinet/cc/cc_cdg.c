@@ -712,3 +712,4 @@ SYSCTL_UINT(_net_inet_tcp_cc_cdg, OID_AUTO, loss_compete_hold_backoff,
 DECLARE_CC_MODULE(cdg, &cdg_cc_algo);
 
 MODULE_DEPEND(cdg, ertt, 1, 1, 1);
+MODULE_DEPEND(cdg, newreno, __FreeBSD__, __FreeBSD__, __FreeBSD__);
