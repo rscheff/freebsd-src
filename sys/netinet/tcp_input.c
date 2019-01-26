@@ -2469,15 +2469,12 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		    ((to.to_flags & TOF_SACK) ||
 		    !TAILQ_EMPTY(&tp->snd_holes))) {
 			sack_changed = tcp_sack_doack(tp, &to, th->th_ack);
-/**/			LOGTCPCBSTATE;
 		} else {
 			/*
 			 * Reset the value so that previous (valid) value
 			 * from the last ack with SACK doesn't get used.
 			 */
 			tp->sackhint.sacked_bytes = 0;
-/**/			tp->sackhint.sacked_bytes_old = 0;
-/**/			LOGTCPCBSTATE;
 		}
 #ifdef TCP_HHOOK
 		/* Run HHOOK_TCP_ESTABLISHED_IN helper hooks. */
@@ -2712,14 +2709,11 @@ enter_recovery:
 				    (tp->sackhint.sacked_bytes >
 				    ((tcprexmtthresh - 1) * 
 				    (maxseg = tcp_maxseg(tp))))) {
-/**/					if (so->so_options & SO_DEBUG)
-/**/					    log(LOG_DEBUG,"rfc6675 fast recovery\n");
 					goto enter_recovery;
 				}
 			}
 		}
 resume_partialack:
-/**/		LOGTCPCBSTATE;
 		KASSERT(SEQ_GT(th->th_ack, tp->snd_una),
 		    ("%s: th_ack <= snd_una", __func__));
 

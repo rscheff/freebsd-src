@@ -54,7 +54,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
-#include <sys/syslog.h>
 
 #include <net/if.h>
 #include <net/route.h>
@@ -286,8 +285,6 @@ again:
 	sack_bytes_rxmt = 0;
 	len = 0;
 	p = NULL;
-	
-/**/	LOGTCPCBSTATE2;
 	if ((tp->t_flags & TF_SACK_PERMIT) && IN_FASTRECOVERY(tp->t_flags) &&
 	    (p = tcp_sack_output(tp, &sack_bytes_rxmt))) {
 		uint32_t cwin;
@@ -1409,8 +1406,6 @@ send:
 		TCP_PROBE5(connect__request, NULL, tp, ip, tp, th);
 
 	TCP_PROBE5(send, NULL, tp, ip, tp, th);
-	if (so->so_options & SO_DEBUG)
-	    log(LOG_DEBUG, "%12s:%-4d  hand off to IP\n", __JUSTFILE__, __LINE__);
 
 #ifdef TCPPCAP
 	/* Save packet, if requested. */
