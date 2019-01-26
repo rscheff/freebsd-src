@@ -78,7 +78,7 @@ struct sackhint {
 	int32_t		sacked_bytes;	/* Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
-	int32_t		sacked_bytes_old; /* just for demonstration */
+	int32_t		_pad1[1];	/* TBD */
 	uint64_t	_pad[1];	/* TBD */
 };
 
