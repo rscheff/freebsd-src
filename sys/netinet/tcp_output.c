@@ -259,8 +259,8 @@ tcp_output(struct tcpcb *tp)
 	 * Compute a reasonable burst limit
 	 */
 	maxburst = tp->snd_cwnd - 
-	    (abs((tp->snd_max - tp->snd_una) - tp->snd_cnwd>>1) /
-	    tp->snd_cwnd>>1) * tp->snd_cwnd>>1;
+	    (abs((tp->snd_max - tp->snd_una) - (tp->snd_cwnd>>1)) /
+	    (tp->snd_cwnd>>1)) * (tp->snd_cwnd>>1);
 	maxburst = max(maxburst, tcp_compute_initwnd(tp->t_maxseg)) /
 	    tp->t_maxseg;
 again:
