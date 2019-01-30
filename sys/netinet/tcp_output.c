@@ -210,7 +210,7 @@ tcp_output(struct tcpcb *tp)
 	struct tcpopt to;
 	unsigned int wanted_cookie = 0;
 	unsigned int dont_sendalot = 0;
-#if 0
+#if 1
 	int maxburst = TCP_MAXBURST;
 #endif
 #ifdef INET6
@@ -255,6 +255,14 @@ tcp_output(struct tcpcb *tp)
 			idle = 0;
 		}
 	}
+	/*
+	 * Compute a reasonable burst limit
+	 */
+	maxburst = tp->snd_cwnd - 
+	    (abs((tp->snd_max - tp->snd_una) - tp->snd_cnwd>>1) /
+	    tp->snd_cwnd>>1) * tp->snd_cwnd>>1;
+	maxburst = max(maxburst, tcp_compute_initwnd(tp->t_maxseg)) /
+	    tp->t_maxseg;
 again:
 	/*
 	 * If we've recently taken a timeout, snd_max will be greater than
@@ -1599,7 +1607,7 @@ timer:
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
 	if (tcp_timer_active(tp, TT_DELACK))
 		tcp_timer_activate(tp, TT_DELACK, 0);
-#if 0
+#if 1
 	/*
 	 * This completely breaks TCP if newreno is turned on.  What happens
 	 * is that if delayed-acks are turned on on the receiver, this code
@@ -1608,9 +1616,10 @@ timer:
 	 */
 	if (sendalot && --maxburst)
 		goto again;
-#endif
+#else
 	if (sendalot)
 		goto again;
+#endif
 	return (0);
 }
 
