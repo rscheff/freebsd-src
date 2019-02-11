@@ -388,7 +388,7 @@ _pfind(pid_t pid, bool zombie)
 		if (p->p_pid == pid) {
 			PROC_LOCK(p);
 			if (p->p_state == PRS_NEW ||
-			    (zombie && p->p_state == PRS_ZOMBIE)) {
+			    (!zombie && p->p_state == PRS_ZOMBIE)) {
 				PROC_UNLOCK(p);
 				p = NULL;
 			}
@@ -3112,8 +3112,8 @@ allproc_loop:
 			PROC_UNLOCK(p);
 			continue;
 		}
-		_PHOLD(p);
 		sx_xunlock(&allproc_lock);
+		_PHOLD(p);
 		r = thread_single(p, SINGLE_ALLPROC);
 		if (r != 0)
 			restart = true;

@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #define TPM_CRB_CTRL_CMD_HADDR	0x60
 #define TPM_CRB_CTRL_RSP_SIZE	0x64
 #define TPM_CRB_CTRL_RSP_ADDR	0x68
+#define TPM_CRB_CTRL_RSP_HADDR	0x6c
 #define TPM_CRB_DATA_BUFFER		0x80
 
 #define TPM_LOC_STATE_ESTB			BIT(0)
@@ -103,27 +104,20 @@ char *tpmcrb_ids[] = {"MSFT0101", NULL};
 static int
 tpmcrb_acpi_probe(device_t dev)
 {
-	struct resource *res;
-	int err, rid = 0;
-	uint32_t caps;
-
+	int err;
+	ACPI_TABLE_TPM23 *tbl;
+	ACPI_STATUS status;
 	err = ACPI_ID_PROBE(device_get_parent(dev), dev, tpmcrb_ids, NULL);
 	if (err > 0)
 		return (err);
-
-	/* Check if device is in CRB mode */
-	res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid, RF_ACTIVE);
-	if (res == NULL)
-		return (ENXIO);
-
-	caps = bus_read_4(res, TPM_CRB_INTF_ID);
-	bus_release_resource(dev, SYS_RES_MEMORY, rid, res);
-
-	if ((caps & TPM_CRB_INTF_ID_TYPE) != TPM_CRB_INTF_ID_TYPE_CRB)
-		return (ENXIO);
+	/*Find TPM2 Header*/
+	status = AcpiGetTable(ACPI_SIG_TPM2, 1, (ACPI_TABLE_HEADER **) &tbl);
+	if(ACPI_FAILURE(status) ||
+	   tbl->StartMethod != TPM2_START_METHOD_CRB)
+		err = ENXIO;
 
 	device_set_desc(dev, "Trusted Platform Module 2.0, CRB mode");
-	return (BUS_PROBE_DEFAULT);
+	return (err);
 }
 
 static ACPI_STATUS
@@ -188,7 +182,12 @@ tpmcrb_attach(device_t dev)
 	 * addr is stored in two 4 byte neighboring registers, whereas RSP is
 	 * stored in a single 8 byte one.
 	 */
+#ifdef __amd64__
 	crb_sc->rsp_off = RD8(sc, TPM_CRB_CTRL_RSP_ADDR);
+#else
+	crb_sc->rsp_off = RD4(sc, TPM_CRB_CTRL_RSP_ADDR);
+	crb_sc->rsp_off |= ((uint64_t) RD4(sc, TPM_CRB_CTRL_RSP_HADDR) << 32);
+#endif
 	crb_sc->cmd_off = RD4(sc, TPM_CRB_CTRL_CMD_LADDR);
 	crb_sc->cmd_off |= ((uint64_t) RD4(sc, TPM_CRB_CTRL_CMD_HADDR) << 32);
 	crb_sc->cmd_buf_size = RD4(sc, TPM_CRB_CTRL_CMD_SIZE);

@@ -83,7 +83,6 @@ __DEFAULT_YES_OPTIONS = \
     CPP \
     CROSS_COMPILER \
     CRYPT \
-    CTM \
     CUSE \
     CXX \
     CXGBETOOL \
@@ -191,6 +190,7 @@ __DEFAULT_YES_OPTIONS = \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
     ZFS \
+    LOADER_ZFS \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
@@ -203,6 +203,7 @@ __DEFAULT_NO_OPTIONS = \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
+    LOADER_VERBOSE \
     NAND \
     OFED_EXTRA \
     OPENLDAP \
@@ -319,11 +320,9 @@ __DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
 .else
 __DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
 .endif
-.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "armv7"
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "armv7" || \
+    ${__T} == "i386"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
-.elif ${__T} == "i386"
-__DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP
-__DEFAULT_NO_OPTIONS+=LLD_IS_LD
 .else
 __DEFAULT_NO_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
 .endif
@@ -451,6 +450,7 @@ MK_SOURCELESS_UCODE:= no
 
 .if ${MK_CDDL} == "no"
 MK_ZFS:=	no
+MK_LOADER_ZFS:=	no
 MK_CTF:=	no
 .endif
 
