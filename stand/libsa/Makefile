@@ -99,8 +99,8 @@ CFLAGS+= -DBZ_NO_STDIO -DBZ_NO_COMPRESS
 SRCS+=bzlib.c crctable.c decompress.c huffman.c randtable.c
 
 # decompression functionality from zlib
-.PATH: ${SRCTOP}/contrib/zlib
-CFLAGS+=-DHAVE_MEMCPY -I${SRCTOP}/contrib/zlib
+.PATH: ${SRCTOP}/sys/contrib/zlib
+CFLAGS+=-DHAVE_MEMCPY -I${SRCTOP}/sys/contrib/zlib
 SRCS+=	adler32.c crc32.c
 SRCS+=	infback.c inffast.c inflate.c inftrees.c zutil.c
 
@@ -162,6 +162,11 @@ SRCS+=  explicit_bzero.c crc32_libkern.c
 # Maybe GELI
 .if ${MK_LOADER_GELI} == "yes"
 .include "${SASRC}/geli/Makefile.inc"
+.endif
+
+.if ${MK_LOADER_VERIEXEC} == "yes" && ${MK_BEARSSL} == "yes"
+.include "${SRCTOP}/lib/libbearssl/Makefile.libsa.inc"
+.include "${SRCTOP}/lib/libsecureboot/Makefile.libsa.inc"
 .endif
 
 # Maybe ZFS

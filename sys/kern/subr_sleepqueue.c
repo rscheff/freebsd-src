@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2004 John Baldwin <jhb@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -498,6 +497,19 @@ sleepq_catch_signals(void *wchan, int pri)
 				mtx_unlock(&ps->ps_mtx);
 			} else {
 				mtx_unlock(&ps->ps_mtx);
+			}
+
+			/*
+			 * Do not go into sleep if this thread was the
+			 * ptrace(2) attach leader.  cursig() consumed
+			 * SIGSTOP from PT_ATTACH, but we usually act
+			 * on the signal by interrupting sleep, and
+			 * should do that here as well.
+			 */
+			if ((td->td_dbgflags & TDB_FSTP) != 0) {
+				if (ret == 0)
+					ret = EINTR;
+				td->td_dbgflags &= ~TDB_FSTP;
 			}
 		}
 		/*

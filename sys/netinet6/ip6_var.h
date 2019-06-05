@@ -208,6 +208,7 @@ struct	ip6stat {
 	uint64_t ip6s_localout;		/* total ip packets generated here */
 	uint64_t ip6s_odropped;		/* lost packets due to nobufs, etc. */
 	uint64_t ip6s_reassembled;	/* total packets reassembled ok */
+	uint64_t ip6s_atomicfrags;	/* atomic fragments */
 	uint64_t ip6s_fragmented;	/* datagrams successfully fragmented */
 	uint64_t ip6s_ofragments;	/* output fragments created */
 	uint64_t ip6s_cantfrag;		/* don't fragment flag was set, etc. */
@@ -353,6 +354,11 @@ VNET_DECLARE(struct pfil_head *, inet6_pfil_head);
 #ifdef IPSTEALTH
 VNET_DECLARE(int, ip6stealth);
 #define	V_ip6stealth			VNET(ip6stealth)
+#endif
+
+#ifdef EXPERIMENTAL
+VNET_DECLARE(int, nd6_ignore_ipv6_only_ra);
+#define	V_nd6_ignore_ipv6_only_ra	VNET(nd6_ignore_ipv6_only_ra)
 #endif
 
 extern struct	pr_usrreqs rip6_usrreqs;

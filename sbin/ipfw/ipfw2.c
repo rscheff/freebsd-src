@@ -237,6 +237,7 @@ static struct _s_x ether_types[] = {
 };
 
 static struct _s_x rule_eactions[] = {
+	{ "nat64clat",		TOK_NAT64CLAT },
 	{ "nat64lsn",		TOK_NAT64LSN },
 	{ "nat64stl",		TOK_NAT64STL },
 	{ "nptv6",		TOK_NPTV6 },
@@ -1700,9 +1701,13 @@ print_instruction(struct buf_pr *bp, const struct format_opts *fo,
 		    IPFW_TLV_STATE_NAME));
 		break;
 	case O_IP6:
+		if (state->flags & HAVE_PROTO)
+			bprintf(bp, " proto");
 		bprintf(bp, " ip6");
 		break;
 	case O_IP4:
+		if (state->flags & HAVE_PROTO)
+			bprintf(bp, " proto");
 		bprintf(bp, " ip4");
 		break;
 	case O_ICMP6TYPE:

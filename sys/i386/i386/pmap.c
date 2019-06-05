@@ -564,6 +564,8 @@ __CONCAT(PMTYPE, cold)(void)
 	/* Now enable paging */
 #ifdef PMAP_PAE_COMP
 	cr3 = (u_int)IdlePDPT;
+	if ((cpu_feature & CPUID_PAT) == 0)
+		wbinvd();
 #else
 	cr3 = (u_int)IdlePTD;
 #endif
@@ -2040,6 +2042,14 @@ __CONCAT(PMTYPE, pinit)(pmap_t pmap)
 	}
 
 	pmap_qenter((vm_offset_t)pmap->pm_pdir, pmap->pm_ptdpg, NPGPTD);
+#ifdef PMAP_PAE_COMP
+	if ((cpu_feature & CPUID_PAT) == 0) {
+		pmap_invalidate_cache_range(
+		    trunc_page((vm_offset_t)pmap->pm_pdpt),
+		    round_page((vm_offset_t)pmap->pm_pdpt +
+		    NPGPTD * sizeof(pdpt_entry_t)));
+	}
+#endif
 
 	for (i = 0; i < NPGPTD; i++)
 		if ((pmap->pm_ptdpg[i]->flags & PG_ZERO) == 0)
@@ -2758,8 +2768,10 @@ pmap_demote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va)
 			    " in pmap %p", va, pmap);
 			return (FALSE);
 		}
-		if (pmap != kernel_pmap)
+		if (pmap != kernel_pmap) {
+			mpte->wire_count = NPTEPG;
 			pmap->pm_stats.resident_count++;
+		}
 	}
 	mptepa = VM_PAGE_TO_PHYS(mpte);
 
@@ -2808,12 +2820,12 @@ pmap_demote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va)
 		newpte ^= PG_PDE_PAT | PG_PTE_PAT;
 
 	/*
-	 * If the page table page is new, initialize it.
+	 * If the page table page is not leftover from an earlier promotion,
+	 * initialize it.
 	 */
-	if (mpte->wire_count == 1) {
-		mpte->wire_count = NPTEPG;
+	if ((oldpde & PG_PROMOTED) == 0)
 		pmap_fill_ptp(firstpte, newpte);
-	}
+
 	KASSERT((*firstpte & PG_FRAME) == (newpte & PG_FRAME),
 	    ("pmap_demote_pde: firstpte and newpte map different physical"
 	    " addresses"));
@@ -3801,7 +3813,7 @@ validate:
 		if ((origpte & PG_A) != 0)
 			pmap_invalidate_page_int(pmap, va);
 	} else
-		pte_store(pte, newpte);
+		pte_store_zero(pte, newpte);
 
 unchanged:
 
@@ -3872,6 +3884,8 @@ pmap_enter_pde(pmap_t pmap, vm_offset_t va, pd_entry_t newpde, u_int flags,
 	rw_assert(&pvh_global_lock, RA_WLOCKED);
 	KASSERT((newpde & (PG_M | PG_RW)) != PG_RW,
 	    ("pmap_enter_pde: newpde is missing PG_M"));
+	KASSERT(pmap == kernel_pmap || (newpde & PG_W) == 0,
+	    ("pmap_enter_pde: cannot create wired user mapping"));
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 	pde = pmap_pde(pmap, va);
 	oldpde = *pde;
@@ -4104,7 +4118,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 #endif
 	if (pmap != kernel_pmap)
 		newpte |= PG_U;
-	pte_store(pte, newpte);
+	pte_store_zero(pte, newpte);
 	sched_unpin();
 	return (mpte);
 }
@@ -5886,67 +5900,6 @@ __CONCAT(PMTYPE, trm_free)(void *addr, size_t size)
 
 	vmem_free(pmap_trm_arena, (uintptr_t)addr, roundup2(size, 4));
 }
-
-#if defined(PMAP_DEBUG)
-pmap_pid_dump(int pid)
-{
-	pmap_t pmap;
-	struct proc *p;
-	int npte = 0;
-	int index;
-
-	sx_slock(&allproc_lock);
-	FOREACH_PROC_IN_SYSTEM(p) {
-		if (p->p_pid != pid)
-			continue;
-
-		if (p->p_vmspace) {
-			int i,j;
-			index = 0;
-			pmap = vmspace_pmap(p->p_vmspace);
-			for (i = 0; i < NPDEPTD; i++) {
-				pd_entry_t *pde;
-				pt_entry_t *pte;
-				vm_offset_t base = i << PDRSHIFT;
-				
-				pde = &pmap->pm_pdir[i];
-				if (pde && pmap_pde_v(pde)) {
-					for (j = 0; j < NPTEPG; j++) {
-						vm_offset_t va = base + (j << PAGE_SHIFT);
-						if (va >= (vm_offset_t) VM_MIN_KERNEL_ADDRESS) {
-							if (index) {
-								index = 0;
-								printf("\n");
-							}
-							sx_sunlock(&allproc_lock);
-							return (npte);
-						}
-						pte = pmap_pte(pmap, va);
-						if (pte && pmap_pte_v(pte)) {
-							pt_entry_t pa;
-							vm_page_t m;
-							pa = *pte;
-							m = PHYS_TO_VM_PAGE(pa & PG_FRAME);
-							printf("va: 0x%x, pt: 0x%x, h: %d, w: %d, f: 0x%x",
-								va, pa, m->hold_count, m->wire_count, m->flags);
-							npte++;
-							index++;
-							if (index >= 2) {
-								index = 0;
-								printf("\n");
-							} else {
-								printf(" ");
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	sx_sunlock(&allproc_lock);
-	return (npte);
-}
-#endif
 
 static void
 __CONCAT(PMTYPE, ksetrw)(vm_offset_t va)

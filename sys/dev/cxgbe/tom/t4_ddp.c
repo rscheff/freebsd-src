@@ -304,9 +304,6 @@ insert_ddp_data(struct toepcb *toep, uint32_t n)
 	KASSERT(tp->rcv_wnd >= n, ("%s: negative window size", __func__));
 	tp->rcv_wnd -= n;
 #endif
-#ifndef USE_DDP_RX_FLOW_CONTROL
-	toep->rx_credits += n;
-#endif
 	CTR2(KTR_CXGBE, "%s: placed %u bytes before falling out of DDP",
 	    __func__, n);
 	while (toep->ddp.active_count > 0) {
@@ -549,21 +546,16 @@ handle_ddp_data(struct toepcb *toep, __be32 ddp_report, __be32 rcv_nxt, int len)
 	    V_tcp_do_autorcvbuf &&
 	    sb->sb_hiwat < V_tcp_autorcvbuf_max &&
 	    len > (sbspace(sb) / 8 * 7)) {
+		struct adapter *sc = td_adapter(toep->td);
 		unsigned int hiwat = sb->sb_hiwat;
-		unsigned int newsize = min(hiwat + V_tcp_autorcvbuf_inc,
+		unsigned int newsize = min(hiwat + sc->tt.autorcvbuf_inc,
 		    V_tcp_autorcvbuf_max);
 
 		if (!sbreserve_locked(sb, newsize, so, NULL))
 			sb->sb_flags &= ~SB_AUTOSIZE;
-		else
-			toep->rx_credits += newsize - hiwat;
 	}
 	SOCKBUF_UNLOCK(sb);
 	CURVNET_RESTORE();
-
-#ifndef USE_DDP_RX_FLOW_CONTROL
-	toep->rx_credits += len;
-#endif
 
 	job->msgrcv = 1;
 	if (db->cancel_pending) {
@@ -713,12 +705,9 @@ handle_ddp_close(struct toepcb *toep, struct tcpcb *tp, __be32 rcv_nxt)
 
 	INP_WLOCK_ASSERT(toep->inp);
 	DDP_ASSERT_LOCKED(toep);
-	len = be32toh(rcv_nxt) - tp->rcv_nxt;
 
+	len = be32toh(rcv_nxt) - tp->rcv_nxt;
 	tp->rcv_nxt += len;
-#ifndef USE_DDP_RX_FLOW_CONTROL
-	toep->rx_credits += len;
-#endif
 
 	while (toep->ddp.active_count > 0) {
 		MPASS(toep->ddp.active_id != -1);

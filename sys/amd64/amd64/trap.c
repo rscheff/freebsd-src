@@ -113,6 +113,10 @@ void dblfault_handler(struct trapframe *frame);
 
 static int trap_pfault(struct trapframe *, int);
 static void trap_fatal(struct trapframe *, vm_offset_t);
+#ifdef KDTRACE_HOOKS
+static bool trap_user_dtrace(struct trapframe *,
+    int (**hook)(struct trapframe *));
+#endif
 
 #define MAX_TRAP_MSG		32
 static char *trap_msg[] = {
@@ -284,11 +288,11 @@ trap(struct trapframe *frame)
 			break;
 
 		case T_BPTFLT:		/* bpt instruction fault */
-			enable_intr();
 #ifdef KDTRACE_HOOKS
-			if (dtrace_pid_probe_ptr != NULL &&
-			    dtrace_pid_probe_ptr(frame) == 0)
+			if (trap_user_dtrace(frame, &dtrace_pid_probe_ptr))
 				return;
+#else
+			enable_intr();
 #endif
 			signo = SIGTRAP;
 			ucode = TRAP_BRKPT;
@@ -425,9 +429,7 @@ trap(struct trapframe *frame)
 			break;
 #ifdef KDTRACE_HOOKS
 		case T_DTRACE_RET:
-			enable_intr();
-			if (dtrace_return_probe_ptr != NULL)
-				dtrace_return_probe_ptr(frame);
+			(void)trap_user_dtrace(frame, &dtrace_return_probe_ptr);
 			return;
 #endif
 		}
@@ -904,8 +906,8 @@ trap_fatal(frame, eva)
 			code & PGEX_U ? "user" : "supervisor",
 			code & PGEX_W ? "write" : "read",
 			code & PGEX_I ? "instruction" : "data",
-			code & PGEX_PK ? " prot key" : " ",
-			code & PGEX_SGX ? " SGX" : " ",
+			code & PGEX_PK ? " prot key" : "",
+			code & PGEX_SGX ? " SGX" : "",
 			code & PGEX_RSV ? "reserved bits in PTE" :
 			code & PGEX_P ? "protection violation" : "page not present");
 	}
@@ -947,6 +949,25 @@ trap_fatal(frame, eva)
 	else
 		panic("unknown/reserved trap");
 }
+
+#ifdef KDTRACE_HOOKS
+/*
+ * Invoke a userspace DTrace hook.  The hook pointer is cleared when no
+ * userspace probes are enabled, so we must synchronize with DTrace to ensure
+ * that a trapping thread is able to call the hook before it is cleared.
+ */
+static bool
+trap_user_dtrace(struct trapframe *frame, int (**hookp)(struct trapframe *))
+{
+	int (*hook)(struct trapframe *);
+
+	hook = (int (*)(struct trapframe *))atomic_load_ptr(hookp);
+	enable_intr();
+	if (hook != NULL)
+		return ((hook)(frame) == 0);
+	return (false);
+}
+#endif
 
 /*
  * Double fault handler. Called when a fault occurs while writing
@@ -1183,7 +1204,7 @@ amd64_syscall(struct thread *td, int traced)
 	KASSERT(td->td_pcb->pcb_save == get_pcb_user_save_td(td),
 	    ("System call %s returning with mangled pcb_save",
 	     syscallname(td->td_proc, td->td_sa.code)));
-	KASSERT(td->td_md.md_invl_gen.gen == 0,
+	KASSERT(pmap_not_in_di(),
 	    ("System call %s returning with leaked invl_gen %lu",
 	    syscallname(td->td_proc, td->td_sa.code),
 	    td->td_md.md_invl_gen.gen));

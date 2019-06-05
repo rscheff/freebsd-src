@@ -79,7 +79,7 @@ typedef struct if_rxd_info {
 	/* XXX redundant with the new irf_len field */
 	uint16_t iri_len;		/* packet length */
 	qidx_t iri_cidx;		/* consumer index of cq */
-	struct ifnet *iri_ifp;		/* some drivers >1 interface per softc */
+	if_t iri_ifp;			/* driver may have >1 iface per softc */
 
 	/* updated by driver */
 	if_rxd_frag_t iri_frags;
@@ -228,7 +228,9 @@ typedef struct if_softc_ctx {
 	pci_vendor_info_t isc_vendor_info;	/* set by iflib prior to attach_pre */
 	int isc_disable_msix;
 	if_txrx_t isc_txrx;
+	struct ifmedia *isc_media;
 } *if_softc_ctx_t;
+
 
 /*
  * Initialization values for device
@@ -248,7 +250,7 @@ struct if_shared_ctx {
 
 	/* fields necessary for probe */
 	pci_vendor_info_t *isc_vendor_info;
-	char *isc_driver_version;
+	const char *isc_driver_version;
 	/* optional function to transform the read values to match the table*/
 	void (*isc_parse_devinfo) (uint16_t *device_id, uint16_t *subvendor_id,
 				   uint16_t *subdevice_id, uint16_t *rev_id);
@@ -361,6 +363,10 @@ typedef enum {
  * Interface needs admin task to ignore interface up/down status
  */
 #define IFLIB_ADMIN_ALWAYS_RUN	0x10000
+/*
+ * Driver will pass the media
+ */
+#define IFLIB_DRIVER_MEDIA	0x20000
 
 
 /*
@@ -381,6 +387,8 @@ void iflib_set_mac(if_ctx_t ctx, uint8_t mac[ETHER_ADDR_LEN]);
 void iflib_request_reset(if_ctx_t ctx);
 uint8_t iflib_in_detach(if_ctx_t ctx);
 
+uint32_t iflib_get_rx_mbuf_sz(if_ctx_t ctx);
+
 /*
  * If the driver can plug cleanly in to newbus use these
  */
@@ -390,6 +398,13 @@ int iflib_device_detach(device_t);
 int iflib_device_suspend(device_t);
 int iflib_device_resume(device_t);
 int iflib_device_shutdown(device_t);
+
+/*
+ * Use this instead of iflib_device_probe if the driver should report
+ * BUS_PROBE_VENDOR instead of BUS_PROBE_DEFAULT. (For example, an out-of-tree
+ * driver based on iflib).
+ */
+int iflib_device_probe_vendor(device_t);
 
 
 int iflib_device_iov_init(device_t, uint16_t, const nvlist_t *);
