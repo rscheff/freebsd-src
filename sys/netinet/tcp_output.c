@@ -1139,16 +1139,22 @@ send:
 			TCPSTAT_INC(tcps_ecn_ect0);
 		}
 		
+		if (tp && (so->so_options & SO_DEBUG)) {
+		    printf("%08x %08x r.cep: %d s.cep: %d flags: %03x\n", 
+			   (tp->t_flags), (tp->t_flags2),
+			   tp->r_cep, tp->s_cep, flags);
+		}
+		
 		/*
 		 * Reply with proper ECN notifications.
 		 */
-		if (tp->t_flags & TF_ACE_PERMIT) {
+		if (tp->t_flags2 & TF2_ACE_PERMIT) {
 			if (tp->r_cep & 0x01)
-				flags |= TH_CWR;
-			else
-				flags &= ~TH_CWR;
-			if (tp->r_cep & 0x02)
 				flags |= TH_ECE;
+			else
+				flags &= ~TH_ECE;
+			if (tp->r_cep & 0x02)
+				flags |= TH_CWR;
 			else
 				flags &= ~TH_CWR;
 			if (tp->r_cep & 0x04)
@@ -1162,6 +1168,11 @@ send:
 			}
 			if (tp->t_flags & TF_ECN_SND_ECE)
 				flags |= TH_ECE;
+		}
+		if (tp && (so->so_options & SO_DEBUG)) {
+		    printf("%08x %08x r.cep: %d s.cep: %d flags: %03x\n", 
+			   (tp->t_flags), (tp->t_flags2),
+			   tp->r_cep, tp->s_cep, flags);
 		}
 	}
 
@@ -1194,8 +1205,9 @@ send:
 		bcopy(opt, th + 1, optlen);
 		th->th_off = (sizeof (struct tcphdr) + optlen) >> 2;
 	}
-	th->th_flags = (flags & 0x00FF);
-	th->th_x2    = (flags & 0x0100) >> 8;
+	th->th_flags = (flags & (TH_CWR|TH_ECE|TH_URG|TH_ACK|
+	    TH_PUSH|TH_RST|TH_SYN|TH_FIN));
+	th->th_x2    = (flags & (TH_AE)) >> 8;
 	/*
 	 * Calculate receive window.  Don't shrink window,
 	 * but avoid silly window syndrome.

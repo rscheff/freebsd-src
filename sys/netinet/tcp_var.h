@@ -338,7 +338,6 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF_CONGRECOVERY	0x20000000	/* congestion recovery mode */
 #define	TF_WASCRECOVERY	0x40000000	/* was in congestion recovery */
 #define	TF_FASTOPEN	0x80000000	/* TCP Fast Open indication */
-#define	TF_ACE_PERMIT	0x100000000	/* Accurate ECN mode */
 
 #define	IN_FASTRECOVERY(t_flags)	(t_flags & TF_FASTRECOVERY)
 #define	ENTER_FASTRECOVERY(t_flags)	t_flags |= TF_FASTRECOVERY
@@ -373,7 +372,8 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF2_PLPMTU_PMTUD	0x00000002 /* Allowed to attempt PLPMTUD. */
 #define	TF2_PLPMTU_MAXSEGSNT	0x00000004 /* Last seg sent was full seg. */
 #define	TF2_LOG_AUTO		0x00000008 /* Session is auto-logging. */
-#define TF2_DROP_AF_DATA 	0x00000010 /* Drop after all data ack'd */
+#define	TF2_DROP_AF_DATA	0x00000010 /* Drop after all data ack'd */
+#define	TF2_ACE_PERMIT		0x00000020 /* Accurate ECN mode */
 
 /*
  * Structure to hold TCP options that are only used during segment
