@@ -1110,6 +1110,16 @@ send:
 		} else
 			flags |= TH_ECE|TH_CWR;
 	}
+	/*
+	 * Send an Accurate ECN setup SYN packet
+	 */
+	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn == 3) {
+		if (tp->t_rxtshift >= 1) {
+			if (tp->t_rxtshift <= V_tcp_ecn_maxretries) 
+				flags |= TH_ECE|TH_CWR|TH_AE;
+		} else
+			flags |= TH_ECE|TH_CWR|TH_AE;
+	}
 	
 	if (tp->t_state == TCPS_ESTABLISHED &&
 	    (tp->t_flags & TF_ECN_PERMIT)) {
@@ -1132,14 +1142,28 @@ send:
 		/*
 		 * Reply with proper ECN notifications.
 		 */
-		if (tp->t_flags & TF_ECN_SND_CWR) {
-			flags |= TH_CWR;
-			tp->t_flags &= ~TF_ECN_SND_CWR;
-		} 
-		if (tp->t_flags & TF_ECN_SND_ECE)
-			flags |= TH_ECE;
+		if (tp->t_flags & TF_ACE_PERMIT) {
+			if (tp->r_cep & 0x01)
+				flags |= TH_CWR;
+			else
+				flags &= ~TH_CWR;
+			if (tp->r_cep & 0x02)
+				flags |= TH_ECE;
+			else
+				flags &= ~TH_CWR;
+			if (tp->r_cep & 0x04)
+				flags |= TH_AE;
+			else
+				flags &= ~TH_AE;
+		} else
+			if (tp->t_flags & TF_ECN_SND_CWR) {
+				flags |= TH_CWR;
+				tp->t_flags &= ~TF_ECN_SND_CWR;
+			}
+			if (tp->t_flags & TF_ECN_SND_ECE)
+				flags |= TH_ECE;
 	}
-	
+
 	/*
 	 * If we are doing retransmissions, then snd_nxt will
 	 * not reflect the first unsent octet.  For ACK only
@@ -1169,7 +1193,8 @@ send:
 		bcopy(opt, th + 1, optlen);
 		th->th_off = (sizeof (struct tcphdr) + optlen) >> 2;
 	}
-	th->th_flags = flags;
+	th->th_flags = (flags & 0x00FF);
+	th->th_x2    = (flags & 0x0100) >> 8;
 	/*
 	 * Calculate receive window.  Don't shrink window,
 	 * but avoid silly window syndrome.

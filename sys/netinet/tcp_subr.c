@@ -3244,36 +3244,3 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 	if (inp->inp_socket == NULL)
 		xt->xt_inp.xi_socket.xso_protocol = IPPROTO_TCP;
 }
-
-/* Subroutines to access the "split" Accurate ECN "ACE" field */
-int
-tcp_get_ace(struct tcphdr *th)
-{
-	int ace = 0;
-
-	if (th->th_flags & TH_ECE)
-	    ace += 1;
-	if (th->th_flags & TH_CWR)
-	    ace += 2;
-	if (th->th_x2    & TH_AE)
-	    ace += 4;
-
-	return ace;
-}
-
-void
-tcp_set_ace(struct tcphdr *th, int ace)
-{
-	if (ace & 0x01)
-	    th->th_flags |= TH_ECE
-	else
-	    th->th_flags &= ~TH_ECE;
-	if (ace & 0x02)
-	    th->th_flags |= TH_CWR
-	else
-	    th->th_flags &= ~TH_CWR;
-	if (ace & 0x04)
-	    th->th_x2    |= TH_AE
-	else
-	    th->th_x2    &= ~TH_AE;
-}

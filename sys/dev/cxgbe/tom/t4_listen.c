@@ -1097,7 +1097,7 @@ calc_opt2p(struct adapter *sc, struct port_info *pi, int rxqid,
 
 static void
 pass_accept_req_to_protohdrs(struct adapter *sc, const struct mbuf *m,
-    struct in_conninfo *inc, struct tcphdr *th)
+    struct in_conninfo *inc, struct tcphdr *th, uint8_t *iptos)
 {
 	const struct cpl_pass_accept_req *cpl = mtod(m, const void *);
 	const struct ether_header *eh;
@@ -1112,6 +1112,17 @@ pass_accept_req_to_protohdrs(struct adapter *sc, const struct mbuf *m,
 	} else {
 		l3hdr = ((uintptr_t)eh + G_ETH_HDR_LEN(hlen));
 		tcp = (const void *)(l3hdr + G_IP_HDR_LEN(hlen));
+	}
+
+	/* extract TOS (DiffServ + ECN) byte for AccECN */
+	if (iptos) {
+		if (((struct ip *)l3hdr)->ip_v == IPVERSION) {
+			const struct ip *ip = (const void *)l3hdr;
+			*iptos = ip->ip_tos;
+		} else {
+			const struct ip6_hdr *ip6 = (const void *)l3hdr;
+			*iptos = (ntohl(ip6->ip6_flow) >> 20) & 0xff;
+		}
 	}
 
 	if (inc) {
@@ -1254,6 +1265,7 @@ do_pass_accept_req(struct sge_iq *iq, const struct rss_header *rss,
 	struct synq_entry *synqe = NULL;
 	int reject_reason, v, ntids;
 	uint16_t vid, l2info;
+	uint8_t iptos;
 	struct epoch_tracker et;
 #ifdef INVARIANTS
 	unsigned int opcode = G_CPL_OPCODE(be32toh(OPCODE_TID(cpl)));
@@ -1317,7 +1329,7 @@ found:
 	if (lctx->vnet != ifp->if_vnet)
 		REJECT_PASS_ACCEPT_REQ(true);
 
-	pass_accept_req_to_protohdrs(sc, m, &inc, &th);
+	pass_accept_req_to_protohdrs(sc, m, &inc, &th, &iptos);
 	if (inc.inc_flags & INC_ISIPV6) {
 
 		/* Don't offload if the ifcap isn't enabled */
@@ -1390,7 +1402,7 @@ found:
 	 * syncache_add.  Note that syncache_add releases the pcb lock.
 	 */
 	t4opt_to_tcpopt(&cpl->tcpopt, &to);
-	toe_syncache_add(&inc, &to, &th, inp, tod, synqe);
+	toe_syncache_add(&inc, &to, &th, inp, tod, synqe, iptos);
 
 	if (atomic_load_int(&synqe->ok_to_respond) > 0) {
 		uint64_t opt0;
@@ -1471,9 +1483,10 @@ synqe_to_protohdrs(struct adapter *sc, struct synq_entry *synqe,
     struct tcphdr *th, struct tcpopt *to)
 {
 	uint16_t tcp_opt = be16toh(cpl->tcp_opt);
+	uint8_t iptos;
 
 	/* start off with the original SYN */
-	pass_accept_req_to_protohdrs(sc, synqe->syn, inc, th);
+	pass_accept_req_to_protohdrs(sc, synqe->syn, inc, th, &iptos);
 
 	/* modify parts to make it look like the ACK to our SYN|ACK */
 	th->th_flags = TH_ACK;

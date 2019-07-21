@@ -1309,7 +1309,7 @@ syncache_tfo_expand(struct syncache *sc, struct socket **lsop, struct mbuf *m,
 int
 syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
     struct inpcb *inp, struct socket **lsop, struct mbuf *m, void *tod,
-    void *todctx)
+    void *todctx, uint8_t tos)
 {
 	struct tcpcb *tp;
 	struct socket *so;
@@ -1612,9 +1612,62 @@ skip_alloc:
 		sc->sc_peer_mss = to->to_mss;	/* peer mss may be zero */
 	if (ltflags & TF_NOOPT)
 		sc->sc_flags |= SCF_NOOPT;
-	if (((th->th_flags & (TH_ECE|TH_CWR)) ||
-	     (th->th_x2 & (TH_AE))) && V_tcp_do_ecn)
-		sc->sc_flags |= SCF_ECN;
+	/* ECN Handshake */
+	if (V_tcp_do_ecn) {
+		int xflags;
+		xflags = ((th->th_x2 << 8) | th->th_flags) & (TH_AE|TH_CWR|TH_ECE);
+		switch (xflags) {
+		/* no ECN */
+		case (0|0|0):
+			break;
+		/* legacy ECN */
+		case (0|TH_CWR|TH_ECE):
+			sc->sc_flags |= SCF_ECN;
+			break;
+		/* Accurate ECN */
+		case (TH_AE|TH_CWR|TH_ECE):
+			if ((V_tcp_do_ecn == 3) ||
+			   (V_tcp_do_ecn == 4)) {
+
+				switch (tos & IPTOS_ECN_MASK) {
+				case IPTOS_ECN_CE:
+					sc->sc_flags |= SCF_ACE_CE;
+					break;
+				case IPTOS_ECN_ECT0:
+					sc->sc_flags |= SCF_ACE_0;
+					break;
+				case IPTOS_ECN_ECT1:
+					sc->sc_flags |= SCF_ACE_1;
+					break;
+				case IPTOS_ECN_NOTECT:
+					sc->sc_flags |= SCF_ACE_N;
+					break;
+				}
+			} else
+				sc->sc_flags |= SCF_ECN;
+			break;
+		/* Default Case (section 3.1.2) */
+		default:
+			if ((V_tcp_do_ecn == 3) ||
+			   (V_tcp_do_ecn == 4)) {
+				switch (tos & IPTOS_ECN_MASK) {
+				case IPTOS_ECN_CE:
+					sc->sc_flags |= SCF_ACE_CE;
+					break;
+				case IPTOS_ECN_ECT0:
+					sc->sc_flags |= SCF_ACE_0;
+					break;
+				case IPTOS_ECN_ECT1:
+					sc->sc_flags |= SCF_ACE_1;
+					break;
+				case IPTOS_ECN_NOTECT:
+					sc->sc_flags |= SCF_ACE_N;
+					break;
+				}
+			}
+			break;
+		}
+	}
 
 	if (V_tcp_syncookies)
 		sc->sc_iss = syncookie_generate(sch, sc);
@@ -1786,6 +1839,28 @@ syncache_respond(struct syncache *sc, struct syncache_head *sch,
 	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ECN)) {
 		th->th_flags |= TH_ECE;
 		TCPSTAT_INC(tcps_ecn_shs);
+	}
+
+	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_N)) {
+		th->th_flags |= TH_CWR;
+		TCPSTAT_INC(tcps_ecn_shs);
+		TCPSTAT_INC(tcps_ace_nect);
+	}
+	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_0)) {
+		th->th_x2    |= (TH_AE >> 8);
+		TCPSTAT_INC(tcps_ecn_shs);
+		TCPSTAT_INC(tcps_ace_ect0);
+	}
+	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_1)) {
+		th->th_flags |= (TH_ECE | TH_CWR);
+		TCPSTAT_INC(tcps_ecn_shs);
+		TCPSTAT_INC(tcps_ace_ect1);
+	}
+	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_CE)) {
+		th->th_flags |= TH_CWR;
+		th->th_x2    |= (TH_AE >> 8);
+		TCPSTAT_INC(tcps_ecn_shs);
+		TCPSTAT_INC(tcps_ace_ce);
 	}
 
 	/* Tack on the TCP options. */

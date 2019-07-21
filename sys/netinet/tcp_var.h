@@ -205,6 +205,8 @@ struct tcpcb {
 	u_int	t_keepcnt;		/* number of keepalives before close */
 	int	t_dupacks;		/* consecutive dup acks recd */
 	int	t_lognum;		/* Number of log entries */
+	uint32_t  r_cep;		/* Number of received CE marked packets */
+	uint32_t  s_cep;		/* Synced number of delivered CE packets */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
 	struct tcp_log_id_node *t_lin;
 	struct tcp_log_id_bucket *t_lib;
@@ -336,6 +338,7 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF_CONGRECOVERY	0x20000000	/* congestion recovery mode */
 #define	TF_WASCRECOVERY	0x40000000	/* was in congestion recovery */
 #define	TF_FASTOPEN	0x80000000	/* TCP Fast Open indication */
+#define	TF_ACE_PERMIT	0x100000000	/* Accurate ECN mode */
 
 #define	IN_FASTRECOVERY(t_flags)	(t_flags & TF_FASTRECOVERY)
 #define	ENTER_FASTRECOVERY(t_flags)	t_flags |= TF_FASTRECOVERY
@@ -610,7 +613,12 @@ struct	tcpstat {
 	uint64_t tcps_pmtud_blackhole_activated_min_mss; /* BH at min MSS Count */
 	uint64_t tcps_pmtud_blackhole_failed;		 /* Black Hole Failure Count */
 
-	uint64_t _pad[12];		/* 6 UTO, 6 TBD */
+	/* Accurate ECN Handshake stats */
+	uint64_t tcps_ace_nect;		/* ACE SYN packet with Non-ECT */
+	uint64_t tcps_ace_ect1;		/* ACE SYN packet with ECT1 */
+	uint64_t tcps_ace_ect0;		/* ACE SYN packet with ECT0 */
+	uint64_t tcps_ace_ce;		/* ACE SYN packet with CE */
+	uint64_t _pad[8];		/* 6 UTO, 6 TBD */
 };
 
 #define	tcps_rcvmemdrop	tcps_rcvreassfull	/* compat */
@@ -946,6 +954,8 @@ struct mbuf *
 	 tcp_m_copym(struct mbuf *m, int32_t off0, int32_t *plen,
 	   int32_t seglimit, int32_t segsize, struct sockbuf *sb);
 
+int	 tcp_get_ace(struct tcphdr *th);
+void	 tcp_set_ace(struct tcphdr *th, int ace);
 
 static inline void
 tcp_fields_to_host(struct tcphdr *th)

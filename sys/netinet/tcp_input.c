@@ -1325,7 +1325,7 @@ tfo_socket_result:
 #endif
 		TCP_PROBE3(debug__input, tp, th, m);
 		tcp_dooptions(&to, optp, optlen, TO_SYN);
-		if (syncache_add(&inc, &to, th, inp, &so, m, NULL, NULL))
+		if (syncache_add(&inc, &to, th, inp, &so, m, NULL, NULL, iptos))
 			goto tfo_socket_result;
 
 		/*
@@ -1572,15 +1572,16 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	tiwin = th->th_win << tp->snd_scale;
 
+
+        if (so->so_options & SO_DEBUG) {
+           printf("tp flags: %0x\n", tp->t_flags);
+        }
 	/*
 	 * TCP ECN processing.
 	 */
 	if (tp->t_flags & TF_ECN_PERMIT) {
-		if (thflags & TH_CWR)
-			tp->t_flags &= ~TF_ECN_SND_ECE;
 		switch (iptos & IPTOS_ECN_MASK) {
 		case IPTOS_ECN_CE:
-			tp->t_flags |= TF_ECN_SND_ECE;
 			TCPSTAT_INC(tcps_ecn_ce);
 			break;
 		case IPTOS_ECN_ECT0:
@@ -1591,11 +1592,29 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			break;
 		}
 
+		char d_ace;
+
+		if (tp->t_flags & TF_ACE_PERMIT) {
+			d_ace = (tcp_get_ace(th) + 8 - (tp->s_cep & 0x07)) & 0x07;
+			tp->s_cep += d_ace;
+			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
+				tp->r_cep += 1;
+		} else {
+			if (thflags & TH_CWR)
+				tp->t_flags &= ~TF_ECN_SND_ECE;
+			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
+				tp->t_flags |= TF_ECN_SND_ECE;
+		}
+
 		/* Process a packet differently from RFC3168. */
 		cc_ecnpkt_handler(tp, th, iptos);
 
-		/* Congestion experienced. */
-		if (thflags & TH_ECE) {
+		/* Congestion experienced.
+		 * With ACE, process a cong signal with ACE changed,
+		 * for legacy ECN, whenever ECE is received
+		 */
+		if ((!(tp->t_flags & TF_ACE_PERMIT) && (thflags & TH_ECE)) ||
+		    ((tp->t_flags & TF_ACE_PERMIT) && (d_ace != 0))) {
 			cc_cong_signal(tp, th, CC_ECN);
 		}
 	}
@@ -2013,6 +2032,49 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				TCPSTAT_INC(tcps_ecn_shs);
 			}
 			
+			/* decoding Accurate ECN according to table in section 3.1.1 */
+			if ((V_tcp_do_ecn == 3) ||
+			   (V_tcp_do_ecn == 4)) {
+				int xflags;
+				xflags = ((th->th_x2 << 8) | thflags) & (TH_AE|TH_CWR|TH_ECE);
+				switch (xflags) {
+				/* non-ECT SYN */
+				case (0|TH_CWR|0):
+					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->s_cep = 5;
+					tp->r_cep = 5;
+					TCPSTAT_INC(tcps_ecn_shs);
+					TCPSTAT_INC(tcps_ace_nect);
+					break;
+				/* ECT1 SYN */
+				case (0|TH_CWR|TH_ECE):
+					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->s_cep = 5;
+					tp->r_cep = 5;
+					TCPSTAT_INC(tcps_ecn_shs);
+					TCPSTAT_INC(tcps_ace_ect1);
+					break;
+				/* ECT0 SYN */
+				case (TH_AE|0|0):
+					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->s_cep = 5;
+					tp->r_cep = 5;
+					TCPSTAT_INC(tcps_ecn_shs);
+					TCPSTAT_INC(tcps_ace_ect0);
+					break;
+				/* CE SYN */
+				case (TH_AE|TH_CWR|0):
+					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->s_cep = 6;
+					tp->r_cep = 5;
+					TCPSTAT_INC(tcps_ecn_shs);
+					TCPSTAT_INC(tcps_ace_nect);
+					break;
+				default:
+					break;
+				}
+			}
+
 			/*
 			 * Received <SYN,ACK> in SYN_SENT[*] state.
 			 * Transitions:
