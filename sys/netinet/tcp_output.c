@@ -1155,13 +1155,14 @@ send:
 				flags |= TH_AE;
 			else
 				flags &= ~TH_AE;
-		} else
+		} else {
 			if (tp->t_flags & TF_ECN_SND_CWR) {
 				flags |= TH_CWR;
 				tp->t_flags &= ~TF_ECN_SND_CWR;
 			}
 			if (tp->t_flags & TF_ECN_SND_ECE)
 				flags |= TH_ECE;
+		}
 	}
 
 	/*
