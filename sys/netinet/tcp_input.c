@@ -1590,7 +1590,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 
 		char d_ace;
 
-		if (tp->t_flags & TF_ACE_PERMIT) {
+		if (tp->t_flags2 & TF2_ACE_PERMIT) {
 			d_ace = (tcp_get_ace(th) + 8 - (tp->s_cep & 0x07)) & 0x07;
 			tp->s_cep += d_ace;
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
@@ -1609,8 +1609,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 * With ACE, process a cong signal with ACE changed,
 		 * for legacy ECN, whenever ECE is received
 		 */
-		if ((!(tp->t_flags & TF_ACE_PERMIT) && (thflags & TH_ECE)) ||
-		    ((tp->t_flags & TF_ACE_PERMIT) && (d_ace != 0))) {
+		if ((!(tp->t_flags2 & TF2_ACE_PERMIT) && (thflags & TH_ECE)) ||
+		    ((tp->t_flags2 & TF2_ACE_PERMIT) && (d_ace != 0))) {
 			cc_cong_signal(tp, th, CC_ECN);
 		}
 	}
@@ -2036,7 +2036,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				switch (xflags) {
 				/* non-ECT SYN */
 				case (0|TH_CWR|0):
-					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->t_flags  |= TF_ECN_PERMIT;
+					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
 					tp->r_cep = 5;
 					TCPSTAT_INC(tcps_ecn_shs);
@@ -2044,7 +2045,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					break;
 				/* ECT1 SYN */
 				case (0|TH_CWR|TH_ECE):
-					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->t_flags  |= TF_ECN_PERMIT;
+					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
 					tp->r_cep = 5;
 					TCPSTAT_INC(tcps_ecn_shs);
@@ -2052,7 +2054,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					break;
 				/* ECT0 SYN */
 				case (TH_AE|0|0):
-					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->t_flags  |= TF_ECN_PERMIT;
+					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
 					tp->r_cep = 5;
 					TCPSTAT_INC(tcps_ecn_shs);
@@ -2060,9 +2063,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					break;
 				/* CE SYN */
 				case (TH_AE|TH_CWR|0):
-					tp->t_flags |= (TF_ACE_PERMIT|TF_ECN_PERMIT);
+					tp->t_flags  |= TF_ECN_PERMIT;
+					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 6;
-					tp->r_cep = 5;
+					tp->r_cep = 6;
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
