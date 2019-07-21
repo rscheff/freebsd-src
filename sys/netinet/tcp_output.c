@@ -1138,13 +1138,7 @@ send:
 				ip->ip_tos |= IPTOS_ECN_ECT0;
 			TCPSTAT_INC(tcps_ecn_ect0);
 		}
-		
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("%08x %08x r.cep: %d s.cep: %d flags: %03x\n", 
-			   (tp->t_flags), (tp->t_flags2),
-			   tp->r_cep, tp->s_cep, flags);
-		}
-		
+
 		/*
 		 * Reply with proper ECN notifications.
 		 */
@@ -1168,11 +1162,6 @@ send:
 			}
 			if (tp->t_flags & TF_ECN_SND_ECE)
 				flags |= TH_ECE;
-		}
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("%08x %08x r.cep: %d s.cep: %d flags: %03x\n", 
-			   (tp->t_flags), (tp->t_flags2),
-			   tp->r_cep, tp->s_cep, flags);
 		}
 	}
 
