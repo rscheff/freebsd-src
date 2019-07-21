@@ -955,7 +955,6 @@ struct mbuf *
 	   int32_t seglimit, int32_t segsize, struct sockbuf *sb);
 
 int	 tcp_get_ace(struct tcphdr *th);
-void	 tcp_set_ace(struct tcphdr *th, int ace);
 
 static inline void
 tcp_fields_to_host(struct tcphdr *th)

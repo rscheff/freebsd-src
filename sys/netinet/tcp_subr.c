@@ -3244,3 +3244,16 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 	if (inp->inp_socket == NULL)
 		xt->xt_inp.xi_socket.xso_protocol = IPPROTO_TCP;
 }
+
+int
+tcp_get_ace(struct tcphdr *th)
+{
+	int ace = 0;
+	if (th->th_flags & TH_ECE)
+		ace += 1;
+	if (th->th_flags & TH_CWR)
+		ace += 2;
+	if (th->th_x2 & (TH_AE >> 8))
+		ace += 4;
+	return ace;
+}

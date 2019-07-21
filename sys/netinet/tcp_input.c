@@ -1572,10 +1572,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	tiwin = th->th_win << tp->snd_scale;
 
-
-        if (so->so_options & SO_DEBUG) {
-           printf("tp flags: %0x\n", tp->t_flags);
-        }
 	/*
 	 * TCP ECN processing.
 	 */
