@@ -1601,6 +1601,13 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
 				tp->t_flags |= TF_ECN_SND_ECE;
 		}
+		
+		if (tp && (so->so_options & SO_DEBUG)) {
+		    printf("tcp_input 1606: %02x delta: %d r.cep: %d s.cep: %d flags: %03x\n",
+			(iptos & IPTOS_ECN_MASK), d_ace,
+			tp->r_cep, tp->s_cep, tp->t_flags);
+}
+
 
 		/* Process a packet differently from RFC3168. */
 		cc_ecnpkt_handler(tp, th, iptos);
@@ -1618,6 +1625,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	/*
 	 * Parse options on any incoming segment.
 	 */
+	 
 	tcp_dooptions(&to, (u_char *)(th + 1),
 	    (th->th_off << 2) - sizeof(struct tcphdr),
 	    (thflags & TH_SYN) ? TO_SYN : 0);
@@ -2036,42 +2044,43 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				switch (xflags) {
 				/* non-ECT SYN */
 				case (0|TH_CWR|0):
-					tp->t_flags  |= TF_ECN_PERMIT;
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 5;
+					tp->r_cep = 0b010; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
 				/* ECT1 SYN */
 				case (0|TH_CWR|TH_ECE):
-					tp->t_flags  |= TF_ECN_PERMIT;
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 5;
+					tp->r_cep = 0b011; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_ect1);
 					break;
 				/* ECT0 SYN */
 				case (TH_AE|0|0):
-					tp->t_flags  |= TF_ECN_PERMIT;
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 5;
+					tp->r_cep = 0b100; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_ect0);
 					break;
 				/* CE SYN */
 				case (TH_AE|TH_CWR|0):
-					tp->t_flags  |= TF_ECN_PERMIT;
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 6;
-					tp->r_cep = 6;
+					tp->r_cep = 0b110; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
 				default:
 					break;
+				}
+				if (tp && (so->so_options & SO_DEBUG)) {
+				    printf("tcp_input 2081: %08x %08x r.cep: %d s.cep: %d flags: %03x\n",
+					(tp->t_flags), (tp->t_flags2),
+					tp->r_cep, tp->s_cep, xflags);
 				}
 			}
 
