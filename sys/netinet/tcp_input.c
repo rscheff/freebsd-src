@@ -370,7 +370,7 @@ cc_conn_init(struct tcpcb *tp)
 	 * reduce the initial CWND to one segment as congestion is likely
 	 * requiring us to be cautious.
 	 */
-	if ((tp->snd_cwnd == 1)
+	if (tp->snd_cwnd == 1)
 		tp->snd_cwnd = maxseg; 		/* SYN(-ACK) lost */
 	else
 		tp->snd_cwnd = tcp_compute_initwnd(maxseg);
@@ -1577,12 +1577,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	if ((tp->t_flags2 & TF2_ECN_PERMIT) ||
 	    (tp->t_flags2 & TF2_ACE_PERMIT)) {
-		
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_input(%d): ECN:%02x  r.cep: %d s.cep: %d tcpf: %03x flags2: %03x\n",
-		        __LINE__, (iptos & IPTOS_ECN_MASK),
-		        tp->r_cep, tp->s_cep, ((th->th_x2<<8) | th->th_flags), tp->t_flags2);
-		}
 
 		switch (iptos & IPTOS_ECN_MASK) {
 		case IPTOS_ECN_CE:
@@ -1602,14 +1596,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
 				tp->r_cep += 1;
 			if (tp->t_flags2 & TF2_ECN_PERMIT) {
-				d_ace = (tcp_get_ace(th) + 8 - (tp->s_cep & 0x07)) & 0x07;
+				d_ace = (tcp_get_ace(th) + 8 - 
+				    (tp->s_cep & 0x07)) & 0x07;
 				tp->s_cep += d_ace;
 			} else {
-				if (tp && (so->so_options & SO_DEBUG)) {
-				    printf("tcp_input(%d): ECN:%02x  r.cep: %d s.cep: %d tcpf: %03x flags2: %03x\n",
-				        __LINE__, (iptos & IPTOS_ECN_MASK),
-				        tp->r_cep, tp->s_cep, ((th->th_x2<<8) | th->th_flags), tp->t_flags2);
-				}
 				/* process the final ACK of the 3WHS */
 				switch (tcp_get_ace(th)){
 				case 0b010:
@@ -1623,7 +1613,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case 0b110:
 					/* CE SYN or SYN,ACK */
 					tp->s_cep = 6;
-					tp->snd_cwnd = 2*tcp_maxseg(tp);
+					tp->snd_cwnd = 2 * tcp_maxseg(tp);
 					break;
 				default:
 					/* mangled AccECN handshake */
@@ -2070,12 +2060,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			   (V_tcp_do_ecn == 4)) {
 				int xflags;
 				xflags = ((th->th_x2 << 8) | thflags) & (TH_AE|TH_CWR|TH_ECE);
-				if (tp && (so->so_options & SO_DEBUG)) {
-				    printf("tcp_input(%d): ECN:%02x  r.cep: %d s.cep: %d tcpf: %03x flags2: %03x\n",
-				        __LINE__, (iptos & IPTOS_ECN_MASK),
-				        tp->r_cep, tp->s_cep, xflags, tp->t_flags2);
-				}
-
 				/*
 				 * on the SYN,ACK, process the AccECN
 				 * flags indicating the state the SYN
@@ -2123,7 +2107,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				}
 				/*
 				 * Set the AccECN Codepoints on
-				 * the outgoing ACK to the SYN,ACK
+				 * the outgoing <ACK> to the ECN
+				 * state of the <SYN,ACK>
 				 * according to table 3 in the
 				 * AccECN draft
 				 */
