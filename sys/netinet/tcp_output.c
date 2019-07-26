@@ -1119,13 +1119,8 @@ send:
 				flags |= TH_ECE|TH_CWR|TH_AE;
 		} else
 			flags |= TH_ECE|TH_CWR|TH_AE;
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_output 1123: %08x %08x r.cep: %d s.cep: %d th_flags: %03x\n",
-			tp->t_flags, tp->t_flags2, tp->r_cep, tp->s_cep, flags);
-		}
-
 	}
-	
+
 	if (tp->t_state == TCPS_ESTABLISHED &&
 	    ((tp->t_flags2 & TF2_ECN_PERMIT) ||
 	     (tp->t_flags2 & TF2_ACE_PERMIT))) {
@@ -1144,13 +1139,6 @@ send:
 				ip->ip_tos |= IPTOS_ECN_ECT0;
 			TCPSTAT_INC(tcps_ecn_ect0);
 		}
-		
-		if (tp && (so->so_options & SO_DEBUG)) {
-                   printf("tcp_output:1149 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
-                          (tp->t_flags), (tp->t_flags2),
-                          tp->r_cep, tp->s_cep, flags);
-               }
-
 
 		/*
 		 * Reply with proper ECN notifications.
@@ -1187,11 +1175,6 @@ send:
 			}
 			if (tp->t_flags2 & TF2_ECN_SND_ECE)
 				flags |= TH_ECE;
-		}
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_output:1188 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
-			(tp->t_flags), (tp->t_flags2),
-			tp->r_cep, tp->s_cep, flags);
 		}
 	}
 

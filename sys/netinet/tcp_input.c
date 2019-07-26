@@ -1601,13 +1601,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
 				tp->t_flags2 |= TF2_ECN_SND_ECE;
 		}
-		
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_input 1606: %02x delta: %d r.cep: %d s.cep: %d flags: %03x\n",
-			(iptos & IPTOS_ECN_MASK), d_ace,
-			tp->r_cep, tp->s_cep, tp->t_flags2);
-}
-
 
 		/* Process a packet differently from RFC3168. */
 		cc_ecnpkt_handler(tp, th, iptos);
@@ -1625,7 +1618,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	/*
 	 * Parse options on any incoming segment.
 	 */
-	 
 	tcp_dooptions(&to, (u_char *)(th + 1),
 	    (th->th_off << 2) - sizeof(struct tcphdr),
 	    (thflags & TH_SYN) ? TO_SYN : 0);
@@ -2093,11 +2085,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (IPTOS_ECN_CE):
 					tp->r_cep = 0b110;
 					break;
-				}
-				if (tp && (so->so_options & SO_DEBUG)) {
-				    printf("tcp_input 2081: %08x %08x r.cep: %d s.cep: %d flags: %03x ecn: %1x\n",
-					(tp->t_flags), (tp->t_flags2),
-					tp->r_cep, tp->s_cep, xflags, iptos);
 				}
 			}
 

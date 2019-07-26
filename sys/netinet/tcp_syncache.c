@@ -977,12 +977,6 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 			tp->s_cep=6;
 			tp->r_cep=6;
 		}
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_syncache 981: %08x %08x r.cep: %d s.cep: %d\n",
-			(tp->t_flags), (tp->t_flags2),
-			tp->r_cep, tp->s_cep);
-		}
- 
 	}
 
 	/*
@@ -1686,11 +1680,6 @@ skip_alloc:
 			}
 			break;
 		}
-		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_syncache 1690: scf:%08x\n",
-			(sc->sc_flags));
-		}
-
 	}
 
 	if (V_tcp_syncookies)
