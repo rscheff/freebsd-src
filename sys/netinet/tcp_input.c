@@ -370,9 +370,8 @@ cc_conn_init(struct tcpcb *tp)
 	 * reduce the initial CWND to one segment as congestion is likely
 	 * requiring us to be cautious.
 	 */
-	if ((tp->snd_cwnd == 1) ||		/* SYN(-ACK) lost */
-	    (tp->snd_cwnd == 2))		/* SYN(-ACK) CE marked */
-		tp->snd_cwnd *= maxseg;
+	if ((tp->snd_cwnd == 1)
+		tp->snd_cwnd = maxseg; 		/* SYN(-ACK) lost */
 	else
 		tp->snd_cwnd = tcp_compute_initwnd(maxseg);
 
@@ -1624,7 +1623,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case 0b110:
 					/* CE SYN or SYN,ACK */
 					tp->s_cep = 6;
-					tp->snd_cwnd = 2;
+					tp->snd_cwnd = 2*tcp_maxseg(tp);
 					break;
 				default:
 					/* mangled AccECN handshake */
@@ -2111,11 +2110,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 6;
 					/*
-					 * reduce the IW to 2 (to account
-					 * for delayed acks) if
+					 * reduce the IW to 2 MSS (to 
+					 * account for delayed acks) if
 					 * the SYN,ACK was CE marked
 					 */
-					tp->snd_cwnd = 2;
+					tp->snd_cwnd = 2 * tcp_maxseg(tp);
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
