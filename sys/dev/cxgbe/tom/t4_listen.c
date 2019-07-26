@@ -1122,7 +1122,7 @@ pass_accept_req_to_protohdrs(struct adapter *sc, const struct mbuf *m,
 		}
 #ifdef INET6
 		else
-		if (((struct ip *)l3hdr)->ip_v == IPV6_VERSION) {
+		if (((struct ip *)l3hdr)->ip_v == (IPV6_VERSION >> 4)) {
 			const struct ip6_hdr *ip6 = (const void *)l3hdr;
 			*iptos = (ntohl(ip6->ip6_flow) >> 20) & 0xff;
 		}
