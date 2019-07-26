@@ -1146,7 +1146,7 @@ send:
 		}
 		
 		if (tp && (so->so_options & SO_DEBUG)) {
-                   printf("tcp_output:1144 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
+                   printf("tcp_output:1149 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
                           (tp->t_flags), (tp->t_flags2),
                           tp->r_cep, tp->s_cep, flags);
                }
@@ -1169,6 +1169,10 @@ send:
 			else
 				flags &= ~TH_AE;
 			if (!(tp->t_flags & TF_ECN_PERMIT)) {
+				/*
+				 * here we process the final
+				 * ACK of the 3WHS
+				 */
 				if (tp->r_cep == 0b110) {
 					tp->r_cep = 6;
 				} else {
@@ -1185,7 +1189,7 @@ send:
 				flags |= TH_ECE;
 		}
 		if (tp && (so->so_options & SO_DEBUG)) {
-		    printf("tcp_output:1144 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
+		    printf("tcp_output:1188 fl:%08x fl2:%08x r.cep: %d s.cep: %d flags: %03x\n",
 			(tp->t_flags), (tp->t_flags2),
 			tp->r_cep, tp->s_cep, flags);
 		}

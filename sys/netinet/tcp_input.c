@@ -2046,7 +2046,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (0|TH_CWR|0):
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 0b010; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
@@ -2054,7 +2053,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (0|TH_CWR|TH_ECE):
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 0b011; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_ect1);
 					break;
@@ -2062,7 +2060,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (TH_AE|0|0):
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 5;
-					tp->r_cep = 0b100; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_ect0);
 					break;
@@ -2070,17 +2067,37 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (TH_AE|TH_CWR|0):
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 6;
-					tp->r_cep = 0b110; /* table 3 */
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
 				default:
 					break;
 				}
+				/*
+				 * Set the AccECN Codepoints on
+				 * the outgoing ACK to the SYN,ACK
+				 * according to table 3 in the 
+				 * AccECN draft
+				 */
+				switch (iptos & IPTOS_ECN_MASK) {
+				/* non-ECT SYN,ACK */
+				case (IPTOS_ECN_NOTECT):
+					tp->r_cep = 0b010;
+					break;
+				case (IPTOS_ECN_ECT0):
+					tp->r_cep = 0b100;
+					break;
+				case (IPTOS_ECN_ECT1):
+					tp->r_cep = 0b011;
+					break;
+				case (IPTOS_ECN_CE):
+					tp->r_cep = 0b110;
+					break;
+				}
 				if (tp && (so->so_options & SO_DEBUG)) {
-				    printf("tcp_input 2081: %08x %08x r.cep: %d s.cep: %d flags: %03x\n",
+				    printf("tcp_input 2081: %08x %08x r.cep: %d s.cep: %d flags: %03x ecn: %1x\n",
 					(tp->t_flags), (tp->t_flags2),
-					tp->r_cep, tp->s_cep, xflags);
+					tp->r_cep, tp->s_cep, xflags, iptos);
 				}
 			}
 
