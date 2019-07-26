@@ -2068,7 +2068,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				/*
 				 * Set the AccECN Codepoints on
 				 * the outgoing ACK to the SYN,ACK
-				 * according to table 3 in the 
+				 * according to table 3 in the
 				 * AccECN draft
 				 */
 				switch (iptos & IPTOS_ECN_MASK) {
