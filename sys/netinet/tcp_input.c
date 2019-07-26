@@ -370,8 +370,9 @@ cc_conn_init(struct tcpcb *tp)
 	 * reduce the initial CWND to one segment as congestion is likely
 	 * requiring us to be cautious.
 	 */
-	if (tp->snd_cwnd == 1)
-		tp->snd_cwnd = maxseg;		/* SYN(-ACK) lost */
+	if ((tp->snd_cwnd == 1) ||		/* SYN(-ACK) lost */
+	    (tp->snd_cwnd == 2))		/* SYN(-ACK) CE marked */
+		tp->snd_cwnd *= maxseg;
 	else
 		tp->snd_cwnd = tcp_compute_initwnd(maxseg);
 
@@ -2033,6 +2034,13 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			   (V_tcp_do_ecn == 4)) {
 				int xflags;
 				xflags = ((th->th_x2 << 8) | thflags) & (TH_AE|TH_CWR|TH_ECE);
+				/*
+				 * on the SYN,ACK, process the AccECN
+				 * flags indicating the state the SYN
+				 * was delivered.
+				 * Reactions to Path ECN mangling can
+				 * come here.
+				 */
 				switch (xflags) {
 				/* non-ECT SYN */
 				case (0|TH_CWR|0):
@@ -2059,6 +2067,12 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				case (TH_AE|TH_CWR|0):
 					tp->t_flags2 |= TF2_ACE_PERMIT;
 					tp->s_cep = 6;
+					/*
+					 * reduce the IW to 2 (to account
+					 * for delayed acks) if
+					 * the SYN,ACK was CE marked
+					 */
+					tp->snd_cwnd = 2;
 					TCPSTAT_INC(tcps_ecn_shs);
 					TCPSTAT_INC(tcps_ace_nect);
 					break;
@@ -2072,7 +2086,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 * AccECN draft
 				 */
 				switch (iptos & IPTOS_ECN_MASK) {
-				/* non-ECT SYN,ACK */
 				case (IPTOS_ECN_NOTECT):
 					tp->r_cep = 0b010;
 					break;

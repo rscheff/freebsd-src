@@ -976,6 +976,12 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 		if (sc->sc_flags & SCF_ACE_CE) {
 			tp->s_cep=6;
 			tp->r_cep=6;
+			/* 
+			 * reduce IW to 2 (to account
+			 * for delayed Acks) if the
+			 * SYN was CE marked
+			 */
+			tp->snd_cwnd=2;
 		}
 	}
 
