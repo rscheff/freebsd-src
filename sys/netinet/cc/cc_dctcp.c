@@ -108,7 +108,7 @@ dctcp_ack_received(struct cc_var *ccv, uint16_t type)
 
 	dctcp_data = ccv->cc_data;
 
-	if (CCV(ccv, t_flags) & TF_ECN_PERMIT) {
+	if (CCV(ccv, t_flags2) & TF2_ECN_PERMIT) {
 		/*
 		 * DCTCP doesn't treat receipt of ECN marked packet as a
 		 * congestion event. Thus, DCTCP always executes the ACK
@@ -276,8 +276,8 @@ dctcp_cong_signal(struct cc_var *ccv, uint32_t type)
 		dctcp_data->ece_curr = 1;
 		break;
 	case CC_RTO:
-		if (CCV(ccv, t_flags) & TF_ECN_PERMIT) {
-			CCV(ccv, t_flags) |= TF_ECN_SND_CWR;
+		if (CCV(ccv, t_flags2) & TF2_ECN_PERMIT) {
+			CCV(ccv, t_flags2) |= TF2_ECN_SND_CWR;
 			dctcp_update_alpha(ccv);
 			dctcp_data->save_sndnxt += CCV(ccv, t_maxseg);
 			dctcp_data->num_cong_events++;
@@ -293,7 +293,7 @@ dctcp_conn_init(struct cc_var *ccv)
 
 	dctcp_data = ccv->cc_data;
 
-	if (CCV(ccv, t_flags) & TF_ECN_PERMIT)
+	if (CCV(ccv, t_flags2) & TF2_ECN_PERMIT)
 		dctcp_data->save_sndnxt = CCV(ccv, snd_nxt);
 }
 
@@ -305,7 +305,7 @@ dctcp_post_recovery(struct cc_var *ccv)
 {
 	dctcp_cc_algo.post_recovery = newreno_cc_algo.post_recovery;
 
-	if (CCV(ccv, t_flags) & TF_ECN_PERMIT)
+	if (CCV(ccv, t_flags2) & TF2_ECN_PERMIT)
 		dctcp_update_alpha(ccv);
 }
 
@@ -336,12 +336,12 @@ dctcp_ecnpkt_handler(struct cc_var *ccv)
 		if (!dctcp_data->ce_prev && (ccflag & CCF_DELACK))
 			delay_ack = 0;
 		dctcp_data->ce_prev = 1;
-		CCV(ccv, t_flags) |= TF_ECN_SND_ECE;
+		CCV(ccv, t_flags2) |= TF2_ECN_SND_ECE;
 	} else {
 		if (dctcp_data->ce_prev && (ccflag & CCF_DELACK))
 			delay_ack = 0;
 		dctcp_data->ce_prev = 0;
-		CCV(ccv, t_flags) &= ~TF_ECN_SND_ECE;
+		CCV(ccv, t_flags2) &= ~TF2_ECN_SND_ECE;
 	}
 
 	/* DCTCP sets delayed ack when this segment sets the CWR flag. */

@@ -964,7 +964,7 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 	}
 
 	if (sc->sc_flags & SCF_ECN)
-		tp->t_flags |= TF_ECN_PERMIT;
+		tp->t_flags2 |= TF2_ECN_PERMIT;
 
 	if ((sc->sc_flags & SCF_ACE_N) ||
 	    (sc->sc_flags & SCF_ACE_0) ||
