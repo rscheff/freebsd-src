@@ -3244,7 +3244,7 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 	if (inp->inp_socket == NULL)
 		xt->xt_inp.xi_socket.xso_protocol = IPPROTO_TCP;
 }
-
+/*
 int
 tcp_get_ace(struct tcphdr *th)
 {
@@ -3256,4 +3256,4 @@ tcp_get_ace(struct tcphdr *th)
 	if (th->th_x2 & (TH_AE >> 8))
 		ace += 4;
 	return ace;
-}
+}*/

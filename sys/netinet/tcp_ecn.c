@@ -63,6 +63,22 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet6.h"
 #include "opt_tcpdebug.h"
 
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/kernel.h>
+#include <sys/sysctl.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/socket.h>
+#include <sys/socketvar.h>
+
+#include <machine/cpu.h>
+
+#include <vm/uma.h>
+
+#include <net/if.h>
+#include <net/if_var.h>
+#include <net/route.h>
 #include <net/vnet.h>
 
 #include <netinet/in.h>
