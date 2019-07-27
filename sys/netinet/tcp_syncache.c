@@ -90,6 +90,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
 #include <netinet/tcp_syncache.h>
+#include <netinet/tcp_ecn.h>
 #ifdef INET6
 #include <netinet6/tcp6_var.h>
 #endif
@@ -1627,59 +1628,7 @@ skip_alloc:
 		sc->sc_flags |= SCF_NOOPT;
 	/* ECN Handshake */
 	if (V_tcp_do_ecn) {
-		int xflags;
-		xflags = ((th->th_x2 << 8) | th->th_flags) & (TH_AE|TH_CWR|TH_ECE);
-		switch (xflags) {
-		/* no ECN */
-		case (0|0|0):
-			break;
-		/* legacy ECN */
-		case (0|TH_CWR|TH_ECE):
-			sc->sc_flags |= SCF_ECN;
-			break;
-		/* Accurate ECN */
-		case (TH_AE|TH_CWR|TH_ECE):
-			if ((V_tcp_do_ecn == 3) ||
-			   (V_tcp_do_ecn == 4)) {
-
-				switch (tos & IPTOS_ECN_MASK) {
-				case IPTOS_ECN_CE:
-					sc->sc_flags |= SCF_ACE_CE;
-					break;
-				case IPTOS_ECN_ECT0:
-					sc->sc_flags |= SCF_ACE_0;
-					break;
-				case IPTOS_ECN_ECT1:
-					sc->sc_flags |= SCF_ACE_1;
-					break;
-				case IPTOS_ECN_NOTECT:
-					sc->sc_flags |= SCF_ACE_N;
-					break;
-				}
-			} else
-				sc->sc_flags |= SCF_ECN;
-			break;
-		/* Default Case (section 3.1.2) */
-		default:
-			if ((V_tcp_do_ecn == 3) ||
-			   (V_tcp_do_ecn == 4)) {
-				switch (tos & IPTOS_ECN_MASK) {
-				case IPTOS_ECN_CE:
-					sc->sc_flags |= SCF_ACE_CE;
-					break;
-				case IPTOS_ECN_ECT0:
-					sc->sc_flags |= SCF_ACE_0;
-					break;
-				case IPTOS_ECN_ECT1:
-					sc->sc_flags |= SCF_ACE_1;
-					break;
-				case IPTOS_ECN_NOTECT:
-					sc->sc_flags |= SCF_ACE_N;
-					break;
-				}
-			}
-			break;
-		}
+		sc->sc_flags |= tcp_ecn_syncache_add(th, tos);
 	}
 
 	if (V_tcp_syncookies)
@@ -1849,32 +1798,7 @@ syncache_respond(struct syncache *sc, struct syncache_head *sch,
 	th->th_win = htons(sc->sc_wnd);
 	th->th_urp = 0;
 
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ECN)) {
-		th->th_flags |= TH_ECE;
-		TCPSTAT_INC(tcps_ecn_shs);
-	}
-
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_N)) {
-		th->th_flags |= TH_CWR;
-		TCPSTAT_INC(tcps_ecn_shs);
-		TCPSTAT_INC(tcps_ace_nect);
-	}
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_0)) {
-		th->th_x2    |= (TH_AE >> 8);
-		TCPSTAT_INC(tcps_ecn_shs);
-		TCPSTAT_INC(tcps_ace_ect0);
-	}
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_1)) {
-		th->th_flags |= (TH_ECE | TH_CWR);
-		TCPSTAT_INC(tcps_ecn_shs);
-		TCPSTAT_INC(tcps_ace_ect1);
-	}
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ACE_CE)) {
-		th->th_flags |= TH_CWR;
-		th->th_x2    |= (TH_AE >> 8);
-		TCPSTAT_INC(tcps_ecn_shs);
-		TCPSTAT_INC(tcps_ace_ce);
-	}
+	tcp_ecn_syncache_respond(th, sc, flags);
 
 	/* Tack on the TCP options. */
 	if ((sc->sc_flags & SCF_NOOPT) == 0) {

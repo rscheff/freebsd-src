@@ -120,6 +120,7 @@ __FBSDID("$FreeBSD$");
 #ifdef TCP_OFFLOAD
 #include <netinet/tcp_offload.h>
 #endif
+#include <netinet/tcp_ecn.h>
 
 #include <netipsec/ipsec_support.h>
 
@@ -1596,12 +1597,12 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
 				tp->r_cep += 1;
 			if (tp->t_flags2 & TF2_ECN_PERMIT) {
-				d_ace = (tcp_get_ace(th) + 8 - 
+				d_ace = (tcp_ecn_get_ace(th) + 8 - 
 				    (tp->s_cep & 0x07)) & 0x07;
 				tp->s_cep += d_ace;
 			} else {
 				/* process the final ACK of the 3WHS */
-				switch (tcp_get_ace(th)){
+				switch (tcp_ecn_get_ace(th)){
 				case 0b010:
 					/* nonECT SYN or SYN,ACK */
 				case 0b011:

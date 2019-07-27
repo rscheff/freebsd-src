@@ -99,16 +99,123 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_var.h>
 #include <netinet6/tcp6_var.h>
 #include <netinet/tcpip.h>
+#include <netinet/tcp_ecn.h>
+
+/*
+ * Process a <SYN> packets ECN information, and provide the
+ * syncache with the relevant information.
+ */
+int
+tcp_ecn_syncache_add(struct tcphdr *th, int tos)
+{
+	int xflags, scflags = 0;
+
+	xflags = ((th->th_x2 << 8) | th->th_flags) & (TH_AE|TH_CWR|TH_ECE);
+	switch (xflags) {
+	/* no ECN */
+	case (0|0|0):
+		break;
+	/* legacy ECN */
+	case (0|TH_CWR|TH_ECE):
+		scflags = SCF_ECN;
+		break;
+	/* Accurate ECN */
+	case (TH_AE|TH_CWR|TH_ECE):
+		if ((V_tcp_do_ecn == 3) ||
+		    (V_tcp_do_ecn == 4)) {
+			switch (tos & IPTOS_ECN_MASK) {
+			case IPTOS_ECN_CE:
+				scflags = SCF_ACE_CE;
+				break;
+			case IPTOS_ECN_ECT0:
+				scflags = SCF_ACE_0;
+				break;
+			case IPTOS_ECN_ECT1:
+				scflags = SCF_ACE_1;
+				break;
+			case IPTOS_ECN_NOTECT:
+				scflags = SCF_ACE_N;
+				break;
+			}
+		} else
+			scflags |= SCF_ECN;
+		break;
+	/* Default Case (section 3.1.2) */
+	default:
+		if ((V_tcp_do_ecn == 3) ||
+		    (V_tcp_do_ecn == 4)) {
+			switch (tos & IPTOS_ECN_MASK) {
+			case IPTOS_ECN_CE:
+				scflags = SCF_ACE_CE;
+				break;
+			case IPTOS_ECN_ECT0:
+				scflags = SCF_ACE_0;
+				break;
+			case IPTOS_ECN_ECT1:
+				scflags = SCF_ACE_1;
+				break;
+			case IPTOS_ECN_NOTECT:
+				scflags = SCF_ACE_N;
+				break;
+			}
+		}
+		break;
+	}
+	return scflags;
+}
+
+/*
+ * Set up the ECN information for the <SYN,ACK> from
+ * syncache information.
+ */
+void
+tcp_ecn_syncache_respond(struct tcphdr *th, struct syncache *sc, int flags)
+{
+	if ((flags & TH_SYN) && 
+	    (sc->sc_flags & SCF_ECN_MASK)) {
+		switch (sc->sc_flags & SCF_ECN_MASK) {
+		case SCF_ECN:
+			th->th_flags |= TH_ECE;
+			TCPSTAT_INC(tcps_ecn_shs);
+			break;
+		case SCF_ACE_N:
+			th->th_flags |= TH_CWR;
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_nect);
+			break;
+		case SCF_ACE_0:
+			th->th_x2    |= (TH_AE >> 8);
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_ect0);
+			break;
+		case SCF_ACE_1:
+			th->th_flags |= (TH_ECE | TH_CWR);
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_ect1);
+			break;
+		case SCF_ACE_CE:
+			th->th_flags |= TH_CWR;
+			th->th_x2    |= (TH_AE >> 8);
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_ce);
+			break;
+		/* undefined SCF codepoint */
+		default:
+			break;
+		}
+	}
+}
 
 int
-tcp_get_ace(struct tcphdr *th)
+tcp_ecn_get_ace(struct tcphdr *th)
 {
-    int ace = 0;
-    if (th->th_flags & TH_ECE)
-	ace += 1;
-    if (th->th_flags & TH_CWR)
-	ace += 2;
-    if (th->th_x2 & (TH_AE >> 8))
-	ace += 4;
-    return ace;
+	int ace = 0;
+
+	if (th->th_flags & TH_ECE)
+		ace += 1;
+	if (th->th_flags & TH_CWR)
+		ace += 2;
+	if (th->th_x2 & (TH_AE >> 8))
+		ace += 4;
+	return ace;
 }

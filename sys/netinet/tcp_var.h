@@ -954,8 +954,6 @@ struct mbuf *
 	 tcp_m_copym(struct mbuf *m, int32_t off0, int32_t *plen,
 	   int32_t seglimit, int32_t segsize, struct sockbuf *sb);
 
-int	 tcp_get_ace(struct tcphdr *th);
-
 static inline void
 tcp_fields_to_host(struct tcphdr *th)
 {
