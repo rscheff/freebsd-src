@@ -40,6 +40,10 @@
 
 #ifdef _KERNEL
 
+void	 tcp_ecn_input_syn_sent(struct tcpcb *, struct tcphdr *, int);
+int	 tcp_ecn_output_syn_sent(struct tcpcb *);
+int	 tcp_ecn_output_established(struct tcpcb *, int *, int);
+void	 tcp_ecn_syncache_socket(struct tcpcb *, struct syncache *);
 int	 tcp_ecn_syncache_add(struct tcphdr *, int);
 void	 tcp_ecn_syncache_respond(struct tcphdr *, struct syncache *, int);
 int	 tcp_ecn_get_ace(struct tcphdr *);

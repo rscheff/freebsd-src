@@ -964,21 +964,7 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 			tp->t_flags |= TF_SACK_PERMIT;
 	}
 
-	if (sc->sc_flags & SCF_ECN)
-		tp->t_flags2 |= TF2_ECN_PERMIT;
-
-	if ((sc->sc_flags & SCF_ACE_N) ||
-	    (sc->sc_flags & SCF_ACE_0) ||
-	    (sc->sc_flags & SCF_ACE_1) ||
-	    (sc->sc_flags & SCF_ACE_CE)) {
-		tp->t_flags2 |= TF2_ACE_PERMIT;
-		tp->s_cep = 5;
-		tp->r_cep = 5;
-		if (sc->sc_flags & SCF_ACE_CE) {
-			tp->s_cep=6;
-			tp->r_cep=6;
-		}
-	}
+	tcp_ecn_syncache_socket(tp, sc);
 
 	/*
 	 * Set up MSS and get cached values from tcp_hostcache.

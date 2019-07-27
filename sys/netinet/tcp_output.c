@@ -90,6 +90,7 @@ __FBSDID("$FreeBSD$");
 #ifdef TCP_OFFLOAD
 #include <netinet/tcp_offload.h>
 #endif
+#include <netinet/tcp_ecn.h>
 
 #include <netipsec/ipsec_support.h>
 
@@ -1103,79 +1104,21 @@ send:
 	 * resend those bits a number of times as per
 	 * RFC 3168.
 	 */
-	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn == 1) {
-		if (tp->t_rxtshift >= 1) {
-			if (tp->t_rxtshift <= V_tcp_ecn_maxretries)
-				flags |= TH_ECE|TH_CWR;
-		} else
-			flags |= TH_ECE|TH_CWR;
-	}
-	/*
-	 * Send an Accurate ECN setup SYN packet
-	 */
-	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn == 3) {
-		if (tp->t_rxtshift >= 1) {
-			if (tp->t_rxtshift <= V_tcp_ecn_maxretries)
-				flags |= TH_ECE|TH_CWR|TH_AE;
-		} else
-			flags |= TH_ECE|TH_CWR|TH_AE;
+	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
+		flags |= tcp_ecn_output_syn_sent(tp);
 	}
 
 	if (tp->t_state == TCPS_ESTABLISHED &&
 	    ((tp->t_flags2 & TF2_ECN_PERMIT) ||
 	     (tp->t_flags2 & TF2_ACE_PERMIT))) {
-		/*
-		 * If the peer has ECN, mark data packets with
-		 * ECN capable transmission (ECT).
-		 * Ignore pure ack packets, retransmissions and window probes.
-		 */
-		if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-		    !((tp->t_flags & TF_FORCEDATA) && len == 1)) {
-#ifdef INET6
-			if (isipv6)
-				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
-			else
-#endif
-				ip->ip_tos |= IPTOS_ECN_ECT0;
-			TCPSTAT_INC(tcps_ecn_ect0);
-		}
 
-		/*
-		 * Reply with proper ECN notifications.
-		 */
-		if (tp->t_flags2 & TF2_ACE_PERMIT) {
-			if (tp->r_cep & 0x01)
-				flags |= TH_ECE;
-			else
-				flags &= ~TH_ECE;
-			if (tp->r_cep & 0x02)
-				flags |= TH_CWR;
-			else
-				flags &= ~TH_CWR;
-			if (tp->r_cep & 0x04)
-				flags |= TH_AE;
-			else
-				flags &= ~TH_AE;
-			if (!(tp->t_flags2 & TF2_ECN_PERMIT)) {
-				/*
-				 * here we process the final
-				 * ACK of the 3WHS
-				 */
-				if (tp->r_cep == 0b110) {
-					tp->r_cep = 6;
-				} else {
-					tp->r_cep = 5;
-				}
-				tp->t_flags2 |= TF2_ECN_PERMIT;
-			}
-		} else {
-			if (tp->t_flags2 & TF2_ECN_SND_CWR) {
-				flags |= TH_CWR;
-				tp->t_flags2 &= ~TF2_ECN_SND_CWR;
-			}
-			if (tp->t_flags2 & TF2_ECN_SND_ECE)
-				flags |= TH_ECE;
-		}
+		int ect = tcp_ecn_output_established(tp, &flags, len);
+#ifdef INET6
+		if (isipv6)
+			ip6->ip6_flow |= htonl(ect << 20);
+		else
+#endif
+			ip->ip_tos |= ect;
 	}
 
 	/*

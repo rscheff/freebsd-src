@@ -97,6 +97,7 @@ __FBSDID("$FreeBSD$");
 #ifdef INET6
 #include <netinet6/tcp6_var.h>
 #endif
+#include <netinet/tcp_ecn.h>
 
 #include <netipsec/ipsec_support.h>
 
@@ -5263,11 +5264,8 @@ rack_do_syn_sent(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			tp->t_flags |= TF_ACKNOW;
 		}
 
-		if (((thflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
-		    V_tcp_do_ecn) {
-			tp->t_flags2 |= TF2_ECN_PERMIT;
-			TCPSTAT_INC(tcps_ecn_shs);
-		}
+		tcp_ecn_input_syn_sent(tp, th, iptos);
+
 		if (SEQ_GT(th->th_ack, tp->snd_una)) {
 			/* 
 			 * We advance snd_una for the 
@@ -8144,39 +8142,20 @@ send:
 	 * are on a retransmit, we may resend those bits a number of times
 	 * as per RFC 3168.
 	 */
-	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn == 1) {
-		if (tp->t_rxtshift >= 1) {
-			if (tp->t_rxtshift <= V_tcp_ecn_maxretries)
-				flags |= TH_ECE | TH_CWR;
-		} else
-			flags |= TH_ECE | TH_CWR;
+	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
+		flags |= tcp_ecn_output_syn_sent(tp);
 	}
 	if (tp->t_state == TCPS_ESTABLISHED &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
-		/*
-		 * If the peer has ECN, mark data packets with ECN capable
-		 * transmission (ECT). Ignore pure ack packets,
-		 * retransmissions and window probes.
-		 */
-		if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-		    !((tp->t_flags & TF_FORCEDATA) && len == 1)) {
+	    ((tp->t_flags2 & TF2_ECN_PERMIT) ||
+	     (tp->t_flags2 & TF2_ACE_PERMIT))) {
+
+		int ect = tcp_ecn_output_established(tp, &flags, len);
 #ifdef INET6
-			if (isipv6)
-				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
-			else
+		if (isipv6)
+			ip6->ip6_flow |= htonl(ect << 20);
+		else
 #endif
-				ip->ip_tos |= IPTOS_ECN_ECT0;
-			TCPSTAT_INC(tcps_ecn_ect0);
-		}
-		/*
-		 * Reply with proper ECN notifications.
-		 */
-		if (tp->t_flags2 & TF2_ECN_SND_CWR) {
-			flags |= TH_CWR;
-			tp->t_flags2 &= ~TF2_ECN_SND_CWR;
-		}
-		if (tp->t_flags2 & TF2_ECN_SND_ECE)
-			flags |= TH_ECE;
+			ip->ip_tos |= ect;
 	}
 	/*
 	 * If we are doing retransmissions, then snd_nxt will not reflect

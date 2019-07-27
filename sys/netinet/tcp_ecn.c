@@ -101,6 +101,217 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcpip.h>
 #include <netinet/tcp_ecn.h>
 
+
+/*
+ * Process incoming SYN,ACK packet
+ */
+void
+tcp_ecn_input_syn_sent(struct tcpcb *tp, struct tcphdr *th, int iptos)
+{
+	int xflags;
+
+	xflags = ((th->th_x2 << 8) | th->th_flags) & (TH_AE|TH_CWR|TH_ECE);
+
+	if (((xflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
+	    V_tcp_do_ecn) {
+		tp->t_flags2 |= TF2_ECN_PERMIT;
+		TCPSTAT_INC(tcps_ecn_shs);
+	}
+
+	/* decoding Accurate ECN according to table in section 3.1.1 */
+	if ((V_tcp_do_ecn == 3) ||
+	    (V_tcp_do_ecn == 4)) {
+		/*
+		 * on the SYN,ACK, process the AccECN
+		 * flags indicating the state the SYN
+		 * was delivered.
+		 * Reactions to Path ECN mangling can
+		 * come here.
+		 */
+		switch (xflags) {
+		/* non-ECT SYN */
+		case (0|TH_CWR|0):
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 5;
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_nect);
+			break;
+		/* ECT1 SYN */
+		case (0|TH_CWR|TH_ECE):
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 5;
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_ect1);
+			break;
+		/* ECT0 SYN */
+		case (TH_AE|0|0):
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 5;
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_ect0);
+			break;
+		/* CE SYN */
+		case (TH_AE|TH_CWR|0):
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 6;
+			/*
+			 * reduce the IW to 2 MSS (to 
+			 * account for delayed acks) if
+			 * the SYN,ACK was CE marked
+			 */
+			tp->snd_cwnd = 2 * tcp_maxseg(tp);
+			TCPSTAT_INC(tcps_ecn_shs);
+			TCPSTAT_INC(tcps_ace_nect);
+			break;
+		default:
+			break;
+		}
+		/*
+		 * Set the AccECN Codepoints on
+		 * the outgoing <ACK> to the ECN
+		 * state of the <SYN,ACK>
+		 * according to table 3 in the
+		 * AccECN draft
+		 */
+		switch (iptos & IPTOS_ECN_MASK) {
+		case (IPTOS_ECN_NOTECT):
+			tp->r_cep = 0b010;
+			break;
+		case (IPTOS_ECN_ECT0):
+			tp->r_cep = 0b100;
+			break;
+		case (IPTOS_ECN_ECT1):
+			tp->r_cep = 0b011;
+			break;
+		case (IPTOS_ECN_CE):
+			tp->r_cep = 0b110;
+			break;
+		}
+	}
+}
+
+/*
+ * Send ECN setup <SYN> packet header flags
+ */
+int
+tcp_ecn_output_syn_sent(struct tcpcb *tp)
+{
+	int flags = 0;
+
+	if (V_tcp_do_ecn == 1) {
+		/* Send a RFC3168 ECN setup <SYN> packet */
+		if (tp->t_rxtshift >= 1) {
+			if (tp->t_rxtshift <= V_tcp_ecn_maxretries)
+				flags = TH_ECE|TH_CWR;
+		} else
+			flags = TH_ECE|TH_CWR;
+	} else
+	if (V_tcp_do_ecn == 3) {
+		/* Send an Accurate ECN setup <SYN> packet */
+		if (tp->t_rxtshift >= 1) {
+			if (tp->t_rxtshift <= V_tcp_ecn_maxretries)
+				flags = TH_ECE|TH_CWR|TH_AE;
+		} else
+			flags = TH_ECE|TH_CWR|TH_AE;
+	}
+
+	return flags;
+}
+
+/*
+ * output processing of ECN feature
+ * returning IP ECN header codepoint
+ */
+int
+tcp_ecn_output_established(struct tcpcb *tp, int *flags, int len)
+{
+	int tos = IPTOS_ECN_NOTECT;
+
+	/*
+	 * If the peer has ECN, mark data packets with
+	 * ECN capable transmission (ECT).
+	 * Ignore pure ack packets, retransmissions and window probes.
+	 */
+    
+	/* legacy ECN marking, only data segments */
+	/* XXXRS: if accecn & dctcp, use ECT1 */
+	if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
+	    !((tp->t_flags & TF_FORCEDATA) && len == 1)) {
+		tos = IPTOS_ECN_ECT0;
+		TCPSTAT_INC(tcps_ecn_ect0);
+	}
+
+	/*
+	 * Reply with proper ECN notifications.
+	 */
+	if (tp->t_flags2 & TF2_ACE_PERMIT) {
+		if (tp->r_cep & 0x01)
+			*flags |= TH_ECE;
+		else
+			*flags &= ~TH_ECE;
+		if (tp->r_cep & 0x02)
+			*flags |= TH_CWR;
+		else
+			*flags &= ~TH_CWR;
+		if (tp->r_cep & 0x04)
+			*flags |= TH_AE;
+		else
+			*flags &= ~TH_AE;
+		if (!(tp->t_flags2 & TF2_ECN_PERMIT)) {
+			/*
+			 * here we process the final
+			 * ACK of the 3WHS
+			 */
+			if (tp->r_cep == 0b110) {
+				tp->r_cep = 6;
+			} else {
+				tp->r_cep = 5;
+			}
+			tp->t_flags2 |= TF2_ECN_PERMIT;
+		}
+	} else {
+		if (tp->t_flags2 & TF2_ECN_SND_CWR) {
+			*flags |= TH_CWR;
+			tp->t_flags2 &= ~TF2_ECN_SND_CWR;
+		}
+		if (tp->t_flags2 & TF2_ECN_SND_ECE)
+			*flags |= TH_ECE;
+	}
+
+	return tos;
+}
+
+/*
+ * Set up the ECN related tcpcb fields from 
+ * a syncache entry
+ */
+void
+tcp_ecn_syncache_socket(struct tcpcb *tp, struct syncache *sc)
+{
+	if (sc->sc_flags & SCF_ECN_MASK) {
+		switch (sc->sc_flags & SCF_ECN_MASK) {
+		case SCF_ECN:
+			tp->t_flags2 |= TF2_ECN_PERMIT;
+			break;
+		case SCF_ACE_N:
+		case SCF_ACE_0:
+		case SCF_ACE_1:
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 5;
+			tp->r_cep = 5;
+			break;
+		case SCF_ACE_CE:
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			tp->s_cep = 6;
+			tp->r_cep = 6;
+			break;
+		/* undefined SCF codepoint */
+		default:
+			break;
+		}
+	}
+}
+
 /*
  * Process a <SYN> packets ECN information, and provide the
  * syncache with the relevant information.
