@@ -34,7 +34,7 @@
 .\"     From: @(#)tcp.4	8.1 (Berkeley) 6/5/93
 .\" $FreeBSD$
 .\"
-.Dd July 27, 2019
+.Dd July 28, 2019
 .Dt TCP 4
 .Os
 .Sh NAME
@@ -563,13 +563,13 @@ Outgoing connections will request ECN.
 .It 2
 Allow incoming connections to request ECN.
 Outgoing connections will not request ECN.
-+.It 3
-+Allow incoming connection to request Accurate ECN or ECN.
-+Outgoing connections will request Accurate ECN and fall back to
-+ECN depending on the capabilities of the server.
-+.It 4
-+Allow incoming connections to request Accurate ECN or ECN.
-+Outgoing connections will not request ECN
+.It 3
+Negotiate on incoming connection for Accurate ECN, or ECN, or no ECN.
+Outgoing connections will request Accurate ECN and fall back to
+ECN depending on the capabilities of the server.
+.It 4
+Negotiate on incoming connection for Accurate ECN, or ECN, or no ECN.
+Outgoing connections will not request ECN.
 .El
 .It Va ecn.maxretries
 Number of retries (SYN or SYN/ACK retransmits) before disabling ECN on a
