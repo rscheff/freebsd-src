@@ -733,7 +733,7 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 		return (ECAPMODE);
 #endif
 
-	tempdata = malloc(sizeof(*tempdata), M_TEMP, M_WAITOK);
+	tempdata = malloc(sizeof(*tempdata), M_TEMP, M_WAITOK | M_ZERO);
 	nd = &tempdata->nd;
 	attr = &tempdata->attr;
 	imgp = &tempdata->image_params;
@@ -743,10 +743,6 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 	 */
 	imgp->proc = p;
 	imgp->attr = attr;
-	imgp->firstpage = NULL;
-	imgp->image_header = NULL;
-	imgp->object = NULL;
-	imgp->execlabel = NULL;
 
 	NDINIT(nd, LOOKUP, ISOPEN | FOLLOW | LOCKSHARED | LOCKLEAF,
 	    UIO_SYSSPACE, file, curthread);
@@ -2741,7 +2737,6 @@ __elfN(stackgap)(struct image_params *imgp, u_long *stack_base)
 	if (pct > 50)
 		pct = 50;
 	range = imgp->eff_stack_sz * pct / 100;
-	range *= pct;
 	arc4rand(&rbase, sizeof(rbase), 0);
 	gap = rbase % range;
 	gap &= ~(sizeof(u_long) - 1);

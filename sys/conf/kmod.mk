@@ -104,12 +104,15 @@ __KLD_SHARED=yes
 __KLD_SHARED=no
 .endif
 
-ZLIB_CFLAGS+=	-DZ_SOLO
-
 .if !empty(CFLAGS:M-O[23s]) && empty(CFLAGS:M-fno-strict-aliasing)
 CFLAGS+=	-fno-strict-aliasing
 .endif
+.if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} < 50000
+WERROR?=	-Wno-error
+.else
 WERROR?=	-Werror
+.endif
+
 CFLAGS+=	${WERROR}
 CFLAGS+=	-D_KERNEL
 CFLAGS+=	-DKLD_MODULE

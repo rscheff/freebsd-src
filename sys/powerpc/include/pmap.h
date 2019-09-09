@@ -75,6 +75,7 @@
 #include <machine/pte.h>
 #include <machine/slb.h>
 #include <machine/tlb.h>
+#include <machine/vmparam.h>
 
 struct pmap;
 typedef struct pmap *pmap_t;
@@ -140,7 +141,6 @@ struct	pmap {
 	struct	mtx	pm_mtx;
 	cpuset_t	pm_active;
 	union {
-#ifdef AIM
 		struct {
 			
 		    #ifdef __powerpc64__
@@ -154,8 +154,6 @@ struct	pmap {
 			struct pmap	*pmap_phys;
 			struct pvo_tree pmap_pvo;
 		};
-#endif
-#ifdef BOOKE
 		struct {
 			/* TID to identify this pmap entries in TLB */
 			tlbtid_t	pm_tid[MAXCPU];	
@@ -165,22 +163,18 @@ struct	pmap {
 			 * Page table directory,
 			 * array of pointers to page directories.
 			 */
-			pte_t **pm_pp2d[PP2D_NENTRIES];
-
-			/* List of allocated pdir bufs (pdir kva regions). */
-			TAILQ_HEAD(, ptbl_buf)	pm_pdir_list;
+			pte_t ***pm_pp2d;
 #else
 			/*
 			 * Page table directory,
 			 * array of pointers to page tables.
 			 */
-			pte_t		*pm_pdir[PDIR_NENTRIES];
-#endif
+			pte_t		**pm_pdir;
 
 			/* List of allocated ptbl bufs (ptbl kva regions). */
 			TAILQ_HEAD(, ptbl_buf)	pm_ptbl_list;
-		};
 #endif
+		};
 	};
 };
 
@@ -275,12 +269,6 @@ boolean_t	pmap_mmu_install(char *name, int prio);
 
 #define	vtophys(va)	pmap_kextract((vm_offset_t)(va))
 
-#define PHYS_AVAIL_SZ	256	/* Allows up to 16GB Ram on pSeries with
-				 * logical memory block size of 64MB.
-				 * For more Ram increase the lmb or this value.
-				 */
-
-extern	vm_paddr_t phys_avail[PHYS_AVAIL_SZ];
 extern	vm_offset_t virtual_avail;
 extern	vm_offset_t virtual_end;
 

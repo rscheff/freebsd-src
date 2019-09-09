@@ -295,7 +295,6 @@ static void	pmap_pvh_free(struct md_page *pvh, pmap_t pmap, vm_offset_t va);
 static pv_entry_t pmap_pvh_remove(struct md_page *pvh, pmap_t pmap,
 		    vm_offset_t va);
 
-static int pmap_change_attr(vm_offset_t va, vm_size_t size, int mode);
 static int pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode);
 static pt_entry_t *pmap_demote_l1(pmap_t pmap, pt_entry_t *l1, vm_offset_t va);
 static pt_entry_t *pmap_demote_l2_locked(pmap_t pmap, pt_entry_t *l2,
@@ -1128,40 +1127,35 @@ vm_paddr_t
 pmap_kextract(vm_offset_t va)
 {
 	pt_entry_t *pte, tpte;
-	vm_paddr_t pa;
-	int lvl;
 
-	if (va >= DMAP_MIN_ADDRESS && va < DMAP_MAX_ADDRESS) {
-		pa = DMAP_TO_PHYS(va);
-	} else {
-		pa = 0;
-		pte = pmap_pte(kernel_pmap, va, &lvl);
-		if (pte != NULL) {
-			tpte = pmap_load(pte);
-			pa = tpte & ~ATTR_MASK;
-			switch(lvl) {
-			case 1:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L1_BLOCK,
-				    ("pmap_kextract: Invalid L1 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L1_OFFSET);
-				break;
-			case 2:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L2_BLOCK,
-				    ("pmap_kextract: Invalid L2 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L2_OFFSET);
-				break;
-			case 3:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L3_PAGE,
-				    ("pmap_kextract: Invalid L3 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L3_OFFSET);
-				break;
-			}
-		}
-	}
-	return (pa);
+	if (va >= DMAP_MIN_ADDRESS && va < DMAP_MAX_ADDRESS)
+		return (DMAP_TO_PHYS(va));
+	pte = pmap_l1(kernel_pmap, va);
+	if (pte == NULL)
+		return (0);
+
+	/*
+	 * A concurrent pmap_update_entry() will clear the entry's valid bit
+	 * but leave the rest of the entry unchanged.  Therefore, we treat a
+	 * non-zero entry as being valid, and we ignore the valid bit when
+	 * determining whether the entry maps a block, page, or table.
+	 */
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	if ((tpte & ATTR_DESCR_TYPE_MASK) == ATTR_DESCR_TYPE_BLOCK)
+		return ((tpte & ~ATTR_MASK) | (va & L1_OFFSET));
+	pte = pmap_l1_to_l2(&tpte, va);
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	if ((tpte & ATTR_DESCR_TYPE_MASK) == ATTR_DESCR_TYPE_BLOCK)
+		return ((tpte & ~ATTR_MASK) | (va & L2_OFFSET));
+	pte = pmap_l2_to_l3(&tpte, va);
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	return ((tpte & ~ATTR_MASK) | (va & L3_OFFSET));
 }
 
 /***************************************************
@@ -3021,8 +3015,12 @@ pmap_update_entry(pmap_t pmap, pd_entry_t *pte, pd_entry_t newpte,
 	intr = intr_disable();
 	critical_enter();
 
-	/* Clear the old mapping */
-	pmap_clear(pte);
+	/*
+	 * Clear the old mapping's valid bit, but leave the rest of the entry
+	 * unchanged, so that a lockless, concurrent pmap_kextract() can still
+	 * lookup the physical address.
+	 */
+	pmap_clear_bits(pte, ATTR_DESCR_VALID);
 	pmap_invalidate_range_nopin(pmap, va, va + size);
 
 	/* Create the new mapping */
@@ -3425,8 +3423,7 @@ validate:
 	}
 
 #if VM_NRESERVLEVEL > 0
-	if (pmap != pmap_kernel() &&
-	    (mpte == NULL || mpte->wire_count == NL3PG) &&
+	if ((mpte == NULL || mpte->wire_count == NL3PG) &&
 	    pmap_ps_enabled(pmap) &&
 	    (m->flags & PG_FICTITIOUS) == 0 &&
 	    vm_reserv_level_iffullpop(m) == 0) {
@@ -5265,7 +5262,7 @@ pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma)
  * latter case, the memory type may have been changed on some part of the
  * virtual address range or the direct map.
  */
-static int
+int
 pmap_change_attr(vm_offset_t va, vm_size_t size, int mode)
 {
 	int error;
