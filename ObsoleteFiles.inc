@@ -38,6 +38,11 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20190910: mklocale(1) and colldef(1) removed
+OLD_FILES+=usr/bin/mklocale
+OLD_FILES+=usr/share/man/man1/mklocale.1.gz
+OLD_FILES+=usr/bin/colldef
+OLD_FILES+=usr/share/man/man1/colldef.1.gz
 # 20190904: Remove boot1.efifat
 OLD_FILES+=boot/boot1.efifat
 # 20190903: pc-sysinstall(8) removed
@@ -120,7 +125,6 @@ OLD_DIRS+=usr/share/pc-sysinstall/conf/license
 OLD_DIRS+=usr/share/pc-sysinstall/conf
 OLD_DIRS+=usr/share/pc-sysinstall/doc
 OLD_DIRS+=usr/share/pc-sysinstall
-
 # 20190825: zlib 1.0.4 removed from kernel
 OLD_FILES+=usr/include/sys/zlib.h
 OLD_FILES+=usr/include/sys/zutil.h
@@ -664,6 +668,9 @@ OLD_DIRS+=usr/lib/clang/6.0.1/lib
 OLD_DIRS+=usr/lib/clang/6.0.1
 # 20181116: Rename test file.
 OLD_FILES+=usr/tests/sys/netinet/reuseport_lb
+# 20181113: libufs version bumped to 7.
+OLD_LIBS+=lib/libufs.so.6
+OLD_LIBS+=usr/lib32/libufs.so.6
 # 20181112: Cleanup old libcap_dns.
 OLD_LIBS+=lib/casper/libcap_dns.so.1
 OLD_LIBS+=usr/lib32/libcap_dns.so.1
