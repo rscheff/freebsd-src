@@ -77,6 +77,7 @@ __DEFAULT_YES_OPTIONS = \
     BZIP2 \
     CALENDAR \
     CAPSICUM \
+    CAROOT \
     CASPER \
     CCD \
     CDDL \
@@ -169,6 +170,7 @@ __DEFAULT_YES_OPTIONS = \
     SOURCELESS \
     SOURCELESS_HOST \
     SOURCELESS_UCODE \
+    STATS \
     SVNLITE \
     SYSCONS \
     SYSTEM_COMPILER \
@@ -198,6 +200,7 @@ __DEFAULT_NO_OPTIONS = \
     EXPERIMENTAL \
     GNU_GREP_COMPAT \
     HESIOD \
+    HTTPD \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
@@ -397,7 +400,8 @@ BROKEN_OPTIONS+=HYPERV
 .endif
 
 # NVME is only aarch64, x86 and powerpc64
-.if ${__T} != "aarch64" && ${__T} != "amd64" && ${__T} != "i386" && ${__T} != "powerpc64"
+.if ${__T} != "aarch64" && ${__T} != "amd64" && ${__T} != "i386" && \
+    ${__T} != "powerpc64"
 BROKEN_OPTIONS+=NVME
 .endif
 
@@ -406,7 +410,8 @@ BROKEN_OPTIONS+=NVME
 BROKEN_OPTIONS+=BSD_CRTBEGIN
 .endif
 
-.if ${COMPILER_FEATURES:Mc++11} && (${__T} == "amd64" || ${__T} == "i386")
+.if ${COMPILER_FEATURES:Mc++11} && \
+    (${__T} == "amd64" || ${__T} == "i386" || ${__T} == "powerpc64")
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
