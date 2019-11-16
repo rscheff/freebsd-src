@@ -232,7 +232,7 @@ tcp_ecn_output_established(struct tcpcb *tp, int *flags, int len)
 	 * ECN capable transmission (ECT).
 	 * Ignore pure ack packets, retransmissions and window probes.
 	 */
-    
+
 	/* legacy ECN marking, only data segments */
 	/* XXXRS: if accecn & dctcp, use ECT1 */
 	if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
