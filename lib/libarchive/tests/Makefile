@@ -305,6 +305,9 @@ BROKEN_TESTS+=			test_read_disk_directory_traversals
 # (Times out?) [and] crashes
 BROKEN_TESTS+=			test_fuzz_rar
 
+# https://bugs.freebsd.org/240683
+BROKEN_TESTS+=			test_write_filter_zstd
+
 # Build the test program.
 SRCS.libarchive_test=		\
 	${TESTS_SRCS}		\
@@ -506,20 +509,23 @@ ${PACKAGE}FILES+=	test_read_format_rar_multivolume.part0004.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_noeof.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_ppmd_lzss_conversion.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_ppmd_use_after_free.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar_ppmd_use_after_free2.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_sfx.exe.uu
 ${PACKAGE}FILES+=	test_read_format_rar_subblock.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_unicode.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar_windows.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_arm.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_arm_filter_on_window_boundary.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_blake2.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_compressed.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_different_window_size.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_distance_overflow.rar.uu
-${PACKAGE}FILES+=	test_read_format_rar5_extra_field_version.rar.uu	
+${PACKAGE}FILES+=	test_read_format_rar5_extra_field_version.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_fileattr.rar.uu
-${PACKAGE}FILES+=	test_read_format_rar5_hardlink.rar.uu	
-${PACKAGE}FILES+=	test_read_format_rar5_invalid_dict_reference.rar.uu	
-${PACKAGE}FILES+=	test_read_format_rar5_leftshift1.rar.uu	
-${PACKAGE}FILES+=	test_read_format_rar5_leftshift2.rar.uu	
+${PACKAGE}FILES+=	test_read_format_rar5_hardlink.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_invalid_dict_reference.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_leftshift1.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_leftshift2.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_multiarchive.part01.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_multiarchive.part02.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_multiarchive.part03.rar.uu
@@ -535,13 +541,13 @@ ${PACKAGE}FILES+=	test_read_format_rar5_multiarchive_solid.part04.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_multiple_files.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_multiple_files_solid.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_nonempty_dir_stream.rar.uu
-${PACKAGE}FILES+=	test_read_format_rar5_owner.rar.uu	
-${PACKAGE}FILES+=	test_read_format_rar5_readtables_overflow.rar.uu	
+${PACKAGE}FILES+=	test_read_format_rar5_owner.rar.uu
+${PACKAGE}FILES+=	test_read_format_rar5_readtables_overflow.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_solid.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_stored.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_stored_manyfiles.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_symlink.rar.uu
-${PACKAGE}FILES+=	test_read_format_rar5_truncated_huff.rar.uu	
+${PACKAGE}FILES+=	test_read_format_rar5_truncated_huff.rar.uu
 ${PACKAGE}FILES+=	test_read_format_rar5_win32.rar.uu
 ${PACKAGE}FILES+=	test_read_format_raw.bufr.uu
 ${PACKAGE}FILES+=	test_read_format_raw.data.Z.uu
@@ -577,7 +583,6 @@ ${PACKAGE}FILES+=	test_read_format_zip_high_compression.zip.uu
 ${PACKAGE}FILES+=	test_read_format_zip_jar.jar.uu
 ${PACKAGE}FILES+=	test_read_format_zip_length_at_end.zip.uu
 ${PACKAGE}FILES+=	test_read_format_zip_lzma_alone_leak.zipx.uu
-${PACKAGE}FILES+=	test_read_format_zip_lzma.zipx.uu
 ${PACKAGE}FILES+=	test_read_format_zip_lzma.zipx.uu
 ${PACKAGE}FILES+=	test_read_format_zip_lzma_multi.zipx.uu
 ${PACKAGE}FILES+=	test_read_format_zip_mac_metadata.zip.uu

@@ -69,12 +69,18 @@ _start:
 	la	t0, hart_lottery
 	li	t1, 1
 	amoadd.w t0, t1, 0(t0)
-	bnez	t0, mpentry
+
+	/*
+	 * We must jump to mpentry in the non-BSP case because the offset is
+	 * too large to fit in a 12-bit branch immediate.
+	 */
+	beqz	t0, 1f
+	j	mpentry
 
 	/*
 	 * Page tables
 	 */
-
+1:
 	/* Add L1 entry for kernel */
 	la	s1, pagetable_l1
 	la	s2, pagetable_l2	/* Link to next level PN */
@@ -171,12 +177,18 @@ va:
 	li	t0, 0
 	csrw	sscratch, t0
 
+	/* Set the global pointer */
+.option push
+.option norelax
+	la	gp, __global_pointer$
+.option pop
+
 	/* Initialize stack pointer */
 	la	s3, initstack_end
 	mv	sp, s3
 	addi	sp, sp, -PCB_SIZE
 
-	/* Clear BSS  */
+	/* Clear BSS */
 	la	s0, _C_LABEL(__bss_start)
 	la	s1, _C_LABEL(_end)
 1:
@@ -197,7 +209,7 @@ va:
 	sd	t0, 0(sp) /* kern_l1pt */
 	sd	s9, 8(sp) /* kern_phys */
 
-	la	t0, initstack_end
+	la	t0, initstack
 	sd	t0, 16(sp) /* kern_stack */
 
 	li	t0, (VM_MAX_KERNEL_ADDRESS - 2 * L2_SIZE)
@@ -250,12 +262,6 @@ virt_map:
 	.quad   virt_map
 hart_lottery:
 	.space	4
-
-	/* Not in use, but required for linking. */
-	.align 3
-	.globl __global_pointer$
-__global_pointer$:
-	.space	8
 
 	.globl init_pt_va
 init_pt_va:
@@ -323,6 +329,12 @@ mpva:
 	/* Ensure sscratch is zero */
 	li	t0, 0
 	csrw	sscratch, t0
+
+	/* Set the global pointer */
+.option push
+.option norelax
+	la	gp, __global_pointer$
+.option pop
 
 	call	init_secondary
 END(mpentry)

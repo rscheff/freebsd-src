@@ -294,7 +294,7 @@ ofw_pcibus_child_deleted(device_t dev, device_t child)
 {
 	struct ofw_pcibus_devinfo *dinfo;
 
-	dinfo = device_get_ivars(dev);
+	dinfo = device_get_ivars(child);
 	ofw_bus_gen_destroy_devinfo(&dinfo->opd_obdinfo);
 	pci_child_deleted(dev, child);
 }
@@ -403,7 +403,7 @@ ofw_pcibus_parse_associativity(device_t dev, int *domain)
 	OF_getencprop(node, "ibm,associativity",
 		associativity, res);
 
-	*domain = associativity[3] - 1;
+	*domain = associativity[3];
 	if (bootverbose)
 		device_printf(dev, "domain(%d)\n", *domain);
 	return (0);
