@@ -75,7 +75,6 @@ __FBSDID("$FreeBSD$");
 #include <amd64/linux/linux.h>
 #include <amd64/linux/linux_proto.h>
 #include <compat/linux/linux_emul.h>
-#include <compat/linux/linux_futex.h>
 #include <compat/linux/linux_ioctl.h>
 #include <compat/linux/linux_mib.h>
 #include <compat/linux/linux_misc.h>
@@ -223,24 +222,17 @@ linux_set_syscall_retval(struct thread *td, int error)
 	set_pcb_flags(td->td_pcb, PCB_FULL_IRET);
 }
 
-static int
-linux_fixup_elf(register_t **stack_base, struct image_params *imgp)
+static void
+linux_copyout_auxargs(struct image_params *imgp, u_long *base)
 {
 	Elf_Auxargs *args;
 	Elf_Auxinfo *argarray, *pos;
-	Elf_Addr *auxbase, *base;
-	struct ps_strings *arginfo;
+	u_long auxlen;
 	struct proc *p;
-	int error, issetugid;
+	int issetugid;
 
 	p = imgp->proc;
-	arginfo = (struct ps_strings *)p->p_sysent->sv_psstrings;
-
-	KASSERT(curthread->td_proc == imgp->proc,
-	    ("unsafe linux_fixup_elf(), should be curproc"));
-	base = (Elf64_Addr *)*stack_base;
 	args = (Elf64_Auxargs *)imgp->auxargs;
-	auxbase = base + imgp->args->argc + 1 + imgp->args->envc + 1;
 	argarray = pos = malloc(LINUX_AT_COUNT * sizeof(*pos), M_TEMP,
 	    M_WAITOK | M_ZERO);
 
@@ -268,15 +260,23 @@ linux_fixup_elf(register_t **stack_base, struct image_params *imgp)
 	if (args->execfd != -1)
 		AUXARGS_ENTRY(pos, AT_EXECFD, args->execfd);
 	AUXARGS_ENTRY(pos, AT_NULL, 0);
+
 	free(imgp->auxargs, M_TEMP);
 	imgp->auxargs = NULL;
 	KASSERT(pos - argarray <= LINUX_AT_COUNT, ("Too many auxargs"));
 
-	error = copyout(argarray, auxbase, sizeof(*argarray) * LINUX_AT_COUNT);
+	auxlen = sizeof(*argarray) * (pos - argarray);
+	*base -= auxlen;
+	copyout(argarray, (void *)*base, auxlen);
 	free(argarray, M_TEMP);
-	if (error != 0)
-		return (error);
+}
 
+static int
+linux_fixup_elf(register_t **stack_base, struct image_params *imgp)
+{
+	Elf_Addr *base;
+
+	base = (Elf64_Addr *)*stack_base;
 	base--;
 	if (suword(base, (uint64_t)imgp->args->argc) == -1)
 		return (EFAULT);
@@ -328,26 +328,21 @@ linux_copyout_strings(struct image_params *imgp)
 	copyout(canary, (void *)imgp->canary, sizeof(canary));
 
 	vectp = (char **)destp;
-	if (imgp->auxargs) {
-		/*
-		 * Allocate room on the stack for the ELF auxargs
-		 * array.  It has LINUX_AT_COUNT entries.
-		 */
-		vectp -= howmany(LINUX_AT_COUNT * sizeof(Elf64_Auxinfo),
-		    sizeof(*vectp));
-	}
-
-	/*
-	 * Allocate room for the argv[] and env vectors including the
-	 * terminating NULL pointers.
-	 */
-	vectp -= imgp->args->argc + 1 + imgp->args->envc + 1;
 
 	/*
 	 * Starting with 2.24, glibc depends on a 16-byte stack alignment.
 	 * One "long argc" will be prepended later.
 	 */
 	vectp = (char **)((((uintptr_t)vectp + 8) & ~0xF) - 8);
+
+	if (imgp->auxargs)
+		imgp->sysent->sv_copyout_auxargs(imgp, (u_long *)&vectp);
+
+	/*
+	 * Allocate room for the argv[] and env vectors including the
+	 * terminating NULL pointers.
+	 */
+	vectp -= imgp->args->argc + 1 + imgp->args->envc + 1;
 
 	/* vectp also becomes our initial stack base. */
 	stack_base = (register_t *)vectp;
@@ -716,6 +711,7 @@ struct sysentvec elf_linux_sysvec = {
 	.sv_usrstack	= USRSTACK,
 	.sv_psstrings	= PS_STRINGS,
 	.sv_stackprot	= VM_PROT_ALL,
+	.sv_copyout_auxargs = linux_copyout_auxargs,
 	.sv_copyout_strings = linux_copyout_strings,
 	.sv_setregs	= linux_exec_setregs,
 	.sv_fixlimit	= NULL,
@@ -865,8 +861,6 @@ linux64_elf_modevent(module_t mod, int type, void *data)
 		if (error == 0) {
 			SET_FOREACH(lihp, linux_ioctl_handler_set)
 				linux_ioctl_register_handler(*lihp);
-			LIST_INIT(&futex_list);
-			mtx_init(&futex_mtx, "ftllk64", NULL, MTX_DEF);
 			stclohz = (stathz ? stathz : hz);
 			if (bootverbose)
 				printf("Linux x86-64 ELF exec handler installed\n");
@@ -887,7 +881,6 @@ linux64_elf_modevent(module_t mod, int type, void *data)
 		if (error == 0) {
 			SET_FOREACH(lihp, linux_ioctl_handler_set)
 				linux_ioctl_unregister_handler(*lihp);
-			mtx_destroy(&futex_mtx);
 			if (bootverbose)
 				printf("Linux ELF exec handler removed\n");
 		} else

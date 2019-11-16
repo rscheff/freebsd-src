@@ -976,10 +976,18 @@ exec_map_first_page(struct image_params *imgp)
 #if VM_NRESERVLEVEL > 0
 	vm_object_color(object, 0);
 #endif
+retry:
 	ma[0] = vm_page_grab(object, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY |
 	    VM_ALLOC_WIRED);
-	if (ma[0]->valid != VM_PAGE_BITS_ALL) {
-		vm_page_xbusy(ma[0]);
+	if (!vm_page_all_valid(ma[0])) {
+		if (vm_page_busy_acquire(ma[0], VM_ALLOC_WAITFAIL) == 0) {
+			vm_page_unwire_noq(ma[0]);
+			goto retry;
+		}
+		if (vm_page_all_valid(ma[0])) {
+			vm_page_xunbusy(ma[0]);
+			goto out;
+		}
 		if (!vm_pager_has_page(object, 0, NULL, &after)) {
 			if (vm_page_unwire_noq(ma[0]))
 				vm_page_free(ma[0]);
@@ -1025,6 +1033,8 @@ exec_map_first_page(struct image_params *imgp)
 		for (i = 1; i < initial_pagein; i++)
 			vm_page_readahead_finish(ma[i]);
 	}
+
+out:
 	VM_OBJECT_WUNLOCK(object);
 
 	imgp->firstpage = sf_buf_alloc(ma[0], 0);
@@ -1627,14 +1637,8 @@ exec_copyout_strings(struct image_params *imgp)
 	if (imgp->sysent->sv_stackgap != NULL)
 		imgp->sysent->sv_stackgap(imgp, (u_long *)&vectp);
 
-	if (imgp->auxargs) {
-		/*
-		 * Allocate room on the stack for the ELF auxargs
-		 * array.  It has up to AT_COUNT entries.
-		 */
-		vectp -= howmany(AT_COUNT * sizeof(Elf_Auxinfo),
-		    sizeof(*vectp));
-	}
+	if (imgp->auxargs)
+		imgp->sysent->sv_copyout_auxargs(imgp, (u_long *)&vectp);
 
 	/*
 	 * Allocate room for the argv[] and env vectors including the

@@ -485,15 +485,19 @@ worlds: .PHONY
 .if make(universe) || make(universe_kernels) || make(tinderbox) || \
     make(targets) || make(universe-toolchain)
 #
-# By default, build only the known-good clang-supporting platforms.
-# If MAKE_OBSOLETE_GCC is defined, built all the old GCC architectures.
+# Always build architectures supported by clang.  Only build architectures
+# only supported by GCC if a suitable toolchain is present or enabled.
 # In all cases, if the user specifies TARGETS on the command line,
 # honor that most of all.
 #
-_OBSOLETE_GCC_TARGETS=mips powerpc sparc64
+_OBSOLETE_GCC_TARGETS=mips sparc64
+.if defined(MAKE_OBSOLETE_GCC)
+_OBSOLETE_GCC_TARGETS+=powerpc
+.endif
 TARGETS?=amd64 arm arm64 i386 riscv ${_OBSOLETE_GCC_TARGETS}
 _UNIVERSE_TARGETS=	${TARGETS}
-TARGET_ARCHES_arm?=	arm armv6 armv7
+# arm (armv5) excluded due to broken buildworld
+TARGET_ARCHES_arm?=	armv6 armv7
 TARGET_ARCHES_arm64?=	aarch64
 TARGET_ARCHES_mips?=	mipsel mips mips64el mips64 mipsn32 mipselhf mipshf mips64elhf mips64hf
 TARGET_ARCHES_powerpc?=	powerpc powerpc64 powerpcspe
@@ -507,7 +511,7 @@ MAKE_PARAMS_riscv?=	CROSS_TOOLCHAIN=riscv64-gcc
 .if !defined(MAKE_OBSOLETE_GCC)
 OBSOLETE_GCC_TARGETS=${_OBSOLETE_GCC_TARGETS}
 MAKE_PARAMS_mips?=	CROSS_TOOLCHAIN=mips-gcc
-MAKE_PARAMS_powerpc?=	CROSS_TOOLCHAIN=powerpc-gcc
+MAKE_PARAMS_powerpc?=	CROSS_TOOLCHAIN=powerpc64-gcc
 MAKE_PARAMS_sparc64?=	CROSS_TOOLCHAIN=sparc64-gcc
 .endif
 

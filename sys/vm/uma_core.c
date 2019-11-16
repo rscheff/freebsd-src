@@ -503,8 +503,8 @@ zone_put_bucket(uma_zone_t zone, uma_zone_domain_t zdom, uma_bucket_t bucket,
 {
 
 	ZONE_LOCK_ASSERT(zone);
-	KASSERT(zone->uz_bkt_count < zone->uz_bkt_max, ("%s: zone %p overflow",
-	    __func__, zone));
+	KASSERT(!ws || zone->uz_bkt_count < zone->uz_bkt_max,
+	    ("%s: zone %p overflow", __func__, zone));
 
 	if (ws)
 		TAILQ_INSERT_HEAD(&zdom->uzd_buckets, bucket, ub_link);
@@ -582,9 +582,13 @@ zone_domain_update_wss(uma_zone_domain_t zdom)
 static void
 zone_timeout(uma_zone_t zone)
 {
-	uma_keg_t keg = zone->uz_keg;
+	uma_keg_t keg;
 	u_int slabs;
 
+	if ((zone->uz_flags & UMA_ZFLAG_CACHE) != 0)
+		goto update_wss;
+
+	keg = zone->uz_keg;
 	KEG_LOCK(keg);
 	/*
 	 * Expand the keg hash table.
@@ -623,6 +627,7 @@ zone_timeout(uma_zone_t zone)
 	}
 	KEG_UNLOCK(keg);
 
+update_wss:
 	ZONE_LOCK(zone);
 	for (int i = 0; i < vm_ndomains; i++)
 		zone_domain_update_wss(&zone->uz_domain[i]);
@@ -1081,7 +1086,8 @@ zone_reclaim(uma_zone_t zone, int waitok, bool drain)
 	 * we're running.  Normally the uma_rwlock would protect us but we
 	 * must be able to release and acquire the right lock for each keg.
 	 */
-	keg_drain(zone->uz_keg);
+	if ((zone->uz_flags & UMA_ZFLAG_CACHE) == 0)
+		keg_drain(zone->uz_keg);
 	ZONE_LOCK(zone);
 	zone->uz_flags &= ~UMA_ZFLAG_RECLAIMING;
 	wakeup(zone);
@@ -2027,6 +2033,8 @@ zone_foreach(void (*zfunc)(uma_zone_t))
 		LIST_FOREACH(zone, &keg->uk_zones, uz_link)
 			zfunc(zone);
 	}
+	LIST_FOREACH(zone, &uma_cachezones, uz_link)
+		zfunc(zone);
 	if (__predict_true(booted == BOOT_RUNNING))
 		rw_runlock(&uma_rwlock);
 }
@@ -4055,6 +4063,7 @@ uma_vm_zone_stats(struct uma_type_header *uth, uma_zone_t z, struct sbuf *sbuf,
     struct uma_percpu_stat *ups, bool internal)
 {
 	uma_zone_domain_t zdom;
+	uma_bucket_t bucket;
 	uma_cache_t cache;
 	int i;
 
@@ -4068,28 +4077,29 @@ uma_vm_zone_stats(struct uma_type_header *uth, uma_zone_t z, struct sbuf *sbuf,
 	uth->uth_fails = counter_u64_fetch(z->uz_fails);
 	uth->uth_sleeps = z->uz_sleeps;
 	uth->uth_xdomain = z->uz_xdomain;
+
 	/*
-	 * While it is not normally safe to access the cache
-	 * bucket pointers while not on the CPU that owns the
-	 * cache, we only allow the pointers to be exchanged
-	 * without the zone lock held, not invalidated, so
-	 * accept the possible race associated with bucket
-	 * exchange during monitoring.
+	 * While it is not normally safe to access the cache bucket pointers
+	 * while not on the CPU that owns the cache, we only allow the pointers
+	 * to be exchanged without the zone lock held, not invalidated, so
+	 * accept the possible race associated with bucket exchange during
+	 * monitoring.  Use atomic_load_ptr() to ensure that the bucket pointers
+	 * are loaded only once.
 	 */
 	for (i = 0; i < mp_maxid + 1; i++) {
 		bzero(&ups[i], sizeof(*ups));
 		if (internal || CPU_ABSENT(i))
 			continue;
 		cache = &z->uz_cpu[i];
-		if (cache->uc_allocbucket != NULL)
-			ups[i].ups_cache_free +=
-			    cache->uc_allocbucket->ub_cnt;
-		if (cache->uc_freebucket != NULL)
-			ups[i].ups_cache_free +=
-			    cache->uc_freebucket->ub_cnt;
-		if (cache->uc_crossbucket != NULL)
-			ups[i].ups_cache_free +=
-			    cache->uc_crossbucket->ub_cnt;
+		bucket = (uma_bucket_t)atomic_load_ptr(&cache->uc_allocbucket);
+		if (bucket != NULL)
+			ups[i].ups_cache_free += bucket->ub_cnt;
+		bucket = (uma_bucket_t)atomic_load_ptr(&cache->uc_freebucket);
+		if (bucket != NULL)
+			ups[i].ups_cache_free += bucket->ub_cnt;
+		bucket = (uma_bucket_t)atomic_load_ptr(&cache->uc_crossbucket);
+		if (bucket != NULL)
+			ups[i].ups_cache_free += bucket->ub_cnt;
 		ups[i].ups_allocs = cache->uc_allocs;
 		ups[i].ups_frees = cache->uc_frees;
 	}
