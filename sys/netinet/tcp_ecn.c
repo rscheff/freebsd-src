@@ -155,7 +155,7 @@ tcp_ecn_input_syn_sent(struct tcpcb *tp, struct tcphdr *th, int iptos)
 			tp->t_flags2 |= TF2_ACE_PERMIT;
 			tp->s_cep = 6;
 			/*
-			 * reduce the IW to 2 MSS (to 
+			 * reduce the IW to 2 MSS (to
 			 * account for delayed acks) if
 			 * the SYN,ACK was CE marked
 			 */
@@ -282,7 +282,7 @@ tcp_ecn_output_established(struct tcpcb *tp, int *flags, int len)
 }
 
 /*
- * Set up the ECN related tcpcb fields from 
+ * Set up the ECN related tcpcb fields from
  * a syncache entry
  */
 void
