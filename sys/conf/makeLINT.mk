@@ -12,7 +12,12 @@ clean:
 	rm -f LINT-NOINET LINT-NOINET6 LINT-NOIP
 .endif
 .if ${TARGET} == "arm"
+	# LINT-V5 removed 2019-11-26.  The clean rule is left here temporarily
+	# to avoid having stale copies left behind.
 	rm -f LINT-V5 LINT-V7
+.endif
+.if ${TARGET} == "powerpc"
+	rm -f LINT64
 .endif
 
 NOTES+=	${.CURDIR}/../../conf/NOTES ${.CURDIR}/NOTES
@@ -51,8 +56,6 @@ LINT: ${NOTES} ${MAKELINT_SED}
 	echo "nodevice netmap"		>> ${.TARGET}-NOIP
 .endif
 .if ${TARGET} == "arm"
-	cat ${NOTES} ${.CURDIR}/NOTES.armv5 | sed -E -n -f ${MAKELINT_SED} > \
-	    ${.TARGET}-V5
 	cat ${NOTES} ${.CURDIR}/NOTES.armv7 | sed -E -n -f ${MAKELINT_SED} > \
 	    ${.TARGET}-V7
 	rm ${.TARGET}

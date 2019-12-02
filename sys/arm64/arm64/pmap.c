@@ -121,6 +121,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/rwlock.h>
+#include <sys/sbuf.h>
 #include <sys/sx.h>
 #include <sys/vmem.h>
 #include <sys/vmmeter.h>
@@ -167,14 +168,6 @@ __FBSDID("$FreeBSD$");
 #else
 #define PMAP_INLINE
 #endif
-
-/*
- * These are configured by the mair_el1 register. This is set up in locore.S
- */
-#define	DEVICE_MEMORY	0
-#define	UNCACHED_MEMORY	1
-#define	CACHED_MEMORY	2
-
 
 #ifdef PV_STATS
 #define PV_STAT(x)	do { x ; } while (0)
@@ -706,7 +699,7 @@ pmap_bootstrap_dmap(vm_offset_t kern_l1, vm_paddr_t min_pa,
 				KASSERT(l2_slot != 0, ("..."));
 				pmap_store(&l2[l2_slot],
 				    (pa & ~L2_OFFSET) | ATTR_DEFAULT | ATTR_XN |
-				    ATTR_IDX(CACHED_MEMORY) | L2_BLOCK);
+				    ATTR_IDX(VM_MEMATTR_WRITE_BACK) | L2_BLOCK);
 			}
 			KASSERT(va == (pa - dmap_phys_base + DMAP_MIN_ADDRESS),
 			    ("..."));
@@ -718,7 +711,7 @@ pmap_bootstrap_dmap(vm_offset_t kern_l1, vm_paddr_t min_pa,
 			l1_slot = ((va - DMAP_MIN_ADDRESS) >> L1_SHIFT);
 			pmap_store(&pagetable_dmap[l1_slot],
 			    (pa & ~L1_OFFSET) | ATTR_DEFAULT | ATTR_XN |
-			    ATTR_IDX(CACHED_MEMORY) | L1_BLOCK);
+			    ATTR_IDX(VM_MEMATTR_WRITE_BACK) | L1_BLOCK);
 		}
 
 		/* Create L2 mappings at the end of the region */
@@ -743,7 +736,7 @@ pmap_bootstrap_dmap(vm_offset_t kern_l1, vm_paddr_t min_pa,
 				l2_slot = pmap_l2_index(va);
 				pmap_store(&l2[l2_slot],
 				    (pa & ~L2_OFFSET) | ATTR_DEFAULT | ATTR_XN |
-				    ATTR_IDX(CACHED_MEMORY) | L2_BLOCK);
+				    ATTR_IDX(VM_MEMATTR_WRITE_BACK) | L2_BLOCK);
 			}
 		}
 
@@ -1042,7 +1035,6 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 {
 	uint64_t r;
 
-	sched_pin();
 	dsb(ishst);
 	if (pmap == kernel_pmap) {
 		r = atop(va);
@@ -1053,11 +1045,10 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 	}
 	dsb(ish);
 	isb();
-	sched_unpin();
 }
 
 static __inline void
-pmap_invalidate_range_nopin(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
+pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 {
 	uint64_t end, r, start;
 
@@ -1079,20 +1070,10 @@ pmap_invalidate_range_nopin(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 }
 
 static __inline void
-pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
-{
-
-	sched_pin();
-	pmap_invalidate_range_nopin(pmap, sva, eva);
-	sched_unpin();
-}
-
-static __inline void
 pmap_invalidate_all(pmap_t pmap)
 {
 	uint64_t r;
 
-	sched_pin();
 	dsb(ishst);
 	if (pmap == kernel_pmap) {
 		__asm __volatile("tlbi vmalle1is");
@@ -1102,7 +1083,6 @@ pmap_invalidate_all(pmap_t pmap)
 	}
 	dsb(ish);
 	isb();
-	sched_unpin();
 }
 
 /*
@@ -1257,12 +1237,8 @@ pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode)
 	KASSERT((size & PAGE_MASK) == 0,
 	    ("pmap_kenter: Mapping is not page-sized"));
 
-	attr = ATTR_DEFAULT | ATTR_IDX(mode) | L3_PAGE;
-	if (mode == DEVICE_MEMORY)
-		attr |= ATTR_XN;
-	else
-		attr |= ATTR_UXN;
-
+	attr = ATTR_DEFAULT | ATTR_AP(ATTR_AP_RW) | ATTR_XN | ATTR_IDX(mode) |
+	    L3_PAGE;
 	va = sva;
 	while (size != 0) {
 		pde = pmap_pde(kernel_pmap, va, &lvl);
@@ -1284,7 +1260,7 @@ void
 pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
 {
 
-	pmap_kenter(sva, size, pa, DEVICE_MEMORY);
+	pmap_kenter(sva, size, pa, VM_MEMATTR_DEVICE);
 }
 
 /*
@@ -1377,9 +1353,7 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int count)
 
 		m = ma[i];
 		pa = VM_PAGE_TO_PHYS(m) | ATTR_DEFAULT | ATTR_AP(ATTR_AP_RW) |
-		    ATTR_UXN | ATTR_IDX(m->md.pv_memattr) | L3_PAGE;
-		if (m->md.pv_memattr == DEVICE_MEMORY)
-			pa |= ATTR_XN;
+		    ATTR_XN | ATTR_IDX(m->md.pv_memattr) | L3_PAGE;
 		pte = pmap_l2_to_l3(pde, va);
 		pmap_load_store(pte, pa);
 
@@ -1561,6 +1535,8 @@ pmap_pinit(pmap_t pmap)
 	pmap->pm_root.rt_root = 0;
 	bzero(&pmap->pm_stats, sizeof(pmap->pm_stats));
 	pmap->pm_cookie = COOKIE_FROM(-1, INT_MAX);
+	/* XXX Temporarily disable deferred ASID allocation. */
+	pmap_alloc_asid(pmap);
 
 	return (1);
 }
@@ -2067,12 +2043,13 @@ reclaim_pv_chunk(pmap_t locked_pmap, struct rwlock **lockp)
 				if ((tpte & ATTR_SW_WIRED) != 0)
 					continue;
 				tpte = pmap_load_clear(pte);
-				pmap_invalidate_page(pmap, va);
 				m = PHYS_TO_VM_PAGE(tpte & ~ATTR_MASK);
 				if (pmap_pte_dirty(tpte))
 					vm_page_dirty(m);
-				if ((tpte & ATTR_AF) != 0)
+				if ((tpte & ATTR_AF) != 0) {
+					pmap_invalidate_page(pmap, va);
 					vm_page_aflag_set(m, PGA_REFERENCED);
+				}
 				CHANGE_PV_LIST_LOCK_TO_VM_PAGE(lockp, m);
 				TAILQ_REMOVE(&m->md.pv_list, pv, pv_next);
 				m->md.pv_gen++;
@@ -2879,11 +2856,12 @@ retry:
 
 		pte = pmap_l2_to_l3(pde, pv->pv_va);
 		tpte = pmap_load_clear(pte);
-		pmap_invalidate_page(pmap, pv->pv_va);
 		if (tpte & ATTR_SW_WIRED)
 			pmap->pm_stats.wired_count--;
-		if ((tpte & ATTR_AF) != 0)
+		if ((tpte & ATTR_AF) != 0) {
+			pmap_invalidate_page(pmap, pv->pv_va);
 			vm_page_aflag_set(m, PGA_REFERENCED);
+		}
 
 		/*
 		 * Update the vm_page_t clean and reference bits.
@@ -3115,7 +3093,7 @@ pmap_update_entry(pmap_t pmap, pd_entry_t *pte, pd_entry_t newpte,
 	 * lookup the physical address.
 	 */
 	pmap_clear_bits(pte, ATTR_DESCR_VALID);
-	pmap_invalidate_range_nopin(pmap, va, va + size);
+	pmap_invalidate_range(pmap, va, va + size);
 
 	/* Create the new mapping */
 	pmap_store(pte, newpte);
@@ -3289,7 +3267,8 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	    L3_PAGE);
 	if ((prot & VM_PROT_WRITE) == 0)
 		new_l3 |= ATTR_AP(ATTR_AP_RO);
-	if ((prot & VM_PROT_EXECUTE) == 0 || m->md.pv_memattr == DEVICE_MEMORY)
+	if ((prot & VM_PROT_EXECUTE) == 0 ||
+	    m->md.pv_memattr == VM_MEMATTR_DEVICE)
 		new_l3 |= ATTR_XN;
 	if ((flags & PMAP_ENTER_WIRED) != 0)
 		new_l3 |= ATTR_SW_WIRED;
@@ -3557,7 +3536,8 @@ pmap_enter_2mpage(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		new_l2 |= ATTR_SW_MANAGED;
 		new_l2 &= ~ATTR_AF;
 	}
-	if ((prot & VM_PROT_EXECUTE) == 0 || m->md.pv_memattr == DEVICE_MEMORY)
+	if ((prot & VM_PROT_EXECUTE) == 0 ||
+	    m->md.pv_memattr == VM_MEMATTR_DEVICE)
 		new_l2 |= ATTR_XN;
 	if (va < VM_MAXUSER_ADDRESS)
 		new_l2 |= ATTR_AP(ATTR_AP_USER) | ATTR_PXN;
@@ -3859,7 +3839,8 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	pa = VM_PAGE_TO_PHYS(m);
 	l3_val = pa | ATTR_DEFAULT | ATTR_IDX(m->md.pv_memattr) |
 	    ATTR_AP(ATTR_AP_RO) | L3_PAGE;
-	if ((prot & VM_PROT_EXECUTE) == 0 || m->md.pv_memattr == DEVICE_MEMORY)
+	if ((prot & VM_PROT_EXECUTE) == 0 ||
+	    m->md.pv_memattr == VM_MEMATTR_DEVICE)
 		l3_val |= ATTR_XN;
 	if (va < VM_MAXUSER_ADDRESS)
 		l3_val |= ATTR_AP(ATTR_AP_USER) | ATTR_PXN;
@@ -5237,7 +5218,7 @@ pmap_mapbios(vm_paddr_t pa, vm_size_t size)
 			l2 = pmap_l1_to_l2(pde, va);
 			pmap_load_store(l2,
 			    pa | ATTR_DEFAULT | ATTR_XN |
-			    ATTR_IDX(CACHED_MEMORY) | L2_BLOCK);
+			    ATTR_IDX(VM_MEMATTR_WRITE_BACK) | L2_BLOCK);
 
 			va += L2_SIZE;
 			pa += L2_SIZE;
@@ -5261,7 +5242,7 @@ pmap_mapbios(vm_paddr_t pa, vm_size_t size)
 		/* L3 table is linked */
 		va = trunc_page(va);
 		pa = trunc_page(pa);
-		pmap_kenter(va, size, pa, CACHED_MEMORY);
+		pmap_kenter(va, size, pa, VM_MEMATTR_WRITE_BACK);
 	}
 
 	return ((void *)(va + offset));
@@ -5447,7 +5428,7 @@ pmap_change_attr_locked(vm_offset_t va, vm_size_t size, int mode)
 				l3 = pmap_load(pte);
 				l3 &= ~ATTR_IDX_MASK;
 				l3 |= ATTR_IDX(mode);
-				if (mode == DEVICE_MEMORY)
+				if (mode == VM_MEMATTR_DEVICE)
 					l3 |= ATTR_XN;
 
 				pmap_update_entry(kernel_pmap, pte, l3, tmpva,
@@ -5523,7 +5504,8 @@ pmap_demote_l1(pmap_t pmap, pt_entry_t *l1, vm_offset_t va)
 
 	if (tmpl1 != 0) {
 		pmap_kenter(tmpl1, PAGE_SIZE,
-		    DMAP_TO_PHYS((vm_offset_t)l1) & ~L3_OFFSET, CACHED_MEMORY);
+		    DMAP_TO_PHYS((vm_offset_t)l1) & ~L3_OFFSET,
+		    VM_MEMATTR_WRITE_BACK);
 		l1 = (pt_entry_t *)(tmpl1 + ((vm_offset_t)l1 & PAGE_MASK));
 	}
 
@@ -5665,7 +5647,8 @@ pmap_demote_l2_locked(pmap_t pmap, pt_entry_t *l2, vm_offset_t va,
 	 */
 	if (tmpl2 != 0) {
 		pmap_kenter(tmpl2, PAGE_SIZE,
-		    DMAP_TO_PHYS((vm_offset_t)l2) & ~L3_OFFSET, CACHED_MEMORY);
+		    DMAP_TO_PHYS((vm_offset_t)l2) & ~L3_OFFSET,
+		    VM_MEMATTR_WRITE_BACK);
 		l2 = (pt_entry_t *)(tmpl2 + ((vm_offset_t)l2 & PAGE_MASK));
 	}
 
@@ -6161,3 +6144,212 @@ pmap_is_valid_memattr(pmap_t pmap __unused, vm_memattr_t mode)
 
 	return (mode >= VM_MEMATTR_DEVICE && mode <= VM_MEMATTR_WRITE_THROUGH);
 }
+
+/*
+ * Track a range of the kernel's virtual address space that is contiguous
+ * in various mapping attributes.
+ */
+struct pmap_kernel_map_range {
+	vm_offset_t sva;
+	pt_entry_t attrs;
+	int l3pages;
+	int l3contig;
+	int l2blocks;
+	int l1blocks;
+};
+
+static void
+sysctl_kmaps_dump(struct sbuf *sb, struct pmap_kernel_map_range *range,
+    vm_offset_t eva)
+{
+	const char *mode;
+	int index;
+
+	if (eva <= range->sva)
+		return;
+
+	index = range->attrs & ATTR_IDX_MASK;
+	switch (index) {
+	case ATTR_IDX(VM_MEMATTR_DEVICE):
+		mode = "DEV";
+		break;
+	case ATTR_IDX(VM_MEMATTR_UNCACHEABLE):
+		mode = "UC";
+		break;
+	case ATTR_IDX(VM_MEMATTR_WRITE_BACK):
+		mode = "WB";
+		break;
+	case ATTR_IDX(VM_MEMATTR_WRITE_THROUGH):
+		mode = "WT";
+		break;
+	default:
+		printf(
+		    "%s: unknown memory type %x for range 0x%016lx-0x%016lx\n",
+		    __func__, index, range->sva, eva);
+		mode = "??";
+		break;
+	}
+
+	sbuf_printf(sb, "0x%016lx-0x%016lx r%c%c%c %3s %d %d %d %d\n",
+	    range->sva, eva,
+	    (range->attrs & ATTR_AP_RW_BIT) == ATTR_AP_RW ? 'w' : '-',
+	    (range->attrs & ATTR_PXN) != 0 ? '-' : 'x',
+	    (range->attrs & ATTR_AP_USER) != 0 ? 'u' : 's',
+	    mode, range->l1blocks, range->l2blocks, range->l3contig,
+	    range->l3pages);
+
+	/* Reset to sentinel value. */
+	range->sva = 0xfffffffffffffffful;
+}
+
+/*
+ * Determine whether the attributes specified by a page table entry match those
+ * being tracked by the current range.
+ */
+static bool
+sysctl_kmaps_match(struct pmap_kernel_map_range *range, pt_entry_t attrs)
+{
+
+	return (range->attrs == attrs);
+}
+
+static void
+sysctl_kmaps_reinit(struct pmap_kernel_map_range *range, vm_offset_t va,
+    pt_entry_t attrs)
+{
+
+	memset(range, 0, sizeof(*range));
+	range->sva = va;
+	range->attrs = attrs;
+}
+
+/*
+ * Given a leaf PTE, derive the mapping's attributes.  If they do not match
+ * those of the current run, dump the address range and its attributes, and
+ * begin a new run.
+ */
+static void
+sysctl_kmaps_check(struct sbuf *sb, struct pmap_kernel_map_range *range,
+    vm_offset_t va, pd_entry_t l0e, pd_entry_t l1e, pd_entry_t l2e,
+    pt_entry_t l3e)
+{
+	pt_entry_t attrs;
+
+	attrs = l0e & (ATTR_AP_MASK | ATTR_XN);
+	attrs |= l1e & (ATTR_AP_MASK | ATTR_XN);
+	if ((l1e & ATTR_DESCR_MASK) == L1_BLOCK)
+		attrs |= l1e & ATTR_IDX_MASK;
+	attrs |= l2e & (ATTR_AP_MASK | ATTR_XN);
+	if ((l2e & ATTR_DESCR_MASK) == L2_BLOCK)
+		attrs |= l2e & ATTR_IDX_MASK;
+	attrs |= l3e & (ATTR_AP_MASK | ATTR_XN | ATTR_IDX_MASK);
+
+	if (range->sva > va || !sysctl_kmaps_match(range, attrs)) {
+		sysctl_kmaps_dump(sb, range, va);
+		sysctl_kmaps_reinit(range, va, attrs);
+	}
+}
+
+static int
+sysctl_kmaps(SYSCTL_HANDLER_ARGS)
+{
+	struct pmap_kernel_map_range range;
+	struct sbuf sbuf, *sb;
+	pd_entry_t l0e, *l1, l1e, *l2, l2e;
+	pt_entry_t *l3, l3e;
+	vm_offset_t sva;
+	vm_paddr_t pa;
+	int error, i, j, k, l;
+
+	error = sysctl_wire_old_buffer(req, 0);
+	if (error != 0)
+		return (error);
+	sb = &sbuf;
+	sbuf_new_for_sysctl(sb, NULL, PAGE_SIZE, req);
+
+	/* Sentinel value. */
+	range.sva = 0xfffffffffffffffful;
+
+	/*
+	 * Iterate over the kernel page tables without holding the kernel pmap
+	 * lock.  Kernel page table pages are never freed, so at worst we will
+	 * observe inconsistencies in the output.
+	 */
+	for (sva = 0xffff000000000000ul, i = pmap_l0_index(sva); i < Ln_ENTRIES;
+	    i++) {
+		if (i == pmap_l0_index(DMAP_MIN_ADDRESS))
+			sbuf_printf(sb, "\nDirect map:\n");
+		else if (i == pmap_l0_index(VM_MIN_KERNEL_ADDRESS))
+			sbuf_printf(sb, "\nKernel map:\n");
+
+		l0e = kernel_pmap->pm_l0[i];
+		if ((l0e & ATTR_DESCR_VALID) == 0) {
+			sysctl_kmaps_dump(sb, &range, sva);
+			sva += L0_SIZE;
+			continue;
+		}
+		pa = l0e & ~ATTR_MASK;
+		l1 = (pd_entry_t *)PHYS_TO_DMAP(pa);
+
+		for (j = pmap_l1_index(sva); j < Ln_ENTRIES; j++) {
+			l1e = l1[j];
+			if ((l1e & ATTR_DESCR_VALID) == 0) {
+				sysctl_kmaps_dump(sb, &range, sva);
+				sva += L1_SIZE;
+				continue;
+			}
+			if ((l1e & ATTR_DESCR_MASK) == L1_BLOCK) {
+				sysctl_kmaps_check(sb, &range, sva, l0e, l1e,
+				    0, 0);
+				range.l1blocks++;
+				sva += L1_SIZE;
+				continue;
+			}
+			pa = l1e & ~ATTR_MASK;
+			l2 = (pd_entry_t *)PHYS_TO_DMAP(pa);
+
+			for (k = pmap_l2_index(sva); k < Ln_ENTRIES; k++) {
+				l2e = l2[k];
+				if ((l2e & ATTR_DESCR_VALID) == 0) {
+					sysctl_kmaps_dump(sb, &range, sva);
+					sva += L2_SIZE;
+					continue;
+				}
+				if ((l2e & ATTR_DESCR_MASK) == L2_BLOCK) {
+					sysctl_kmaps_check(sb, &range, sva,
+					    l0e, l1e, l2e, 0);
+					range.l2blocks++;
+					sva += L2_SIZE;
+					continue;
+				}
+				pa = l2e & ~ATTR_MASK;
+				l3 = (pt_entry_t *)PHYS_TO_DMAP(pa);
+
+				for (l = pmap_l3_index(sva); l < Ln_ENTRIES;
+				    l++, sva += L3_SIZE) {
+					l3e = l3[l];
+					if ((l3e & ATTR_DESCR_VALID) == 0) {
+						sysctl_kmaps_dump(sb, &range,
+						    sva);
+						continue;
+					}
+					sysctl_kmaps_check(sb, &range, sva,
+					    l0e, l1e, l2e, l3e);
+					if ((l3e & ATTR_CONTIGUOUS) != 0)
+						range.l3contig += l % 16 == 0 ?
+						    1 : 0;
+					else
+						range.l3pages++;
+				}
+			}
+		}
+	}
+
+	error = sbuf_finish(sb);
+	sbuf_delete(sb);
+	return (error);
+}
+SYSCTL_OID(_vm_pmap, OID_AUTO, kernel_maps,
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+    NULL, 0, sysctl_kmaps, "A",
+    "Dump kernel address layout");
