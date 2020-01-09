@@ -568,7 +568,7 @@ vm_map_entry_set_vnode_text(vm_map_entry_t entry, bool add)
 		} else {
 			vn_lock(vp, LK_SHARED | LK_RETRY);
 			VOP_UNSET_TEXT_CHECKED(vp);
-			VOP_UNLOCK(vp, 0);
+			VOP_UNLOCK(vp);
 		}
 		if (vp_held)
 			vdrop(vp);
@@ -896,7 +896,6 @@ static void
 _vm_map_init(vm_map_t map, pmap_t pmap, vm_offset_t min, vm_offset_t max)
 {
 
-	map->header.next = map->header.prev = &map->header;
 	map->header.eflags = MAP_ENTRY_HEADER;
 	map->needs_wakeup = FALSE;
 	map->system_map = 0;
@@ -904,6 +903,7 @@ _vm_map_init(vm_map_t map, pmap_t pmap, vm_offset_t min, vm_offset_t max)
 	map->header.end = min;
 	map->header.start = max;
 	map->flags = 0;
+	map->header.left = map->header.right = &map->header;
 	map->root = NULL;
 	map->timestamp = 0;
 	map->busy = 0;
@@ -977,7 +977,7 @@ static inline vm_size_t
 vm_map_entry_max_free_left(vm_map_entry_t root, vm_map_entry_t left_ancestor)
 {
 
-	return (root->left != NULL ?
+	return (root->left != left_ancestor ?
 	    root->left->max_free : root->start - left_ancestor->end);
 }
 
@@ -985,7 +985,7 @@ static inline vm_size_t
 vm_map_entry_max_free_right(vm_map_entry_t root, vm_map_entry_t right_ancestor)
 {
 
-	return (root->right != NULL ?
+	return (root->right != right_ancestor ?
 	    root->right->max_free : right_ancestor->start - root->end);
 }
 
@@ -994,15 +994,21 @@ vm_map_entry_max_free_right(vm_map_entry_t root, vm_map_entry_t right_ancestor)
  *
  *	Find the {predecessor, successor} of the entry by taking one step
  *	in the appropriate direction and backtracking as much as necessary.
+ *	vm_map_entry_succ is defined in vm_map.h.
  */
 static inline vm_map_entry_t
 vm_map_entry_pred(vm_map_entry_t entry)
 {
+	vm_map_entry_t prior;
 
-	return (entry->prev);
+	prior = entry->left;
+	if (prior->right->start < entry->start) {
+		do
+			prior = prior->right;
+		while (prior->right != entry);
+	}
+	return (prior);
 }
-
-/* vm_map_entry_succ is defined in vm_map.h. */
 
 static inline vm_size_t
 vm_size_max(vm_size_t a, vm_size_t b)
@@ -1011,7 +1017,8 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	return (a > b ? a : b);
 }
 
-#define SPLAY_LEFT_STEP(root, y, rlist, test) do {			\
+#define SPLAY_LEFT_STEP(root, y, llist, rlist, test) do {		\
+	vm_map_entry_t z;						\
 	vm_size_t max_free;						\
 									\
 	/*								\
@@ -1021,18 +1028,24 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	 */								\
 	y = root->left;							\
 	max_free = root->max_free;					\
-	KASSERT(max_free >= vm_map_entry_max_free_right(root, rlist),	\
+	KASSERT(max_free == vm_size_max(				\
+	    vm_map_entry_max_free_left(root, llist),			\
+	    vm_map_entry_max_free_right(root, rlist)),			\
 	    ("%s: max_free invariant fails", __func__));		\
-	if (y == NULL ? max_free > 0 : max_free - 1 < y->max_free)	\
+	if (max_free - 1 < vm_map_entry_max_free_left(root, llist))	\
 		max_free = vm_map_entry_max_free_right(root, rlist);	\
-	if (y != NULL && (test)) {					\
+	if (y != llist && (test)) {					\
 		/* Rotate right and make y root. */			\
-		root->left = y->right;					\
-		y->right = root;					\
-		if (max_free < y->max_free)				\
+		z = y->right;						\
+		if (z != root) {					\
+			root->left = z;					\
+			y->right = root;				\
+			if (max_free < y->max_free)			\
+			    root->max_free = max_free =			\
+			    vm_size_max(max_free, z->max_free);		\
+		} else if (max_free < y->max_free)			\
 			root->max_free = max_free =			\
-			    vm_size_max(max_free,			\
-			    vm_map_entry_max_free_left(root, y));	\
+			    vm_size_max(max_free, root->start - y->end);\
 		root = y;						\
 		y = root->left;						\
 	}								\
@@ -1042,10 +1055,11 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	    ("%s: max_free not copied from right", __func__));		\
 	root->left = rlist;						\
 	rlist = root;							\
-	root = y;							\
+	root = y != llist ? y : NULL;					\
 } while (0)
 
-#define SPLAY_RIGHT_STEP(root, y, llist, test) do {			\
+#define SPLAY_RIGHT_STEP(root, y, llist, rlist, test) do {		\
+	vm_map_entry_t z;						\
 	vm_size_t max_free;						\
 									\
 	/*								\
@@ -1055,18 +1069,24 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	 */								\
 	y = root->right;						\
 	max_free = root->max_free;					\
-	KASSERT(max_free >= vm_map_entry_max_free_left(root, llist),	\
+	KASSERT(max_free == vm_size_max(				\
+	    vm_map_entry_max_free_left(root, llist),			\
+	    vm_map_entry_max_free_right(root, rlist)),			\
 	    ("%s: max_free invariant fails", __func__));		\
-	if (y == NULL ? max_free > 0 : max_free - 1 < y->max_free)	\
+	if (max_free - 1 < vm_map_entry_max_free_right(root, rlist))	\
 		max_free = vm_map_entry_max_free_left(root, llist);	\
-	if (y != NULL && (test)) {					\
+	if (y != rlist && (test)) {					\
 		/* Rotate left and make y root. */			\
-		root->right = y->left;					\
-		y->left = root;						\
-		if (max_free < y->max_free)				\
+		z = y->left;						\
+		if (z != root) {					\
+			root->right = z;				\
+			y->left = root;					\
+			if (max_free < y->max_free)			\
+			    root->max_free = max_free =			\
+			    vm_size_max(max_free, z->max_free);		\
+		} else if (max_free < y->max_free)			\
 			root->max_free = max_free =			\
-			    vm_size_max(max_free,			\
-			    vm_map_entry_max_free_right(root, y));	\
+			    vm_size_max(max_free, y->start - root->end);\
 		root = y;						\
 		y = root->right;					\
 	}								\
@@ -1076,61 +1096,73 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	    ("%s: max_free not copied from left", __func__));		\
 	root->right = llist;						\
 	llist = root;							\
-	root = y;							\
+	root = y != rlist ? y : NULL;					\
 } while (0)
 
 /*
- * Walk down the tree until we find addr or a NULL pointer where addr would go,
- * breaking off left and right subtrees of nodes less than, or greater than
- * addr.  Treat pointers to nodes with max_free < length as NULL pointers.
- * llist and rlist are the two sides in reverse order (bottom-up), with llist
- * linked by the right pointer and rlist linked by the left pointer in the
- * vm_map_entry, and both lists terminated by &map->header.  This function, and
- * the subsequent call to vm_map_splay_merge, rely on the start and end address
+ * Walk down the tree until we find addr or a gap where addr would go, breaking
+ * off left and right subtrees of nodes less than, or greater than addr.  Treat
+ * subtrees with root->max_free < length as empty trees.  llist and rlist are
+ * the two sides in reverse order (bottom-up), with llist linked by the right
+ * pointer and rlist linked by the left pointer in the vm_map_entry, and both
+ * lists terminated by &map->header.  This function, and the subsequent call to
+ * vm_map_splay_merge_{left,right,pred,succ}, rely on the start and end address
  * values in &map->header.
  */
 static __always_inline vm_map_entry_t
 vm_map_splay_split(vm_map_t map, vm_offset_t addr, vm_size_t length,
     vm_map_entry_t *llist, vm_map_entry_t *rlist)
 {
-	vm_map_entry_t root, y;
+	vm_map_entry_t left, right, root, y;
 
-	*llist = *rlist = &map->header;
+	left = right = &map->header;
 	root = map->root;
 	while (root != NULL && root->max_free >= length) {
-		KASSERT((*llist)->end <= root->start &&
-		    root->end <= (*rlist)->start,
+		KASSERT(left->end <= root->start &&
+		    root->end <= right->start,
 		    ("%s: root not within tree bounds", __func__));
 		if (addr < root->start) {
-			SPLAY_LEFT_STEP(root, y, *rlist,
+			SPLAY_LEFT_STEP(root, y, left, right,
 			    y->max_free >= length && addr < y->start);
 		} else if (addr >= root->end) {
-			SPLAY_RIGHT_STEP(root, y, *llist,
+			SPLAY_RIGHT_STEP(root, y, left, right,
 			    y->max_free >= length && addr >= y->end);
 		} else
 			break;
 	}
+	*llist = left;
+	*rlist = right;
 	return (root);
 }
 
 static __always_inline void
 vm_map_splay_findnext(vm_map_entry_t root, vm_map_entry_t *rlist)
 {
-	vm_map_entry_t hi, y;
+	vm_map_entry_t hi, right, y;
 
-	hi = root->right;
-	while (hi != NULL)
-		SPLAY_LEFT_STEP(hi, y, *rlist, true);
+	right = *rlist;
+	hi = root->right == right ? NULL : root->right;
+	if (hi == NULL)
+		return;
+	do
+		SPLAY_LEFT_STEP(hi, y, root, right, true);
+	while (hi != NULL);
+	*rlist = right;
 }
 
 static __always_inline void
 vm_map_splay_findprev(vm_map_entry_t root, vm_map_entry_t *llist)
 {
-	vm_map_entry_t lo, y;
+	vm_map_entry_t left, lo, y;
 
-	lo = root->left;
-	while (lo != NULL)
-		SPLAY_RIGHT_STEP(lo, y, *llist, true);
+	left = *llist;
+	lo = root->left == left ? NULL : root->left;
+	if (lo == NULL)
+		return;
+	do
+		SPLAY_RIGHT_STEP(lo, y, left, root, true);
+	while (lo != NULL);
+	*llist = left;
 }
 
 static inline void
@@ -1178,9 +1210,10 @@ vm_map_splay_merge_pred(vm_map_entry_t header, vm_map_entry_t root,
 	max_free = root->start - llist->end;
 	if (llist != header) {
 		max_free = vm_map_splay_merge_left_walk(header, root,
-		    NULL, max_free, llist);
+		    root, max_free, llist);
 	} else {
-		root->left = NULL;
+		root->left = header;
+		header->right = root;
 	}
 	return (max_free);
 }
@@ -1197,7 +1230,8 @@ vm_map_splay_merge_left(vm_map_entry_t header, vm_map_entry_t root,
 	max_free = vm_map_entry_max_free_left(root, llist);
 	if (llist != header) {
 		max_free = vm_map_splay_merge_left_walk(header, root,
-		    root->left, max_free, llist);
+		    root->left == llist ? root : root->left,
+		    max_free, llist);
 	}
 	return (max_free);
 }
@@ -1233,9 +1267,10 @@ vm_map_splay_merge_succ(vm_map_entry_t header, vm_map_entry_t root,
 	max_free = rlist->start - root->end;
 	if (rlist != header) {
 		max_free = vm_map_splay_merge_right_walk(header, root,
-		    NULL, max_free, rlist);
+		    root, max_free, rlist);
 	} else {
-		root->right = NULL;
+		root->right = header;
+		header->left = root;
 	}
 	return (max_free);
 }
@@ -1252,7 +1287,8 @@ vm_map_splay_merge_right(vm_map_entry_t header, vm_map_entry_t root,
 	max_free = vm_map_entry_max_free_right(root, rlist);
 	if (rlist != header) {
 		max_free = vm_map_splay_merge_right_walk(header, root,
-		    root->right, max_free, rlist);
+		    root->right == rlist ? root : root->right,
+		    max_free, rlist);
 	}
 	return (max_free);
 }
@@ -1266,6 +1302,14 @@ vm_map_splay_merge_right(vm_map_entry_t header, vm_map_entry_t root,
  *	reverse order.  Then, make a second pass up each side to fix
  *	the pointers and compute max_free.  The time bound is O(log n)
  *	amortized.
+ *
+ *	The tree is threaded, which means that there are no null pointers.
+ *	When a node has no left child, its left pointer points to its
+ *	predecessor, which the last ancestor on the search path from the root
+ *	where the search branched right.  Likewise, when a node has no right
+ *	child, its right pointer points to its successor.  The map header node
+ *	is the predecessor of the first map entry, and the successor of the
+ *	last.
  *
  *	The new root is the vm_map_entry containing "addr", or else an
  *	adjacent entry (lower if possible) if addr is not in the tree.
@@ -1316,12 +1360,17 @@ vm_map_splay(vm_map_t map, vm_offset_t addr)
 /*
  *	vm_map_entry_{un,}link:
  *
- *	Insert/remove entries from maps.
+ *	Insert/remove entries from maps.  On linking, if new entry clips
+ *	existing entry, trim existing entry to avoid overlap, and manage
+ *	offsets.  On unlinking, merge disappearing entry with neighbor, if
+ *	called for, and manage offsets.  Callers should not modify fields in
+ *	entries already mapped.
  */
 static void
 vm_map_entry_link(vm_map_t map, vm_map_entry_t entry)
 {
 	vm_map_entry_t header, llist, rlist, root;
+	vm_size_t max_free_left, max_free_right;
 
 	CTR3(KTR_VM,
 	    "vm_map_entry_link: map %p, nentries %d, entry %p", map,
@@ -1330,16 +1379,48 @@ vm_map_entry_link(vm_map_t map, vm_map_entry_t entry)
 	map->nentries++;
 	header = &map->header;
 	root = vm_map_splay_split(map, entry->start, 0, &llist, &rlist);
-	KASSERT(root == NULL,
-	    ("vm_map_entry_link: link object already mapped"));
-	entry->prev = llist;
-	entry->next = rlist;
-	llist->next = rlist->prev = entry;
-	root = entry;
-	root->max_free = vm_size_max(
-	    vm_map_splay_merge_pred(header, root, llist),
-	    vm_map_splay_merge_succ(header, root, rlist));
-	map->root = root;
+	if (root == NULL) {
+		/*
+		 * The new entry does not overlap any existing entry in the
+		 * map, so it becomes the new root of the map tree.
+		 */
+		max_free_left = vm_map_splay_merge_pred(header, entry, llist);
+		max_free_right = vm_map_splay_merge_succ(header, entry, rlist);
+	} else if (entry->start == root->start) {
+		/*
+		 * The new entry is a clone of root, with only the end field
+		 * changed.  The root entry will be shrunk to abut the new
+		 * entry, and will be the right child of the new root entry in
+		 * the modified map.
+		 */
+		KASSERT(entry->end < root->end,
+		    ("%s: clip_start not within entry", __func__));
+		vm_map_splay_findprev(root, &llist);
+		root->offset += entry->end - root->start;
+		root->start = entry->end;
+		max_free_left = vm_map_splay_merge_pred(header, entry, llist);
+		max_free_right = root->max_free = vm_size_max(
+		    vm_map_splay_merge_pred(entry, root, entry),
+		    vm_map_splay_merge_right(header, root, rlist));
+	} else {
+		/*
+		 * The new entry is a clone of root, with only the start field
+		 * changed.  The root entry will be shrunk to abut the new
+		 * entry, and will be the left child of the new root entry in
+		 * the modified map.
+		 */
+		KASSERT(entry->end == root->end,
+		    ("%s: clip_start not within entry", __func__));
+		vm_map_splay_findnext(root, &rlist);
+		entry->offset += entry->start - root->start;
+		root->end = entry->start;
+		max_free_left = root->max_free = vm_size_max(
+		    vm_map_splay_merge_left(header, root, llist),
+		    vm_map_splay_merge_succ(entry, root, entry));
+		max_free_right = vm_map_splay_merge_succ(header, entry, rlist);
+	}
+	entry->max_free = vm_size_max(max_free_left, max_free_right);
+	map->root = entry;
 	VM_MAP_ASSERT_CONSISTENT(map);
 }
 
@@ -1352,7 +1433,7 @@ static void
 vm_map_entry_unlink(vm_map_t map, vm_map_entry_t entry,
     enum unlink_merge_type op)
 {
-	vm_map_entry_t header, llist, rlist, root, y;
+	vm_map_entry_t header, llist, rlist, root;
 	vm_size_t max_free_left, max_free_right;
 
 	VM_MAP_ASSERT_LOCKED(map);
@@ -1377,11 +1458,10 @@ vm_map_entry_unlink(vm_map_t map, vm_map_entry_t entry,
 		rlist = root->left;
 		max_free_left = vm_map_splay_merge_pred(header, root, llist);
 		max_free_right = vm_map_splay_merge_right(header, root, rlist);
-	} else
+	} else {
+		header->left = header->right = header;
 		root = NULL;
-	y = entry->next;
-	y->prev = entry->prev;
-	y->prev->next = y;
+	}
 	if (root != NULL)
 		root->max_free = vm_size_max(max_free_left, max_free_right);
 	map->root = root;
@@ -1435,7 +1515,7 @@ vm_map_lookup_entry(
 	vm_offset_t address,
 	vm_map_entry_t *entry)	/* OUT */
 {
-	vm_map_entry_t cur, header, lbound;
+	vm_map_entry_t cur, header, lbound, ubound;
 	boolean_t locked;
 
 	/*
@@ -1482,18 +1562,23 @@ vm_map_lookup_entry(
 	 * Since the map is only locked for read access, perform a
 	 * standard binary search tree lookup for "address".
 	 */
-	lbound = header;
-	do {
+	lbound = ubound = header;
+	for (;;) {
 		if (address < cur->start) {
+			ubound = cur;
 			cur = cur->left;
+			if (cur == lbound)
+				break;
 		} else if (cur->end <= address) {
 			lbound = cur;
 			cur = cur->right;
+			if (cur == ubound)
+				break;
 		} else {
 			*entry = cur;
 			return (TRUE);
 		}
-	} while (cur != NULL);
+	}
 	*entry = lbound;
 	return (FALSE);
 }
@@ -1760,7 +1845,7 @@ vm_map_findspace(vm_map_t map, vm_offset_t start, vm_size_t length)
 	gap_end = rlist->start;
 	if (root != NULL) {
 		start = root->end;
-		if (root->right != NULL)
+		if (root->right != rlist)
 			gap_end = start;
 		max_free_left = vm_map_splay_merge_left(header, root, llist);
 		max_free_right = vm_map_splay_merge_right(header, root, rlist);
@@ -1782,7 +1867,7 @@ vm_map_findspace(vm_map_t map, vm_offset_t start, vm_size_t length)
 		return (start);
 
 	/* With max_free, can immediately tell if no solution. */
-	if (root->right == NULL || length > root->right->max_free)
+	if (root->right == header || length > root->right->max_free)
 		return (vm_map_max(map) - length + 1);
 
 	/*
@@ -1792,10 +1877,10 @@ vm_map_findspace(vm_map_t map, vm_offset_t start, vm_size_t length)
 	for (left_length = 0;;
 	    left_length = vm_map_entry_max_free_left(root, llist)) {
 		if (length <= left_length)
-			SPLAY_LEFT_STEP(root, y, rlist,
+			SPLAY_LEFT_STEP(root, y, llist, rlist,
 			    length <= vm_map_entry_max_free_left(y, llist));
 		else
-			SPLAY_RIGHT_STEP(root, y, llist,
+			SPLAY_RIGHT_STEP(root, y, llist, rlist,
 			    length > vm_map_entry_max_free_left(y, root));
 		if (root == NULL)
 			break;
@@ -1812,7 +1897,6 @@ vm_map_findspace(vm_map_t map, vm_offset_t start, vm_size_t length)
 		y->max_free = vm_size_max(
 		    vm_map_splay_merge_pred(root, y, root),
 		    vm_map_splay_merge_right(header, y, rlist));
-		root->right = y;
 		root->max_free = vm_size_max(max_free_left, y->max_free);
 	}
 	map->root = root;
@@ -2251,6 +2335,42 @@ vm_map_entry_charge_object(vm_map_t map, vm_map_entry_t entry)
 }
 
 /*
+ *	vm_map_entry_clone
+ *
+ *	Create a duplicate map entry for clipping.
+ */
+static vm_map_entry_t
+vm_map_entry_clone(vm_map_t map, vm_map_entry_t entry)
+{
+	vm_map_entry_t new_entry;
+
+	VM_MAP_ASSERT_LOCKED(map);
+
+	/*
+	 * Create a backing object now, if none exists, so that more individual
+	 * objects won't be created after the map entry is split.
+	 */
+	vm_map_entry_charge_object(map, entry);
+
+	/* Clone the entry. */
+	new_entry = vm_map_entry_create(map);
+	*new_entry = *entry;
+	if (new_entry->cred != NULL)
+		crhold(entry->cred);
+	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
+		vm_object_reference(new_entry->object.vm_object);
+		vm_map_entry_set_vnode_text(new_entry, true);
+		/*
+		 * The object->un_pager.vnp.writemappings for the object of
+		 * MAP_ENTRY_WRITECNT type entry shall be kept as is here.  The
+		 * virtual pages are re-distributed among the clipped entries,
+		 * so the sum is left the same.
+		 */
+	}
+	return (new_entry);
+}
+
+/*
  *	vm_map_clip_start:	[ internal use only ]
  *
  *	Asserts that the given entry begins at or after
@@ -2276,39 +2396,14 @@ _vm_map_clip_start(vm_map_t map, vm_map_entry_t entry, vm_offset_t start)
 	KASSERT(entry->end > start && entry->start < start,
 	    ("_vm_map_clip_start: invalid clip of entry %p", entry));
 
-	/*
-	 * Create a backing object now, if none exists, so that more individual
-	 * objects won't be created after the map entry is split.
-	 */
-	vm_map_entry_charge_object(map, entry);
-
-	/* Clone the entry. */
-	new_entry = vm_map_entry_create(map);
-	*new_entry = *entry;
+	new_entry = vm_map_entry_clone(map, entry);
 
 	/*
 	 * Split off the front portion.  Insert the new entry BEFORE this one,
 	 * so that this entry has the specified starting address.
 	 */
 	new_entry->end = start;
-	entry->offset += (start - entry->start);
-	entry->start = start;
-	if (new_entry->cred != NULL)
-		crhold(entry->cred);
-
 	vm_map_entry_link(map, new_entry);
-
-	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
-		vm_object_reference(new_entry->object.vm_object);
-		vm_map_entry_set_vnode_text(new_entry, true);
-		/*
-		 * The object->un_pager.vnp.writemappings for the
-		 * object of MAP_ENTRY_WRITECNT type entry shall be
-		 * kept as is here.  The virtual pages are
-		 * re-distributed among the clipped entries, so the sum is
-		 * left the same.
-		 */
-	}
 }
 
 /*
@@ -2337,31 +2432,14 @@ _vm_map_clip_end(vm_map_t map, vm_map_entry_t entry, vm_offset_t end)
 	KASSERT(entry->start < end && entry->end > end,
 	    ("_vm_map_clip_end: invalid clip of entry %p", entry));
 
-	/*
-	 * Create a backing object now, if none exists, so that more individual
-	 * objects won't be created after the map entry is split.
-	 */
-	vm_map_entry_charge_object(map, entry);
-
-	/* Clone the entry. */
-	new_entry = vm_map_entry_create(map);
-	*new_entry = *entry;
+	new_entry = vm_map_entry_clone(map, entry);
 
 	/*
 	 * Split off the back portion.  Insert the new entry AFTER this one,
 	 * so that this entry has the specified ending address.
 	 */
-	new_entry->start = entry->end = end;
-	new_entry->offset += (end - entry->start);
-	if (new_entry->cred != NULL)
-		crhold(entry->cred);
-
+	new_entry->start = end;
 	vm_map_entry_link(map, new_entry);
-
-	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
-		vm_object_reference(new_entry->object.vm_object);
-		vm_map_entry_set_vnode_text(new_entry, true);
-	}
 }
 
 /*
@@ -2467,7 +2545,7 @@ vm_map_pmap_enter(vm_map_t map, vm_offset_t addr, vm_prot_t prot,
 
 	psize = atop(size);
 	if (psize + pindex > object->size) {
-		if (object->size < pindex) {
+		if (pindex >= object->size) {
 			VM_OBJECT_RUNLOCK(object);
 			return;
 		}
@@ -3833,15 +3911,19 @@ vm_map_copy_swap_object(vm_map_entry_t src_entry, vm_map_entry_t dst_entry,
 	int charged;
 
 	src_object = src_entry->object.vm_object;
-	VM_OBJECT_WLOCK(src_object);
 	charged = ENTRY_CHARGED(src_entry);
-	vm_object_collapse(src_object);
-	if ((src_object->flags & OBJ_ONEMAPPING) != 0) {
-		vm_object_split(src_entry);
-		src_object = src_entry->object.vm_object;
-	}
-	vm_object_reference_locked(src_object);
-	vm_object_clear_flag(src_object, OBJ_ONEMAPPING);
+	if ((src_object->flags & OBJ_ANON) != 0) {
+		VM_OBJECT_WLOCK(src_object);
+		vm_object_collapse(src_object);
+		if ((src_object->flags & OBJ_ONEMAPPING) != 0) {
+			vm_object_split(src_entry);
+			src_object = src_entry->object.vm_object;
+		}
+		vm_object_reference_locked(src_object);
+		vm_object_clear_flag(src_object, OBJ_ONEMAPPING);
+		VM_OBJECT_WUNLOCK(src_object);
+	} else
+		vm_object_reference(src_object);
 	if (src_entry->cred != NULL &&
 	    !(src_entry->eflags & MAP_ENTRY_NEEDS_COPY)) {
 		KASSERT(src_object->cred == NULL,
@@ -3850,7 +3932,6 @@ vm_map_copy_swap_object(vm_map_entry_t src_entry, vm_map_entry_t dst_entry,
 		src_object->cred = src_entry->cred;
 		src_object->charge = size;
 	}
-	VM_OBJECT_WUNLOCK(src_object);
 	dst_entry->object.vm_object = src_object;
 	if (charged) {
 		cred = curthread->td_ucred;
@@ -4087,8 +4168,6 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 				    true);
 				old_entry->eflags &= ~MAP_ENTRY_NEEDS_COPY;
 				old_entry->cred = NULL;
-				vm_object_reference(
-				    old_entry->object.vm_object);
 
 				/*
 				 * As in vm_map_merged_neighbor_dispose(),
@@ -4687,7 +4766,7 @@ vm_map_lookup(vm_map_t *var_map,		/* IN/OUT */
 	vm_map_entry_t entry;
 	vm_map_t map = *var_map;
 	vm_prot_t prot;
-	vm_prot_t fault_type = fault_typea;
+	vm_prot_t fault_type;
 	vm_object_t eobject;
 	vm_size_t size;
 	struct ucred *cred;
@@ -4731,7 +4810,7 @@ RetryLookupLocked:
 		    vm_map_growstack(map, vaddr, entry) == KERN_SUCCESS)
 			goto RetryLookupLocked;
 	}
-	fault_type &= VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE;
+	fault_type = fault_typea & VM_PROT_ALL;
 	if ((fault_type & prot) != fault_type || prot == VM_PROT_NONE) {
 		vm_map_unlock_read(map);
 		return (KERN_PROTECTION_FAILURE);
@@ -4961,6 +5040,7 @@ static void
 _vm_map_assert_consistent(vm_map_t map, int check)
 {
 	vm_map_entry_t entry, prev;
+	vm_map_entry_t cur, header, lbound, ubound;
 	vm_size_t max_left, max_right;
 
 #ifdef DIAGNOSTIC
@@ -4969,7 +5049,7 @@ _vm_map_assert_consistent(vm_map_t map, int check)
 	if (enable_vmmap_check != check)
 		return;
 
-	prev = &map->header;
+	header = prev = &map->header;
 	VM_MAP_ENTRY_FOREACH(entry, map) {
 		KASSERT(prev->end <= entry->start,
 		    ("map %p prev->end = %jx, start = %jx", map,
@@ -4977,23 +5057,39 @@ _vm_map_assert_consistent(vm_map_t map, int check)
 		KASSERT(entry->start < entry->end,
 		    ("map %p start = %jx, end = %jx", map,
 		    (uintmax_t)entry->start, (uintmax_t)entry->end));
-		KASSERT(entry->end <= vm_map_entry_succ(entry)->start,
-		    ("map %p end = %jx, next->start = %jx", map,
-		     (uintmax_t)entry->end,
-		     (uintmax_t)vm_map_entry_succ(entry)->start));
-		KASSERT(entry->left == NULL ||
+		KASSERT(entry->left == header ||
 		    entry->left->start < entry->start,
 		    ("map %p left->start = %jx, start = %jx", map,
 		    (uintmax_t)entry->left->start, (uintmax_t)entry->start));
-		KASSERT(entry->right == NULL ||
+		KASSERT(entry->right == header ||
 		    entry->start < entry->right->start,
 		    ("map %p start = %jx, right->start = %jx", map,
 		    (uintmax_t)entry->start, (uintmax_t)entry->right->start));
-		max_left = vm_map_entry_max_free_left(entry,
-		    vm_map_entry_pred(entry));
-		max_right = vm_map_entry_max_free_right(entry,
-		    vm_map_entry_succ(entry));
-		KASSERT(entry->max_free == MAX(max_left, max_right),
+		cur = map->root;
+		lbound = ubound = header;
+		for (;;) {
+			if (entry->start < cur->start) {
+				ubound = cur;
+				cur = cur->left;
+				KASSERT(cur != lbound,
+				    ("map %p cannot find %jx",
+				    map, (uintmax_t)entry->start));
+			} else if (cur->end <= entry->start) {
+				lbound = cur;
+				cur = cur->right;
+				KASSERT(cur != ubound,
+				    ("map %p cannot find %jx",
+				    map, (uintmax_t)entry->start));
+			} else {
+				KASSERT(cur == entry,
+				    ("map %p cannot find %jx",
+				    map, (uintmax_t)entry->start));
+				break;
+			}
+		}
+		max_left = vm_map_entry_max_free_left(entry, lbound);
+		max_right = vm_map_entry_max_free_right(entry, ubound);
+		KASSERT(entry->max_free == vm_size_max(max_left, max_right),
 		    ("map %p max = %jx, max_left = %jx, max_right = %jx", map,
 		    (uintmax_t)entry->max_free,
 		    (uintmax_t)max_left, (uintmax_t)max_right));
