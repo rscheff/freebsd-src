@@ -281,9 +281,9 @@ sysctl_kstack_cache_size(SYSCTL_HANDLER_ARGS)
 		uma_zone_set_maxcache(kstack_cache, kstack_cache_size);
 	return (error);
 }
-SYSCTL_PROC(_vm, OID_AUTO, kstack_cache_size, CTLTYPE_INT|CTLFLAG_RW,
-	&kstack_cache_size, 0, sysctl_kstack_cache_size, "IU",
-	"Maximum number of cached kernel stacks");
+SYSCTL_PROC(_vm, OID_AUTO, kstack_cache_size,
+    CTLTYPE_INT|CTLFLAG_MPSAFE|CTLFLAG_RW, &kstack_cache_size, 0,
+    sysctl_kstack_cache_size, "IU", "Maximum number of cached kernel stacks");
 
 /*
  * Create the kernel stack (including pcb for i386) for a new thread.
@@ -340,10 +340,12 @@ vm_thread_stack_create(struct domainset *ds, vm_object_t *ksobjp, int pages)
 	 * page of stack.
 	 */
 	VM_OBJECT_WLOCK(ksobj);
-	(void)vm_page_grab_pages(ksobj, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY |
-	    VM_ALLOC_WIRED, ma, pages);
-	for (i = 0; i < pages; i++)
-		ma[i]->valid = VM_PAGE_BITS_ALL;
+	(void)vm_page_grab_pages(ksobj, 0, VM_ALLOC_NORMAL | VM_ALLOC_WIRED,
+	    ma, pages);
+	for (i = 0; i < pages; i++) {
+		vm_page_valid(ma[i]);
+		vm_page_xunbusy(ma[i]);
+	}
 	VM_OBJECT_WUNLOCK(ksobj);
 	pmap_qenter(ks, ma, pages);
 	*ksobjp = ksobj;
