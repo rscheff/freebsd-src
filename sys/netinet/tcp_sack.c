@@ -776,6 +776,7 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 	if (tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_timer_activate(tp, TT_PERSIST, 0);
+		tp->t_rxtshift = 0;
 	}
 	tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
 	tp->t_rtttime = 0;
