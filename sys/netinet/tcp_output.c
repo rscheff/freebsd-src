@@ -61,6 +61,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
 #include <sys/stats.h>
+#include <sys/syslog.h>
 
 #include <net/if.h>
 #include <net/route.h>
@@ -1513,7 +1514,17 @@ out:
 		 * of retransmit time.
 		 */
 timer:
+		if (so->so_options & SO_DEBUG) {
+			if (sack_rxmit) {
+				log(LOG_CRIT, "sack rxmt: una: %u nxt: %u max: %u off: %d len: %d trexmt:%d tpersist:%d\n",
+				    tp->snd_una, tp->snd_nxt, tp->snd_max, off, len,
+				    tcp_timer_active(tp, TT_REXMT), tcp_timer_active(tp, TT_PERSIST));
+			}
+		}
 		if (!tcp_timer_active(tp, TT_REXMT) &&
+		
+		// off > 0 || snd_una + off != snd_max 
+		
 		    ((sack_rxmit && tp->snd_nxt != tp->snd_max) ||
 		     (tp->snd_nxt != tp->snd_una))) {
 			if (tcp_timer_active(tp, TT_PERSIST)) {

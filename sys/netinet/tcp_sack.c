@@ -774,11 +774,12 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	int num_segs = 1;
 
 	INP_WLOCK_ASSERT(tp->t_inpcb);
-	if (tcp_timer_active(tp, TT_PERSIST)) {
-		tcp_timer_activate(tp, TT_PERSIST, 0);
-		tp->t_rxtshift = 0;
-	}
-	tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+//	if (tcp_timer_active(tp, TT_PERSIST)) {
+//		tcp_timer_activate(tp, TT_PERSIST, 0);
+//		tp->t_rxtshift = 0;
+//	}
+//	tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+	tcp_timer_activate(tp, TT_REXMT, 0);
 	tp->t_rtttime = 0;
 	/* Send one or 2 segments based on how much new data was acked. */
 	if ((BYTES_THIS_ACK(tp, th) / tp->t_maxseg) >= 2)
