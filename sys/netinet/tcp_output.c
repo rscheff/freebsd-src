@@ -1516,7 +1516,7 @@ out:
 timer:
 		if (so->so_options & SO_DEBUG) {
 			if (sack_rxmit) {
-				log(LOG_CRIT, "sack rxmt: una: %u nxt: %u max: %u off: %d len: %d trexmt:%d tpersist:%d\n",
+				log(LOG_CRIT, "tcp_output#timer: una: %u nxt: %u max: %u off: %d len: %d trexmt:%d tpersist:%d\n",
 				    tp->snd_una, tp->snd_nxt, tp->snd_max, off, len,
 				    tcp_timer_active(tp, TT_REXMT), tcp_timer_active(tp, TT_PERSIST));
 			}
@@ -1557,6 +1557,16 @@ timer:
 			tp->t_rxtshift = 0;
 			tcp_setpersist(tp);
 		}
+
+		if (so->so_options & SO_DEBUG) {
+			if (sack_rxmit) {
+				log(LOG_CRIT, "tcp_output#timer_end: una: %u nxt: %u max: %u off: %d len: %d trexmt:%d tpersist:%d\n",
+				    tp->snd_una, tp->snd_nxt, tp->snd_max, off, len,
+				    tcp_timer_active(tp, TT_REXMT), tcp_timer_active(tp, TT_PERSIST));
+			}
+		}
+
+
 	} else {
 		/*
 		 * Persist case, update snd_max but since we are in
