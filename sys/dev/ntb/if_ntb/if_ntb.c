@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/buf_ring.h>
 #include <sys/bus.h>
+#include <sys/ktr.h>
 #include <sys/limits.h>
 #include <sys/module.h>
 #include <sys/socket.h>
@@ -171,7 +172,8 @@ ntb_net_attach(device_t dev)
 
 	if_setinitfn(ifp, ntb_net_init);
 	if_setsoftc(ifp, sc);
-	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
+	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST |
+	    IFF_NEEDSEPOCH);
 	if_setioctlfn(ifp, ntb_ioctl);
 	if_settransmitfn(ifp, ntb_transmit);
 	if_setqflushfn(ifp, ntb_qflush);

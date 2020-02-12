@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2000 John Baldwin <jhb@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -325,7 +324,7 @@ ktr_tracepoint(uint64_t mask, const char *file, int line, const char *format,
 #endif
 	int cpu;
 
-	if (panicstr || kdb_active)
+	if (KERNEL_PANICKED() || kdb_active)
 		return;
 	if ((ktr_mask & mask) == 0 || ktr_buf == NULL)
 		return;

@@ -54,6 +54,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm.h>
 #include <vm/vm_kern.h>
 #include <geom/geom.h>
+#include <geom/geom_dbg.h>
 
 #include <geom/journal/g_journal.h>
 
@@ -745,6 +746,7 @@ g_journal_start(struct bio *bp)
 			return;
 		}
 		/* FALLTHROUGH */
+	case BIO_SPEEDUP:
 	case BIO_DELETE:
 	default:
 		g_io_deliver(bp, EOPNOTSUPP);
@@ -2623,15 +2625,15 @@ g_journal_dumpconf(struct sbuf *sb, const char *indent, struct g_geom *gp,
 
 		sbuf_printf(sb, "%s<Role>", indent);
 		if (cp == sc->sc_dconsumer) {
-			sbuf_printf(sb, "Data");
+			sbuf_cat(sb, "Data");
 			first = 0;
 		}
 		if (cp == sc->sc_jconsumer) {
 			if (!first)
-				sbuf_printf(sb, ",");
-			sbuf_printf(sb, "Journal");
+				sbuf_cat(sb, ",");
+			sbuf_cat(sb, "Journal");
 		}
-		sbuf_printf(sb, "</Role>\n");
+		sbuf_cat(sb, "</Role>\n");
 		if (cp == sc->sc_jconsumer) {
 			sbuf_printf(sb, "<Jstart>%jd</Jstart>\n",
 			    (intmax_t)sc->sc_jstart);
@@ -2652,7 +2654,7 @@ g_journal_shutdown(void *arg, int howto __unused)
 	struct g_class *mp;
 	struct g_geom *gp, *gp2;
 
-	if (panicstr != NULL)
+	if (KERNEL_PANICKED())
 		return;
 	mp = arg;
 	g_topology_lock();
@@ -2873,7 +2875,7 @@ g_journal_do_switch(struct g_class *classp)
 		save = curthread_pflags_set(TDP_SYNCIO);
 
 		GJ_TIMER_START(1, &bt);
-		vfs_msync(mp, MNT_NOWAIT);
+		vfs_periodic(mp, MNT_NOWAIT);
 		GJ_TIMER_STOP(1, &bt, "Msync time of %s", mountpoint);
 
 		GJ_TIMER_START(1, &bt);

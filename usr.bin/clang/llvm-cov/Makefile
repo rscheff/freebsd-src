@@ -8,9 +8,10 @@ LINKS=		${BINDIR}/llvm-cov	${BINDIR}/gcov
 MLINKS=		llvm-cov.1		gcov.1
 .endif
 
-SRCDIR=		tools/llvm-cov
+SRCDIR=		llvm/tools/llvm-cov
 SRCS+=		CodeCoverage.cpp
 SRCS+=		CoverageExporterJson.cpp
+SRCS+=		CoverageExporterLcov.cpp
 SRCS+=		CoverageFilters.cpp
 SRCS+=		CoverageReport.cpp
 SRCS+=		CoverageSummaryInfo.cpp

@@ -166,7 +166,7 @@ struct sctp_copy_all {
 	struct sctp_inpcb *inp;	/* ep */
 	struct mbuf *m;
 	struct sctp_sndrcvinfo sndrcv;
-	int sndlen;
+	ssize_t sndlen;
 	int cnt_sent;
 	int cnt_failed;
 };
@@ -806,7 +806,6 @@ struct sctp_association {
 	struct sctp_timer strreset_timer;	/* stream reset */
 	struct sctp_timer shut_guard_timer;	/* shutdown guard */
 	struct sctp_timer autoclose_timer;	/* automatic close timer */
-	struct sctp_timer delayed_event_timer;	/* timer for delayed events */
 	struct sctp_timer delete_prim_timer;	/* deleting primary dst */
 
 	/* list of restricted local addresses */

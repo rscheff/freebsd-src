@@ -2,7 +2,7 @@
 
 PROG_CXX=	llvm-tblgen
 
-SRCDIR=		utils/TableGen
+SRCDIR=		llvm/utils/TableGen
 SRCS+=		AsmMatcherEmitter.cpp
 SRCS+=		AsmWriterEmitter.cpp
 SRCS+=		AsmWriterInst.cpp
@@ -24,6 +24,7 @@ SRCS+=		DAGISelMatcherGen.cpp
 SRCS+=		DAGISelMatcherOpt.cpp
 SRCS+=		DFAPacketizerEmitter.cpp
 SRCS+=		DisassemblerEmitter.cpp
+SRCS+=		ExegesisEmitter.cpp
 SRCS+=		FastISelEmitter.cpp
 SRCS+=		FixedLenDecoderEmitter.cpp
 SRCS+=		GlobalISelEmitter.cpp

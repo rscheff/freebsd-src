@@ -364,9 +364,14 @@ htcp_post_recovery(struct cc_var *ccv)
 			pipe = tcp_compute_pipe(ccv->ccvc.tcp);
 		else
 			pipe = CCV(ccv, snd_max) - ccv->curack;
-		
+
 		if (pipe < CCV(ccv, snd_ssthresh))
-			CCV(ccv, snd_cwnd) = pipe + CCV(ccv, t_maxseg);
+			/*
+			 * Ensure that cwnd down not collape to 1 MSS under
+			 * adverse conditions. Implements RFC6582
+			 */
+			CCV(ccv, snd_cwnd) = max(pipe, CCV(ccv, t_maxseg)) +
+			    CCV(ccv, t_maxseg);
 		else
 			CCV(ccv, snd_cwnd) = max(1, ((htcp_data->beta *
 			    htcp_data->prev_cwnd / CCV(ccv, t_maxseg))

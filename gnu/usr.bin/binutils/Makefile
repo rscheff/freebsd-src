@@ -2,18 +2,25 @@
 
 .include <src.opts.mk>
 
-SUBDIR=	doc\
-	libiberty \
+SUBDIR=	libiberty \
 	libbfd \
-	libopcodes \
-	libbinutils \
-	as \
-	objdump
+	libopcodes
 
-# When we use ld.lld as /usr/bin/ld, do not install the non-ifunc-capable
-# GNU binutils 2.17.50 ld.
-.if ${MK_LLD_IS_LD} == "no"
-SUBDIR+=ld
+SUBDIR.${MK_BINUTILS}+=	doc
+SUBDIR.${MK_BINUTILS}+=	libbinutils
+SUBDIR.${MK_BINUTILS}+=	objdump
+
+# GNU as is used on x86 only, for a few files that cannot be assembled by
+# Clang IAS. Other archs either use Clang IAS for every assembly file, or
+# use external toolchain.
+.if ${TARGET} == "amd64" || ${TARGET} == "i386"
+SUBDIR.${MK_BINUTILS}+=	as
+.endif
+
+# All archs except powerpc either use lld or require external toolchain.
+# powerpc still needs binutils ld to link 32-bit binaries.
+.if ${TARGET} == "powerpc"
+SUBDIR.${MK_BINUTILS}+=ld
 .endif
 
 SUBDIR_DEPEND_libbinutils=libbfd		# for bfdver.h

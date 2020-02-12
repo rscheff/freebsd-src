@@ -1159,6 +1159,7 @@ static void
 ipw_rx_data_intr(struct ipw_softc *sc, struct ipw_status *status,
     struct ipw_soft_bd *sbd, struct ipw_soft_buf *sbuf)
 {
+	struct epoch_tracker et;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mbuf *mnew, *m;
 	struct ieee80211_node *ni;
@@ -1230,11 +1231,13 @@ ipw_rx_data_intr(struct ipw_softc *sc, struct ipw_status *status,
 
 	IPW_UNLOCK(sc);
 	ni = ieee80211_find_rxnode(ic, mtod(m, struct ieee80211_frame_min *));
+	NET_EPOCH_ENTER(et);
 	if (ni != NULL) {
 		(void) ieee80211_input(ni, m, rssi - nf, nf);
 		ieee80211_free_node(ni);
 	} else
 		(void) ieee80211_input_all(ic, m, rssi - nf, nf);
+	NET_EPOCH_EXIT(et);
 	IPW_LOCK(sc);
 
 	bus_dmamap_sync(sc->rbd_dmat, sc->rbd_map, BUS_DMASYNC_PREWRITE);
@@ -1326,10 +1329,7 @@ ipw_release_sbd(struct ipw_softc *sc, struct ipw_soft_bd *sbd)
 		bus_dmamap_unload(sc->txbuf_dmat, sbuf->map);
 		SLIST_INSERT_HEAD(&sc->free_sbuf, sbuf, next);
 
-		if (sbuf->m->m_flags & M_TXCB)
-			ieee80211_process_callback(sbuf->ni, sbuf->m, 0/*XXX*/);
-		m_freem(sbuf->m);
-		ieee80211_free_node(sbuf->ni);
+		ieee80211_tx_complete(sbuf->ni, sbuf->m, 0/*XXX*/);
 
 		sc->sc_tx_timer = 0;
 		break;

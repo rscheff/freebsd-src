@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 
 #include <geom/geom.h>
+#include <geom/geom_dbg.h>
 #include <sys/endian.h>
 
 #include <geom/linux_lvm/g_linux_lvm.h>
@@ -214,6 +215,10 @@ g_llvm_start(struct bio *bp)
 	/* XXX BIO_GETATTR allowed? */
 		break;
 	default:
+		/*
+		 * BIO_SPEEDUP and BIO_FLUSH should pass through to all sg
+		 * elements, but aren't.
+		 */
 		g_io_deliver(bp, EOPNOTSUPP);
 		return;
 	}

@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <string.h>
 
+#include "debug.h"
 #include "xmsr.h"
 
 static int cpu_vendor_intel, cpu_vendor_amd;
@@ -72,6 +73,7 @@ emulate_wrmsr(struct vmctx *ctx, int vcpu, uint32_t num, uint64_t val)
 			return (0);
 
 		case MSR_NB_CFG1:
+		case MSR_LS_CFG:
 		case MSR_IC_CFG:
 			return (0);	/* Ignore writes */
 
@@ -141,6 +143,7 @@ emulate_rdmsr(struct vmctx *ctx, int vcpu, uint32_t num, uint64_t *val)
 			break;
 
 		case MSR_NB_CFG1:
+		case MSR_LS_CFG:
 		case MSR_IC_CFG:
 			/*
 			 * The reset value is processor family dependent so
@@ -225,7 +228,7 @@ init_msr(void)
 	} else if (strcmp(cpu_vendor, "GenuineIntel") == 0) {
 		cpu_vendor_intel = 1;
 	} else {
-		fprintf(stderr, "Unknown cpu vendor \"%s\"\n", cpu_vendor);
+		EPRINTLN("Unknown cpu vendor \"%s\"", cpu_vendor);
 		error = -1;
 	}
 	return (error);

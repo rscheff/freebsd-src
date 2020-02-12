@@ -360,7 +360,7 @@ mwl_attach(uint16_t devid, struct mwl_softc *sc)
 	taskqueue_start_threads(&sc->sc_tq, 1, PI_NET,
 		"%s taskq", device_get_nameunit(sc->sc_dev));
 
-	TASK_INIT(&sc->sc_rxtask, 0, mwl_rx_proc, sc);
+	NET_TASK_INIT(&sc->sc_rxtask, 0, mwl_rx_proc, sc);
 	TASK_INIT(&sc->sc_radartask, 0, mwl_radar_proc, sc);
 	TASK_INIT(&sc->sc_chanswitchtask, 0, mwl_chanswitch_proc, sc);
 	TASK_INIT(&sc->sc_bawatchdogtask, 0, mwl_bawatchdog_proc, sc);
@@ -2608,13 +2608,13 @@ cvtrssi(uint8_t ssi)
 static void
 mwl_rx_proc(void *arg, int npending)
 {
+	struct epoch_tracker et;
 	struct mwl_softc *sc = arg;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mwl_rxbuf *bf;
 	struct mwl_rxdesc *ds;
 	struct mbuf *m;
 	struct ieee80211_qosframe *wh;
-	struct ieee80211_qosframe_addr4 *wh4;
 	struct ieee80211_node *ni;
 	struct mwl_node *mn;
 	int off, len, hdrlen, pktlen, rssi, ntodo;
@@ -2761,15 +2761,8 @@ mwl_rx_proc(void *arg, int npending)
 		/* NB: don't need to do this sometimes but ... */
 		/* XXX special case so we can memcpy after m_devget? */
 		ovbcopy(data + sizeof(uint16_t), wh, hdrlen);
-		if (IEEE80211_QOS_HAS_SEQ(wh)) {
-			if (IEEE80211_IS_DSTODS(wh)) {
-				wh4 = mtod(m,
-				    struct ieee80211_qosframe_addr4*);
-				*(uint16_t *)wh4->i_qos = ds->QosCtrl;
-			} else {
-				*(uint16_t *)wh->i_qos = ds->QosCtrl;
-			}
-		}
+		if (IEEE80211_QOS_HAS_SEQ(wh))
+			*(uint16_t *)ieee80211_getqos(wh) = ds->QosCtrl;
 		/*
 		 * The f/w strips WEP header but doesn't clear
 		 * the WEP bit; mark the packet with M_WEP so
@@ -2804,6 +2797,8 @@ mwl_rx_proc(void *arg, int npending)
 		/* dispatch */
 		ni = ieee80211_find_rxnode(ic,
 		    (const struct ieee80211_frame_min *) wh);
+
+		NET_EPOCH_ENTER(et);
 		if (ni != NULL) {
 			mn = MWL_NODE(ni);
 #ifdef MWL_ANT_INFO_SUPPORT
@@ -2819,6 +2814,7 @@ mwl_rx_proc(void *arg, int npending)
 			ieee80211_free_node(ni);
 		} else
 			(void) ieee80211_input_all(ic, m, rssi, nf);
+		NET_EPOCH_EXIT(et);
 rx_next:
 		/* NB: ignore ENOMEM so we process more descriptors */
 		(void) mwl_rxbuf_init(sc, bf);
@@ -3100,13 +3096,9 @@ mwl_tx_start(struct mwl_softc *sc, struct ieee80211_node *ni, struct mwl_txbuf *
 	copyhdrlen = hdrlen;
 	pktlen = m0->m_pkthdr.len;
 	if (IEEE80211_QOS_HAS_SEQ(wh)) {
-		if (IEEE80211_IS_DSTODS(wh)) {
-			qos = *(uint16_t *)
-			    (((struct ieee80211_qosframe_addr4 *) wh)->i_qos);
+		qos = *(uint16_t *)ieee80211_getqos(wh);
+		if (IEEE80211_IS_DSTODS(wh))
 			copyhdrlen -= sizeof(qos);
-		} else
-			qos = *(uint16_t *)
-			    (((struct ieee80211_qosframe *) wh)->i_qos);
 	} else
 		qos = 0;
 

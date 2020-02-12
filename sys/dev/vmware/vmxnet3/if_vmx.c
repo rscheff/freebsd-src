@@ -23,6 +23,8 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_rss.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -46,6 +48,9 @@ __FBSDID("$FreeBSD$");
 #include <net/if_media.h>
 #include <net/if_vlan_var.h>
 #include <net/iflib.h>
+#ifdef RSS
+#include <net/rss_config.h>
+#endif
 
 #include <netinet/in_systm.h>
 #include <netinet/in.h>
@@ -287,7 +292,7 @@ static struct if_shared_ctx vmxnet3_sctx_init = {
 	.isc_vendor_info = vmxnet3_vendor_info_array,
 	.isc_driver_version = "2",
 	.isc_driver = &vmxnet3_iflib_driver,
-	.isc_flags = IFLIB_HAS_RXCQ | IFLIB_HAS_TXCQ,
+	.isc_flags = IFLIB_HAS_RXCQ | IFLIB_HAS_TXCQ | IFLIB_SINGLE_IRQ_RX_ONLY,
 
 	/*
 	 * Number of receive queues per receive queue set, with associated
@@ -676,14 +681,16 @@ vmxnet3_set_interrupt_idx(struct vmxnet3_softc *sc)
 	scctx = sc->vmx_scctx;
 
 	/*
-	 * There is either one interrupt, or there is one interrupt per
-	 * receive queue.  If there is one interrupt, then all interrupt
-	 * indexes are zero.  If there is one interrupt per receive queue,
-	 * the transmit queue interrupt indexes are assigned the receive
-	 * queue interrupt indexesin round-robin fashion.
-	 *
-	 * The event interrupt is always the last interrupt index.
+	 * There is always one interrupt per receive queue, assigned
+	 * starting with the first interrupt.  When there is only one
+	 * interrupt available, the event interrupt shares the receive queue
+	 * interrupt, otherwise it uses the interrupt following the last
+	 * receive queue interrupt.  Transmit queues are not assigned
+	 * interrupts, so they are given indexes beyond the indexes that
+	 * correspond to the real interrupts.
 	 */
+
+	/* The event interrupt is always the last vector. */
 	sc->vmx_event_intr_idx = scctx->isc_vectors - 1;
 
 	intr_idx = 0;
@@ -1073,14 +1080,14 @@ vmxnet3_init_shared_data(struct vmxnet3_softc *sc)
 	ds->automask = sc->vmx_intr_mask_mode == VMXNET3_IMM_AUTO;
 	/*
 	 * Total number of interrupt indexes we are using in the shared
-	 * config data, even though we don't actually allocate MSI-X
+	 * config data, even though we don't actually allocate interrupt
 	 * resources for the tx queues.  Some versions of the device will
 	 * fail to initialize successfully if interrupt indexes are used in
 	 * the shared config that exceed the number of interrupts configured
 	 * here.
 	 */
 	ds->nintr = (scctx->isc_vectors == 1) ?
-	    1 : (scctx->isc_nrxqsets + scctx->isc_ntxqsets + 1);
+	    2 : (scctx->isc_nrxqsets + scctx->isc_ntxqsets + 1);
 	ds->evintr = sc->vmx_event_intr_idx;
 	ds->ictrl = VMXNET3_ICTRL_DISABLE_ALL;
 
@@ -1138,8 +1145,11 @@ vmxnet3_reinit_rss_shared_data(struct vmxnet3_softc *sc)
 	struct vmxnet3_driver_shared *ds;
 	if_softc_ctx_t scctx;
 	struct vmxnet3_rss_shared *rss;
+#ifdef RSS
+	uint8_t rss_algo;
+#endif
 	int i;
-	
+
 	ds = sc->vmx_ds;
 	scctx = sc->vmx_scctx;
 	rss = sc->vmx_rss;
@@ -1150,10 +1160,29 @@ vmxnet3_reinit_rss_shared_data(struct vmxnet3_softc *sc)
 	rss->hash_func = UPT1_RSS_HASH_FUNC_TOEPLITZ;
 	rss->hash_key_size = UPT1_RSS_MAX_KEY_SIZE;
 	rss->ind_table_size = UPT1_RSS_MAX_IND_TABLE_SIZE;
-	memcpy(rss->hash_key, rss_key, UPT1_RSS_MAX_KEY_SIZE);
-
-	for (i = 0; i < UPT1_RSS_MAX_IND_TABLE_SIZE; i++)
-		rss->ind_table[i] = i % scctx->isc_nrxqsets;
+#ifdef RSS
+	/*
+	 * If the software RSS is configured to anything else other than
+	 * Toeplitz, then just do Toeplitz in "hardware" for the sake of
+	 * the packet distribution, but report the hash as opaque to
+	 * disengage from the software RSS.
+	 */
+	rss_algo = rss_gethashalgo();
+	if (rss_algo == RSS_HASH_TOEPLITZ) {
+		rss_getkey(rss->hash_key);
+		for (i = 0; i < UPT1_RSS_MAX_IND_TABLE_SIZE; i++) {
+			rss->ind_table[i] = rss_get_indirection_to_bucket(i) %
+			    scctx->isc_nrxqsets;
+		}
+		sc->vmx_flags |= VMXNET3_FLAG_SOFT_RSS;
+	} else
+#endif
+	{
+		memcpy(rss->hash_key, rss_key, UPT1_RSS_MAX_KEY_SIZE);
+		for (i = 0; i < UPT1_RSS_MAX_IND_TABLE_SIZE; i++)
+			rss->ind_table[i] = i % scctx->isc_nrxqsets;
+		sc->vmx_flags &= ~VMXNET3_FLAG_SOFT_RSS;
+	}
 }
 
 static void
@@ -1318,7 +1347,7 @@ vmxnet3_isc_txd_encap(void *vsc, if_pkt_info_t pi)
 	hdrlen = pi->ipi_ehdrlen + pi->ipi_ip_hlen;
 	if (pi->ipi_csum_flags & CSUM_TSO) {
 		sop->offload_mode = VMXNET3_OM_TSO;
-		sop->hlen = hdrlen;
+		sop->hlen = hdrlen + pi->ipi_tcp_hlen;
 		sop->offload_pos = pi->ipi_tso_segsz;
 	} else if (pi->ipi_csum_flags & (VMXNET3_CSUM_OFFLOAD |
 	    VMXNET3_CSUM_OFFLOAD_IPV6)) {
@@ -1497,29 +1526,50 @@ vmxnet3_isc_rxd_pkt_get(void *vsc, if_rxd_info_t ri)
 	KASSERT(rxcd->sop, ("%s: expected sop", __func__));
 
 	/*
-	 * RSS and flow ID
+	 * RSS and flow ID.
+	 * Types other than M_HASHTYPE_NONE and M_HASHTYPE_OPAQUE_HASH should
+	 * be used only if the software RSS is enabled and it uses the same
+	 * algorithm and the hash key as the "hardware".  If the software RSS
+	 * is not enabled, then it's simply pointless to use those types.
+	 * If it's enabled but with different parameters, then hash values will
+	 * not match.
 	 */
 	ri->iri_flowid = rxcd->rss_hash;
-	switch (rxcd->rss_type) {
-	case VMXNET3_RCD_RSS_TYPE_NONE:
-		ri->iri_flowid = ri->iri_qsidx;
-		ri->iri_rsstype = M_HASHTYPE_NONE;
-		break;
-	case VMXNET3_RCD_RSS_TYPE_IPV4:
-		ri->iri_rsstype = M_HASHTYPE_RSS_IPV4;
-		break;
-	case VMXNET3_RCD_RSS_TYPE_TCPIPV4:
-		ri->iri_rsstype = M_HASHTYPE_RSS_TCP_IPV4;
-		break;
-	case VMXNET3_RCD_RSS_TYPE_IPV6:
-		ri->iri_rsstype = M_HASHTYPE_RSS_IPV6;
-		break;
-	case VMXNET3_RCD_RSS_TYPE_TCPIPV6:
-		ri->iri_rsstype = M_HASHTYPE_RSS_TCP_IPV6;
-		break;
-	default:
-		ri->iri_rsstype = M_HASHTYPE_OPAQUE_HASH;
-		break;
+#ifdef RSS
+	if ((sc->vmx_flags & VMXNET3_FLAG_SOFT_RSS) != 0) {
+		switch (rxcd->rss_type) {
+		case VMXNET3_RCD_RSS_TYPE_NONE:
+			ri->iri_flowid = ri->iri_qsidx;
+			ri->iri_rsstype = M_HASHTYPE_NONE;
+			break;
+		case VMXNET3_RCD_RSS_TYPE_IPV4:
+			ri->iri_rsstype = M_HASHTYPE_RSS_IPV4;
+			break;
+		case VMXNET3_RCD_RSS_TYPE_TCPIPV4:
+			ri->iri_rsstype = M_HASHTYPE_RSS_TCP_IPV4;
+			break;
+		case VMXNET3_RCD_RSS_TYPE_IPV6:
+			ri->iri_rsstype = M_HASHTYPE_RSS_IPV6;
+			break;
+		case VMXNET3_RCD_RSS_TYPE_TCPIPV6:
+			ri->iri_rsstype = M_HASHTYPE_RSS_TCP_IPV6;
+			break;
+		default:
+			ri->iri_rsstype = M_HASHTYPE_OPAQUE_HASH;
+			break;
+		}
+	} else
+#endif
+	{
+		switch (rxcd->rss_type) {
+		case VMXNET3_RCD_RSS_TYPE_NONE:
+			ri->iri_flowid = ri->iri_qsidx;
+			ri->iri_rsstype = M_HASHTYPE_NONE;
+			break;
+		default:
+			ri->iri_rsstype = M_HASHTYPE_OPAQUE_HASH;
+			break;
+		}
 	}
 
 	/* VLAN */
@@ -1993,12 +2043,23 @@ vmxnet3_vlan_unregister(if_ctx_t ctx, uint16_t tag)
 	vmxnet3_update_vlan_filter(iflib_get_softc(ctx), 0, tag);
 }
 
+static u_int
+vmxnet3_hash_maddr(void *arg, struct sockaddr_dl *sdl, u_int count)
+{
+	struct vmxnet3_softc *sc = arg;
+
+	if (count < VMXNET3_MULTICAST_MAX)
+		bcopy(LLADDR(sdl), &sc->vmx_mcast[count * ETHER_ADDR_LEN],
+		    ETHER_ADDR_LEN);
+
+	return (1);
+}
+
 static void
 vmxnet3_set_rxfilter(struct vmxnet3_softc *sc, int flags)
 {
 	struct ifnet *ifp;
 	struct vmxnet3_driver_shared *ds;
-	struct ifmultiaddr *ifma;
 	u_int mode;
 
 	ifp = sc->vmx_ifp;
@@ -2010,24 +2071,10 @@ vmxnet3_set_rxfilter(struct vmxnet3_softc *sc, int flags)
 	if (flags & IFF_ALLMULTI)
 		mode |= VMXNET3_RXMODE_ALLMULTI;
 	else {
-		int cnt = 0, overflow = 0;
+		int cnt;
 
-		if_maddr_rlock(ifp);
-		CK_STAILQ_FOREACH(ifma, &ifp->if_multiaddrs, ifma_link) {
-			if (ifma->ifma_addr->sa_family != AF_LINK)
-				continue;
-			else if (cnt == VMXNET3_MULTICAST_MAX) {
-				overflow = 1;
-				break;
-			}
-
-			bcopy(LLADDR((struct sockaddr_dl *)ifma->ifma_addr),
-			   &sc->vmx_mcast[cnt*ETHER_ADDR_LEN], ETHER_ADDR_LEN);
-			cnt++;
-		}
-		if_maddr_runlock(ifp);
-
-		if (overflow != 0) {
+		cnt = if_foreach_llmaddr(ifp, vmxnet3_hash_maddr, sc);
+		if (cnt >= VMXNET3_MULTICAST_MAX) {
 			cnt = 0;
 			mode |= VMXNET3_RXMODE_ALLMULTI;
 		} else if (cnt > 0)

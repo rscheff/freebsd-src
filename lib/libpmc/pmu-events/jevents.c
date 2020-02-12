@@ -1,5 +1,3 @@
-#define  _XOPEN_SOURCE 500	/* needed for nftw() */
-#define __BSD_VISIBLE 1	/* needed for asprintf() */
 /* Parse event JSON files */
 
 /*
@@ -33,33 +31,40 @@
  *
 */
 
+#include <sys/param.h>
+#include <sys/resource.h>		/* getrlimit */
+#include <sys/stat.h>
+#include <sys/time.h>			/* getrlimit */
 
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fts.h>
+#include <ftw.h>
+#include <libgen.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <string.h>
-#include <ctype.h>
 #include <unistd.h>
-#include <stdarg.h>
-#include <libgen.h>
-#include <limits.h>
-#include <dirent.h>
-#include <sys/time.h>			/* getrlimit */
-#include <sys/resource.h>		/* getrlimit */
-#include <ftw.h>
-#include <sys/stat.h>
+
 #include "list.h"
 #include "jsmn.h"
 #include "json.h"
 #include "jevents.h"
 
-_Noreturn void	 _Exit(int);
+static int
+nftw_ordered(const char *path, int (*fn)(const char *, const struct stat *, int,
+	struct FTW *), int nfds, int ftwflags);
 
 int verbose;
 static char *prog;
 
-int eprintf(int level, int var, const char *fmt, ...)
+int
+eprintf(int level, int var, const char *fmt, ...)
 {
 
 	int ret;
@@ -77,13 +82,14 @@ int eprintf(int level, int var, const char *fmt, ...)
 	return ret;
 }
 
-__attribute__((weak)) char *get_cpu_str(void)
+__attribute__((weak)) char *
+get_cpu_str(void)
 {
 	return NULL;
 }
 
-static void addfield(char *map, char **dst, const char *sep,
-		     const char *a, jsmntok_t *bt)
+static void
+addfield(char *map, char **dst, const char *sep, const char *a, jsmntok_t *bt)
 {
 	unsigned int len = strlen(a) + 1 + strlen(sep);
 	int olen = *dst ? strlen(*dst) : 0;
@@ -106,13 +112,15 @@ static void addfield(char *map, char **dst, const char *sep,
 		strncat(*dst, map + bt->start, blen);
 }
 
-static void fixname(char *s)
+static void
+fixname(char *s)
 {
 	for (; *s; s++)
 		*s = tolower(*s);
 }
 
-static void fixdesc(char *s)
+static void
+fixdesc(char *s)
 {
 	char *e = s + strlen(s);
 
@@ -120,12 +128,13 @@ static void fixdesc(char *s)
 	--e;
 	while (e >= s && isspace(*e))
 		--e;
-	if (*e == '.')
+	if (e >= s && *e == '.')
 		*e = 0;
 }
 
 /* Add escapes for '\' so they are proper C strings. */
-static char *fixregex(char *s)
+static char *
+fixregex(char *s)
 {
 	int len = 0;
 	int esc_count = 0;
@@ -189,7 +198,8 @@ static struct field {
 	{ NULL, NULL }
 };
 
-static void cut_comma(char *map, jsmntok_t *newval)
+static void
+cut_comma(char *map, jsmntok_t *newval)
 {
 	int i;
 
@@ -200,8 +210,8 @@ static void cut_comma(char *map, jsmntok_t *newval)
 	}
 }
 
-static int match_field(char *map, jsmntok_t *field, int nz,
-		       char **event, jsmntok_t *val)
+static int
+match_field(char *map, jsmntok_t *field, int nz, char **event, jsmntok_t *val)
 {
 	struct field *f;
 	jsmntok_t newval = *val;
@@ -215,7 +225,8 @@ static int match_field(char *map, jsmntok_t *field, int nz,
 	return 0;
 }
 
-static struct msrmap *lookup_msr(char *map, jsmntok_t *val)
+static struct msrmap *
+lookup_msr(char *map, jsmntok_t *val)
 {
 	jsmntok_t newval = *val;
 	static bool warned;
@@ -244,7 +255,8 @@ static struct map {
 	{}
 };
 
-static const char *field_to_perf(struct map *table, char *map, jsmntok_t *val)
+static const char *
+field_to_perf(struct map *table, char *map, jsmntok_t *val)
 {
 	int i;
 
@@ -268,7 +280,8 @@ static const char *field_to_perf(struct map *table, char *map, jsmntok_t *val)
 
 static char *topic;
 
-static char *get_topic(void)
+static char *
+get_topic(void)
 {
 	char *tp;
 	int i;
@@ -294,7 +307,8 @@ static char *get_topic(void)
 	return tp;
 }
 
-static int add_topic(const char *bname)
+static int
+add_topic(const char *bname)
 {
 	free(topic);
 	topic = strdup(bname);
@@ -313,17 +327,17 @@ struct perf_entry_data {
 
 static int close_table;
 
-static void print_events_table_prefix(FILE *fp, const char *tblname)
+static void
+print_events_table_prefix(FILE *fp, const char *tblname)
 {
 	fprintf(fp, "static struct pmu_event %s[] = {\n", tblname);
 	close_table = 1;
 }
 
-static int print_events_table_entry(void *data, char *name, const char *event,
-				    char *desc, char *long_desc,
-				    char *pmu, char *unit, char *perpkg,
-				    char *metric_expr,
-				    char *metric_name, char *metric_group)
+static int
+print_events_table_entry(void *data, char *name, const char *event, char *desc,
+    char *long_desc, char *pmu, char *unit, char *perpkg, char *metric_expr,
+    char *metric_name, char *metric_group)
 {
 	struct perf_entry_data *pd = data;
 	FILE *outfp = pd->outfp;
@@ -403,7 +417,8 @@ struct event_struct {
 
 static LIST_HEAD(arch_std_events);
 
-static void free_arch_std_events(void)
+static void
+free_arch_std_events(void)
 {
 	struct event_struct *es, *next;
 
@@ -414,10 +429,10 @@ static void free_arch_std_events(void)
 	}
 }
 
-static int save_arch_std_events(void *data __unused, char *name, const char *event,
-				char *desc, char *long_desc, char *pmu,
-				char *unit, char *perpkg, char *metric_expr,
-				char *metric_name, char *metric_group)
+static int
+save_arch_std_events(void *data __unused, char *name, const char *event,
+    char *desc, char *long_desc, char *pmu, char *unit, char *perpkg,
+    char *metric_expr, char *metric_name, char *metric_group)
 {
 	struct event_struct *es;
 
@@ -434,7 +449,8 @@ out_free:
 	return -ENOMEM;
 }
 
-static void print_events_table_suffix(FILE *outfp)
+static void
+print_events_table_suffix(FILE *outfp)
 {
 	fprintf(outfp, "{\n");
 
@@ -462,7 +478,8 @@ static struct fixed {
 /*
  * Handle different fixed counter encodings between JSON and perf.
  */
-static const char *real_event(const char *name, char *event)
+static const char *
+real_event(const char *name, char *event)
 {
 	int i;
 
@@ -477,9 +494,9 @@ static const char *real_event(const char *name, char *event)
 
 static int
 try_fixup(const char *fn, char *arch_std, char **event, char **desc,
-	  char **name, char **long_desc, char **pmu, char **filter __unused,
-	  char **perpkg, char **unit, char **metric_expr, char **metric_name,
-	  char **metric_group, unsigned long long eventcode)
+    char **name, char **long_desc, char **pmu, char **filter __unused,
+    char **perpkg, char **unit, char **metric_expr, char **metric_name,
+    char **metric_group, unsigned long long eventcode)
 {
 	/* try to find matching event from arch standard values */
 	struct event_struct *es;
@@ -502,7 +519,8 @@ try_fixup(const char *fn, char *arch_std, char **event, char **desc,
 }
 
 /* Call func with each event in the json file */
-int json_events(const char *fn,
+int
+json_events(const char *fn,
 	  int (*func)(void *data, char *name, const char *event, char *desc,
 		      char *long_desc,
 		      char *pmu, char *unit, char *perpkg,
@@ -637,7 +655,7 @@ int json_events(const char *fn,
 				addfield(map, &extra_desc, " ",
 						"(Precise event)", NULL);
 		}
-		snprintf(buf, sizeof buf, "event=%#llx", eventcode);
+		snprintf(buf, sizeof(buf), "event=%#llx", eventcode);
 		addfield(map, &event, ",", buf, NULL);
 		if (desc && extra_desc)
 			addfield(map, &desc, " ", extra_desc, NULL);
@@ -690,7 +708,8 @@ out_free:
 	return err;
 }
 
-static char *file_name_to_table_name(const char *fname)
+static char *
+file_name_to_table_name(const char *fname)
 {
 	unsigned int i;
 	int n;
@@ -732,12 +751,14 @@ static char *file_name_to_table_name(const char *fname)
 	return tblname;
 }
 
-static void print_mapping_table_prefix(FILE *outfp)
+static void
+print_mapping_table_prefix(FILE *outfp)
 {
 	fprintf(outfp, "struct pmu_events_map pmu_events_map[] = {\n");
 }
 
-static void print_mapping_table_suffix(FILE *outfp)
+static void
+print_mapping_table_suffix(FILE *outfp)
 {
 	/*
 	 * Print the terminating, NULL entry.
@@ -753,7 +774,8 @@ static void print_mapping_table_suffix(FILE *outfp)
 	fprintf(outfp, "};\n");
 }
 
-static int process_mapfile(FILE *outfp, char *fpath)
+static int
+process_mapfile(FILE *outfp, char *fpath)
 {
 	int n = 16384;
 	FILE *mapfp;
@@ -836,7 +858,8 @@ out:
  * table. This would at least allow perf to build even if we can't find/use
  * the aliases.
  */
-static void create_empty_mapping(const char *output_file)
+static void
+create_empty_mapping(const char *output_file)
 {
 	FILE *outfp;
 
@@ -855,14 +878,15 @@ static void create_empty_mapping(const char *output_file)
 	fclose(outfp);
 }
 
-static int get_maxfds(void)
+static int
+get_maxfds(void)
 {
 	struct rlimit rlim;
 
 	if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
 		if (rlim.rlim_max == RLIM_INFINITY)
 			return 512;
-		return min((unsigned)rlim.rlim_max / 2, 512);
+		return MIN(rlim.rlim_max / 2, 512);
 	}
 
 	return 512;
@@ -875,7 +899,8 @@ static int get_maxfds(void)
 static FILE *eventsfp;
 static char *mapfile;
 
-static int is_leaf_dir(const char *fpath)
+static int
+is_leaf_dir(const char *fpath)
 {
 	DIR *d;
 	struct dirent *dir;
@@ -896,7 +921,8 @@ static int is_leaf_dir(const char *fpath)
 			char path[PATH_MAX];
 			struct stat st;
 
-			sprintf(path, "%s/%s", fpath, dir->d_name);
+			snprintf(path, sizeof(path), "%s/%s", fpath,
+			    dir->d_name);
 			if (stat(path, &st))
 				break;
 
@@ -912,7 +938,8 @@ static int is_leaf_dir(const char *fpath)
 	return res;
 }
 
-static int is_json_file(const char *name)
+static int
+is_json_file(const char *name)
 {
 	const char *suffix;
 
@@ -926,8 +953,9 @@ static int is_json_file(const char *name)
 	return 0;
 }
 
-static int preprocess_arch_std_files(const char *fpath, const struct stat *sb,
-				int typeflag, struct FTW *ftwbuf)
+static int
+preprocess_arch_std_files(const char *fpath, const struct stat *sb,
+    int typeflag, struct FTW *ftwbuf)
 {
 	int level = ftwbuf->level;
 	int is_file = typeflag == FTW_F;
@@ -938,8 +966,9 @@ static int preprocess_arch_std_files(const char *fpath, const struct stat *sb,
 	return 0;
 }
 
-static int process_one_file(const char *fpath, const struct stat *sb,
-			    int typeflag, struct FTW *ftwbuf)
+static int
+process_one_file(const char *fpath, const struct stat *sb, int typeflag,
+    struct FTW *ftwbuf)
 {
 	char *tblname;
 	const char *bname;
@@ -1052,10 +1081,6 @@ static int process_one_file(const char *fpath, const struct stat *sb,
 	return err;
 }
 
-#ifndef PATH_MAX
-#define PATH_MAX	4096
-#endif
-
 /*
  * Starting in directory 'start_dirname', find the "mapfile.csv" and
  * the set of JSON files for the architecture 'arch'.
@@ -1068,7 +1093,8 @@ static int process_one_file(const char *fpath, const struct stat *sb,
  *
  * Write out the PMU events tables and the mapping table to pmu-event.c.
  */
-int main(int argc, char *argv[])
+int
+main(int argc, char *argv[])
 {
 	int rc;
 	int maxfds;
@@ -1099,7 +1125,7 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-	sprintf(ldirname, "%s/%s", start_dirname, arch);
+	snprintf(ldirname, sizeof(ldirname), "%s/%s", start_dirname, arch);
 
 	/* If architecture does not have any event lists, bail out */
 	if (stat(ldirname, &stbuf) < 0) {
@@ -1122,7 +1148,7 @@ int main(int argc, char *argv[])
 
 	maxfds = get_maxfds();
 	mapfile = NULL;
-	rc = nftw(ldirname, preprocess_arch_std_files, maxfds, 0);
+	rc = nftw_ordered(ldirname, preprocess_arch_std_files, maxfds, 0);
 	if (rc && verbose) {
 		pr_info("%s: Error preprocessing arch standard files %s: %s\n",
 			prog, ldirname, strerror(errno));
@@ -1135,7 +1161,7 @@ int main(int argc, char *argv[])
 		goto empty_map;
 	}
 
-	rc = nftw(ldirname, process_one_file, maxfds, 0);
+	rc = nftw_ordered(ldirname, process_one_file, maxfds, 0);
 	if (rc && verbose) {
 		pr_info("%s: Error walking file tree %s\n", prog, ldirname);
 		goto empty_map;
@@ -1168,4 +1194,89 @@ empty_map:
 	create_empty_mapping(output_file);
 	free_arch_std_events();
 	return 0;
+}
+
+static int
+fts_compare(const FTSENT * const *a, const FTSENT * const *b)
+{
+	return (strcmp((*a)->fts_name, (*b)->fts_name));
+}
+
+static int
+nftw_ordered(const char *path, int (*fn)(const char *, const struct stat *, int,
+     struct FTW *), int nfds, int ftwflags)
+{
+	char * const paths[2] = { (char *)path, NULL };
+	struct FTW ftw;
+	FTSENT *cur;
+	FTS *ftsp;
+	int error = 0, ftsflags, fnflag, postorder, sverrno;
+
+	/* XXX - nfds is currently unused */
+	if (nfds < 1) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	ftsflags = FTS_COMFOLLOW;
+	if (!(ftwflags & FTW_CHDIR))
+		ftsflags |= FTS_NOCHDIR;
+	if (ftwflags & FTW_MOUNT)
+		ftsflags |= FTS_XDEV;
+	if (ftwflags & FTW_PHYS)
+		ftsflags |= FTS_PHYSICAL;
+	else
+		ftsflags |= FTS_LOGICAL;
+	postorder = (ftwflags & FTW_DEPTH) != 0;
+	ftsp = fts_open(paths, ftsflags, fts_compare);
+	if (ftsp == NULL)
+		return (-1);
+	while ((cur = fts_read(ftsp)) != NULL) {
+		switch (cur->fts_info) {
+		case FTS_D:
+			if (postorder)
+				continue;
+			fnflag = FTW_D;
+			break;
+		case FTS_DC:
+			continue;
+		case FTS_DNR:
+			fnflag = FTW_DNR;
+			break;
+		case FTS_DP:
+			if (!postorder)
+				continue;
+			fnflag = FTW_DP;
+			break;
+		case FTS_F:
+		case FTS_DEFAULT:
+			fnflag = FTW_F;
+			break;
+		case FTS_NS:
+		case FTS_NSOK:
+			fnflag = FTW_NS;
+			break;
+		case FTS_SL:
+			fnflag = FTW_SL;
+			break;
+		case FTS_SLNONE:
+			fnflag = FTW_SLN;
+			break;
+		default:
+			error = -1;
+			goto done;
+		}
+		ftw.base = cur->fts_pathlen - cur->fts_namelen;
+		ftw.level = cur->fts_level;
+		error = fn(cur->fts_path, cur->fts_statp, fnflag, &ftw);
+		if (error != 0)
+			break;
+	}
+done:
+	sverrno = errno;
+	if (fts_close(ftsp) != 0 && error == 0)
+		error = -1;
+	else
+		errno = sverrno;
+	return (error);
 }

@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/bus.h>
+#include <sys/eventhandler.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filio.h>
@@ -91,6 +92,10 @@ __FBSDID("$FreeBSD$");
 #endif
 
 SYSCTL_NODE(_compat, OID_AUTO, linuxkpi, CTLFLAG_RW, 0, "LinuxKPI parameters");
+
+int linuxkpi_debug;
+SYSCTL_INT(_compat_linuxkpi, OID_AUTO, debug, CTLFLAG_RWTUN,
+    &linuxkpi_debug, 0, "Set to enable pr_debug() prints. Clear to disable.");
 
 MALLOC_DEFINE(M_KMALLOC, "linux", "Linux kmalloc compat");
 
@@ -503,15 +508,10 @@ linux_cdev_pager_fault(vm_object_t vm_obj, vm_ooffset_t offset, int prot,
 			page = vm_page_getfake(paddr, vm_obj->memattr);
 			VM_OBJECT_WLOCK(vm_obj);
 
-			vm_page_replace_checked(page, vm_obj,
-			    (*mres)->pindex, *mres);
-
-			vm_page_lock(*mres);
-			vm_page_free(*mres);
-			vm_page_unlock(*mres);
+			vm_page_replace(page, vm_obj, (*mres)->pindex, *mres);
 			*mres = page;
 		}
-		page->valid = VM_PAGE_BITS_ALL;
+		vm_page_valid(page);
 		return (VM_PAGER_OK);
 	}
 	return (VM_PAGER_FAIL);
@@ -893,7 +893,7 @@ linux_clear_user(void *_uaddr, size_t _len)
 }
 
 int
-linux_access_ok(int rw, const void *uaddr, size_t len)
+linux_access_ok(const void *uaddr, size_t len)
 {
 	uintptr_t saddr;
 	uintptr_t eaddr;
@@ -1498,6 +1498,9 @@ linux_file_close(struct file *file, struct thread *td)
 	KASSERT(file_count(filp) == 0,
 	    ("File refcount(%d) is not zero", file_count(filp)));
 
+	if (td == NULL)
+		td = curthread;
+
 	error = 0;
 	filp->f_flags = file->f_flag;
 	linux_set_current(td);
@@ -1523,7 +1526,9 @@ linux_file_ioctl(struct file *fp, u_long cmd, void *data, struct ucred *cred,
 	struct linux_file *filp;
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
-	int error;
+	struct fiodgname_arg *fgn;
+	const char *p;
+	int error, i;
 
 	error = 0;
 	filp = (struct linux_file *)fp->f_data;
@@ -1550,6 +1555,23 @@ linux_file_ioctl(struct file *fp, u_long cmd, void *data, struct ucred *cred,
 		break;
 	case FIOGETOWN:
 		*(int *)data = fgetown(&filp->f_sigio);
+		break;
+	case FIODGNAME:
+#ifdef	COMPAT_FREEBSD32
+	case FIODGNAME_32:
+#endif
+		if (filp->f_cdev == NULL || filp->f_cdev->cdev == NULL) {
+			error = ENXIO;
+			break;
+		}
+		fgn = data;
+		p = devtoname(filp->f_cdev->cdev);
+		i = strlen(p) + 1;
+		if (i > fgn->len) {
+			error = EINVAL;
+			break;
+		}
+		error = copyout(p, fiodgname_buf_get_ptr(fgn, cmd), i);
 		break;
 	default:
 		error = linux_file_ioctl_sub(fp, filp, fop, cmd, data, td);
@@ -1663,7 +1685,7 @@ linux_file_stat(struct file *fp, struct stat *sb, struct ucred *active_cred,
 
 	vn_lock(vp, LK_SHARED | LK_RETRY);
 	error = vn_stat(vp, sb, td->td_ucred, NOCRED, td);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 
 	return (error);
 }
@@ -1773,7 +1795,7 @@ vmmap_remove(void *addr)
 	return (vmmap);
 }
 
-#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__)
+#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__) || defined(__aarch64__)
 void *
 _ioremap_attr(vm_paddr_t phys_addr, unsigned long size, int attr)
 {
@@ -1796,7 +1818,7 @@ iounmap(void *addr)
 	vmmap = vmmap_remove(addr);
 	if (vmmap == NULL)
 		return;
-#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__)
+#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__) || defined(__aarch64__)
 	pmap_unmapdev((vm_offset_t)addr, vmmap->vm_size);
 #endif
 	kfree(vmmap);
@@ -1900,6 +1922,15 @@ add_timer_on(struct timer_list *timer, int cpu)
 	callout_reset_on(&timer->callout,
 	    linux_timer_jiffies_until(timer->expires),
 	    &linux_timer_callback_wrapper, timer, cpu);
+}
+
+int
+del_timer(struct timer_list *timer)
+{
+
+	if (callout_stop(&(timer)->callout) == -1)
+		return (0);
+	return (1);
 }
 
 static void
@@ -2328,7 +2359,7 @@ __register_chrdev(unsigned int major, unsigned int baseminor,
 
 	for (i = baseminor; i < baseminor + count; i++) {
 		cdev = cdev_alloc();
-		cdev_init(cdev, fops);
+		cdev->ops = fops;
 		kobject_set_name(&cdev->kobj, name);
 
 		ret = cdev_add(cdev, makedev(major, i), 1);
@@ -2350,7 +2381,7 @@ __register_chrdev_p(unsigned int major, unsigned int baseminor,
 
 	for (i = baseminor; i < baseminor + count; i++) {
 		cdev = cdev_alloc();
-		cdev_init(cdev, fops);
+		cdev->ops = fops;
 		kobject_set_name(&cdev->kobj, name);
 
 		ret = cdev_add_ext(cdev, makedev(major, i), uid, gid, mode);

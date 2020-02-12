@@ -312,7 +312,7 @@ handle_chunk(int32_t ds_index, const char *chunk_name, off_t chunk_size)
 
 	assert(chunk_name != NULL);
 	assert(chunk_name[0] != '\0');
-	if (chunk_name == NULL || chunk_name == '\0')
+	if (chunk_name == NULL || chunk_name[0] == '\0')
 		return;
 
 	HRDBG("ANALYZE chunk %s", chunk_name);
@@ -484,7 +484,7 @@ partition_tbl_handle_disk(int32_t ds_index, const char *disk_dev_name)
 
 	/*
 	 * Get the "SUN" GEOM class.
-	 * Here we'll find all the info needed about the BSD slices.
+	 * Here we'll find all the info needed about the SUN slices.
 	 */
 	if ((classp = find_class(&mesh, "SUN")) != NULL) {
 		get_bsd_sun(classp, ds_index, disk_dev_name);

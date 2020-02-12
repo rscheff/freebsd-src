@@ -97,9 +97,6 @@ __FBSDID("$FreeBSD$");
 #include <crypto/sha1.h>
 #include <crypto/sha2/sha256.h>
 
-#ifndef in6pcb
-#define in6pcb		inpcb
-#endif
 /* Declare all the malloc names for all the various mallocs */
 MALLOC_DECLARE(SCTP_M_MAP);
 MALLOC_DECLARE(SCTP_M_STRMI);
@@ -368,10 +365,10 @@ typedef struct callout sctp_os_timer_t;
  */
 
 /* get the v6 hop limit */
-#define SCTP_GET_HLIM(inp, ro)	in6_selecthlim((struct in6pcb *)&inp->ip_inp.inp, (ro ? (ro->ro_rt ? (ro->ro_rt->rt_ifp) : (NULL)) : (NULL)));
+#define SCTP_GET_HLIM(inp, ro)	in6_selecthlim(&inp->ip_inp.inp, (ro ? (ro->ro_rt ? (ro->ro_rt->rt_ifp) : (NULL)) : (NULL)));
 
 /* is the endpoint v6only? */
-#define SCTP_IPV6_V6ONLY(inp)	(((struct inpcb *)inp)->inp_flags & IN6P_IPV6_V6ONLY)
+#define SCTP_IPV6_V6ONLY(sctp_inpcb)	((sctp_inpcb)->ip_inp.inp.inp_flags & IN6P_IPV6_V6ONLY)
 /* is the socket non-blocking? */
 #define SCTP_SO_IS_NBIO(so)	((so)->so_state & SS_NBIO)
 #define SCTP_SET_SO_NBIO(so)	((so)->so_state |= SS_NBIO)
@@ -415,6 +412,7 @@ typedef struct rtentry sctp_rtentry_t;
  */
 #define SCTP_IP_OUTPUT(result, o_pak, ro, stcb, vrf_id) \
 { \
+	struct epoch_tracker et; \
 	int o_flgs = IP_RAWOUTPUT; \
 	struct sctp_tcb *local_stcb = stcb; \
 	if (local_stcb && \
@@ -422,19 +420,24 @@ typedef struct rtentry sctp_rtentry_t;
 	    local_stcb->sctp_ep->sctp_socket) \
 		o_flgs |= local_stcb->sctp_ep->sctp_socket->so_options & SO_DONTROUTE; \
 	m_clrprotoflags(o_pak); \
+	NET_EPOCH_ENTER(et); \
 	result = ip_output(o_pak, NULL, ro, o_flgs, 0, NULL); \
+	NET_EPOCH_EXIT(et); \
 }
 
 #define SCTP_IP6_OUTPUT(result, o_pak, ro, ifp, stcb, vrf_id) \
 { \
+	struct epoch_tracker et; \
 	struct sctp_tcb *local_stcb = stcb; \
 	m_clrprotoflags(o_pak); \
+	NET_EPOCH_ENTER(et); \
 	if (local_stcb && local_stcb->sctp_ep) \
 		result = ip6_output(o_pak, \
-				    ((struct in6pcb *)(local_stcb->sctp_ep))->in6p_outputopts, \
+				    ((struct inpcb *)(local_stcb->sctp_ep))->in6p_outputopts, \
 				    (ro), 0, 0, ifp, NULL); \
 	else \
 		result = ip6_output(o_pak, NULL, (ro), 0, 0, ifp, NULL); \
+	NET_EPOCH_EXIT(et); \
 }
 
 struct mbuf *

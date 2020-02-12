@@ -33,6 +33,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_acpi.h"
 
 #include <sys/param.h>
+#include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
 #include <sys/fcntl.h>
@@ -865,7 +866,7 @@ acpi_child_location_str_method(device_t cbdev, device_t child, char *buf,
                 strlcat(buf, buf2, buflen);
         }
     } else {
-        snprintf(buf, buflen, "unknown");
+        snprintf(buf, buflen, "");
     }
     return (0);
 }
@@ -883,11 +884,14 @@ acpi_child_pnpinfo_str_method(device_t cbdev, device_t child, char *buf,
 	return (0);
     }
 
-    snprintf(buf, buflen, "_HID=%s _UID=%lu",
+    snprintf(buf, buflen, "_HID=%s _UID=%lu _CID=%s",
 	(adinfo->Valid & ACPI_VALID_HID) ?
 	adinfo->HardwareId.String : "none",
 	(adinfo->Valid & ACPI_VALID_UID) ?
-	strtoul(adinfo->UniqueId.String, NULL, 10) : 0UL);
+	strtoul(adinfo->UniqueId.String, NULL, 10) : 0UL,
+	((adinfo->Valid & ACPI_VALID_CID) &&
+	 adinfo->CompatibleIdList.Count > 0) ?
+	adinfo->CompatibleIdList.Ids[0].String : "none");
     AcpiOsFree(adinfo);
 
     return (0);
@@ -1350,6 +1354,14 @@ acpi_set_resource(device_t dev, device_t child, int type, int rid,
      * using legacy routing).
      */
     if (type == SYS_RES_IRQ)
+	return (0);
+
+    /*
+     * Don't reserve resources for CPU devices.  Some of these
+     * resources need to be allocated as shareable, but reservations
+     * are always non-shareable.
+     */
+    if (device_get_devclass(child) == devclass_find("cpu"))
 	return (0);
 
     /*
@@ -2154,7 +2166,7 @@ acpi_shutdown_final(void *arg, int howto)
 	} else if (status != AE_NOT_EXIST)
 	    device_printf(sc->acpi_dev, "reset failed - %s\n",
 		AcpiFormatException(status));
-    } else if (sc->acpi_do_disable && panicstr == NULL) {
+    } else if (sc->acpi_do_disable && !KERNEL_PANICKED()) {
 	/*
 	 * Only disable ACPI if the user requested.  On some systems, writing
 	 * the disable value to SMI_CMD hangs the system.

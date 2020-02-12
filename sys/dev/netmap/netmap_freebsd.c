@@ -32,6 +32,7 @@
 #include <sys/param.h>
 #include <sys/module.h>
 #include <sys/errno.h>
+#include <sys/eventhandler.h>
 #include <sys/jail.h>
 #include <sys/poll.h>  /* POLLIN, POLLOUT */
 #include <sys/kernel.h> /* types used in module initialization */
@@ -105,6 +106,7 @@ int nm_os_selinfo_init(NM_SELINFO_T *si, const char *name) {
 	snprintf(si->mtxname, sizeof(si->mtxname), "nmkl%s", name);
 	mtx_init(&si->m, si->mtxname, NULL, MTX_DEF);
 	knlist_init_mtx(&si->si.si_note, &si->m);
+	si->kqueue_users = 0;
 
 	return (0);
 }
@@ -442,6 +444,7 @@ nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
 	m->m_ext.ext_size = len;
 #endif /* __FreeBSD_version >= 1100000 */
 
+	m->m_flags |= M_PKTHDR;
 	m->m_len = m->m_pkthdr.len = len;
 
 	/* mbuf refcnt is not contended, no need to use atomic
@@ -450,7 +453,9 @@ nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
 	M_HASHTYPE_SET(m, M_HASHTYPE_OPAQUE);
 	m->m_pkthdr.flowid = a->ring_nr;
 	m->m_pkthdr.rcvif = ifp; /* used for tx notification */
+	CURVNET_SET(ifp->if_vnet);
 	ret = NA(ifp)->if_transmit(ifp, m);
+	CURVNET_RESTORE();
 	return ret ? -1 : 0;
 }
 
@@ -1017,12 +1022,10 @@ netmap_dev_pager_fault(vm_object_t object, vm_ooffset_t offset,
 	vm_paddr_t paddr;
 	vm_page_t page;
 	vm_memattr_t memattr;
-	vm_pindex_t pidx;
 
 	nm_prdis("object %p offset %jd prot %d mres %p",
 			object, (intmax_t)offset, prot, mres);
 	memattr = object->memattr;
-	pidx = OFF_TO_IDX(offset);
 	paddr = netmap_mem_ofstophys(na->nm_mem, offset);
 	if (paddr == 0)
 		return VM_PAGER_FAIL;
@@ -1047,13 +1050,10 @@ netmap_dev_pager_fault(vm_object_t object, vm_ooffset_t offset,
 		VM_OBJECT_WUNLOCK(object);
 		page = vm_page_getfake(paddr, memattr);
 		VM_OBJECT_WLOCK(object);
-		vm_page_lock(*mres);
-		vm_page_free(*mres);
-		vm_page_unlock(*mres);
+		vm_page_replace(page, object, (*mres)->pindex, *mres);
 		*mres = page;
-		vm_page_insert(page, object, pidx);
 	}
-	page->valid = VM_PAGE_BITS_ALL;
+	vm_page_valid(page);
 	return (VM_PAGER_OK);
 }
 
@@ -1350,10 +1350,10 @@ nm_os_kctx_destroy(struct nm_kctx *nmk)
 void
 nm_os_selwakeup(struct nm_selinfo *si)
 {
-	if (netmap_verbose)
-		nm_prinf("on knote %p", &si->si.si_note);
 	selwakeuppri(&si->si, PI_NET);
-	taskqueue_enqueue(si->ntfytq, &si->ntfytask);
+	if (si->kqueue_users > 0) {
+		taskqueue_enqueue(si->ntfytq, &si->ntfytask);
+	}
 }
 
 void
@@ -1366,20 +1366,28 @@ static void
 netmap_knrdetach(struct knote *kn)
 {
 	struct netmap_priv_d *priv = (struct netmap_priv_d *)kn->kn_hook;
-	struct selinfo *si = &priv->np_si[NR_RX]->si;
+	struct nm_selinfo *si = priv->np_si[NR_RX];
 
-	nm_prinf("remove selinfo %p", si);
-	knlist_remove(&si->si_note, kn, /*islocked=*/0);
+	knlist_remove(&si->si.si_note, kn, /*islocked=*/0);
+	NMG_LOCK();
+	KASSERT(si->kqueue_users > 0, ("kqueue_user underflow on %s",
+	    si->mtxname));
+	si->kqueue_users--;
+	nm_prinf("kqueue users for %s: %d", si->mtxname, si->kqueue_users);
+	NMG_UNLOCK();
 }
 
 static void
 netmap_knwdetach(struct knote *kn)
 {
 	struct netmap_priv_d *priv = (struct netmap_priv_d *)kn->kn_hook;
-	struct selinfo *si = &priv->np_si[NR_TX]->si;
+	struct nm_selinfo *si = priv->np_si[NR_TX];
 
-	nm_prinf("remove selinfo %p", si);
-	knlist_remove(&si->si_note, kn, /*islocked=*/0);
+	knlist_remove(&si->si.si_note, kn, /*islocked=*/0);
+	NMG_LOCK();
+	si->kqueue_users--;
+	nm_prinf("kqueue users for %s: %d", si->mtxname, si->kqueue_users);
+	NMG_UNLOCK();
 }
 
 /*
@@ -1467,6 +1475,10 @@ netmap_kqfilter(struct cdev *dev, struct knote *kn)
 	kn->kn_fop = (ev == EVFILT_WRITE) ?
 		&netmap_wfiltops : &netmap_rfiltops;
 	kn->kn_hook = priv;
+	NMG_LOCK();
+	si->kqueue_users++;
+	nm_prinf("kqueue users for %s: %d", si->mtxname, si->kqueue_users);
+	NMG_UNLOCK();
 	knlist_add(&si->si.si_note, kn, /*islocked=*/0);
 
 	return 0;

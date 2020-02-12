@@ -55,7 +55,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/socketvar.h>
 #include <sys/queue.h>
 #include <net/if.h>	/* ip_fw.h requires IFNAMSIZ */
-#include <net/pfil.h>
 
 #include <netinet/in.h>
 #include <netinet/ip_var.h>	/* struct ipfw_rule_ref */
@@ -624,7 +623,7 @@ restart:
 	 *
 	 * May release/reacquire UH_WLOCK.
 	 */
-	error = ipfw_link_table_values(ch, &ts);
+	error = ipfw_link_table_values(ch, &ts, flags);
 	if (error != 0)
 		goto cleanup;
 	if (ts.modified != 0)
@@ -655,6 +654,14 @@ restart:
 		num = 0;
 		/* check limit before adding */
 		if ((error = check_table_limit(tc, ptei)) == 0) {
+			/*
+			 * It should be safe to insert a record w/o
+			 * a properly-linked value if atomicity is
+			 * not required.
+			 *
+			 * If the added item does not have a valid value
+			 * index, it would get rejected by ta->add().
+			 * */
 			error = ta->add(tc->astate, KIDX_TO_TI(ch, kidx),
 			    ptei, v, &num);
 			/* Set status flag to inform userland */

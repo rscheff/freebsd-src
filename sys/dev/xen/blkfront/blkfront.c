@@ -399,7 +399,9 @@ xbd_bio_command(struct xbd_softc *sc)
 			panic("flush request, but no flush support available");
 		break;
 	default:
-		panic("unknown bio command %d", bp->bio_cmd);
+		biofinish(bp, NULL, EOPNOTSUPP);
+		xbd_enqueue_cm(cm, XBD_Q_FREE);
+		return (NULL);
 	}
 
 	return (cm);
@@ -1227,11 +1229,40 @@ xbd_connect(struct xbd_softc *sc)
 	int err, feature_barrier, feature_flush;
 	int i, j;
 
-	if (sc->xbd_state == XBD_STATE_CONNECTED || 
-	    sc->xbd_state == XBD_STATE_SUSPENDED)
-		return;
-
 	DPRINTK("blkfront.c:connect:%s.\n", xenbus_get_otherend_path(dev));
+
+	if (sc->xbd_state == XBD_STATE_SUSPENDED) {
+		return;
+	}
+
+	if (sc->xbd_state == XBD_STATE_CONNECTED) {
+		struct disk *disk;
+
+		disk = sc->xbd_disk;
+		if (disk == NULL) {
+			return;
+		}
+		err = xs_gather(XST_NIL, xenbus_get_otherend_path(dev),
+		    "sectors", "%lu", &sectors, NULL);
+		if (err != 0) {
+			xenbus_dev_error(dev, err,
+			    "reading sectors at %s",
+			    xenbus_get_otherend_path(dev));
+			return;
+		}
+		disk->d_mediasize = disk->d_sectorsize * sectors;
+		err = disk_resize(disk, M_NOWAIT);
+		if (err) {
+			xenbus_dev_error(dev, err,
+			    "unable to resize disk %s%u",
+			    disk->d_name, disk->d_unit);
+			return;
+		}
+		device_printf(sc->xbd_dev,
+		    "changed capacity to %jd\n",
+		    (intmax_t)disk->d_mediasize);
+		return;
+	}
 
 	err = xs_gather(XST_NIL, xenbus_get_otherend_path(dev),
 	    "sectors", "%lu", &sectors,

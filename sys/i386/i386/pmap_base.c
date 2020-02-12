@@ -96,6 +96,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/vmmeter.h>
 #include <sys/sysctl.h>
+#include <machine/bootinfo.h>
 #include <machine/cpu.h>
 #include <machine/cputypes.h>
 #include <machine/md_var.h>
@@ -136,7 +137,7 @@ int i386_pmap_PDRSHIFT;
 
 int pat_works = 1;
 SYSCTL_INT(_vm_pmap, OID_AUTO, pat_works, CTLFLAG_RD,
-    &pat_works, 1,
+    &pat_works, 0,
     "Is page attribute table fully functional?");
 
 int pg_ps_enabled = 1;
@@ -257,6 +258,17 @@ SYSCTL_INT(_vm_pmap, OID_AUTO, pv_entry_spare, CTLFLAG_RD,
 struct pmap kernel_pmap_store;
 static struct pmap_methods *pmap_methods_ptr;
 
+static int
+sysctl_kmaps(SYSCTL_HANDLER_ARGS)
+{
+	return (pmap_methods_ptr->pm_sysctl_kmaps(oidp, arg1, arg2, req));
+}
+SYSCTL_OID(_vm_pmap, OID_AUTO, kernel_maps,
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+    NULL, 0, sysctl_kmaps, "A",
+    "Dump kernel address layout");
+
+
 /*
  * Initialize a vm_page's machine-dependent fields.
  */
@@ -287,8 +299,7 @@ pmap_flush_page(vm_page_t m)
 	pmap_methods_ptr->pm_flush_page(m);
 }
 
-DEFINE_IFUNC(, void, pmap_invalidate_cache_range, (vm_offset_t, vm_offset_t),
-    static)
+DEFINE_IFUNC(, void, pmap_invalidate_cache_range, (vm_offset_t, vm_offset_t))
 {
 
 	if ((cpu_feature & CPUID_SS) != 0)
@@ -621,10 +632,10 @@ pmap_change_attr(vm_offset_t va, vm_size_t size, int mode)
 }
 
 int
-pmap_mincore(pmap_t pmap, vm_offset_t addr, vm_paddr_t *locked_pa)
+pmap_mincore(pmap_t pmap, vm_offset_t addr, vm_paddr_t *pap)
 {
 
-	return (pmap_methods_ptr->pm_mincore(pmap, addr, locked_pa));
+	return (pmap_methods_ptr->pm_mincore(pmap, addr, pap));
 }
 
 void
@@ -776,21 +787,23 @@ void *
 pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
 {
 
-	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, mode));
+	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, mode,
+	    MAPDEV_SETATTR));
 }
 
 void *
 pmap_mapdev(vm_paddr_t pa, vm_size_t size)
 {
 
-	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, PAT_UNCACHEABLE));
+	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, PAT_UNCACHEABLE,
+	    MAPDEV_SETATTR));
 }
 
 void *
 pmap_mapbios(vm_paddr_t pa, vm_size_t size)
 {
 
-	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, PAT_WRITE_BACK));
+	return (pmap_methods_ptr->pm_mapdev_attr(pa, size, PAT_WRITE_BACK, 0));
 }
 
 void
@@ -935,16 +948,19 @@ pmap_kremove(vm_offset_t va)
 
 extern struct pmap_methods pmap_pae_methods, pmap_nopae_methods;
 int pae_mode;
-SYSCTL_INT(_vm_pmap, OID_AUTO, pae_mode, CTLFLAG_RD,
-    &pae_mode, 1,
+SYSCTL_INT(_vm_pmap, OID_AUTO, pae_mode, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
+    &pae_mode, 0,
     "PAE");
 
 void
 pmap_cold(void)
 {
 
-	if ((cpu_feature & CPUID_PAE) != 0) {
-		pae_mode = 1;
+	init_static_kenv((char *)bootinfo.bi_envp, 0);
+	pae_mode = (cpu_feature & CPUID_PAE) != 0;
+	if (pae_mode)
+		TUNABLE_INT_FETCH("vm.pmap.pae_mode", &pae_mode);
+	if (pae_mode) {
 		pmap_methods_ptr = &pmap_pae_methods;
 		pmap_pae_cold();
 	} else {

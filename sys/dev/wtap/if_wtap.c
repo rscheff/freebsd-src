@@ -373,7 +373,7 @@ wtap_vap_delete(struct ieee80211vap *vap)
 	destroy_dev(avp->av_dev);
 	callout_stop(&avp->av_swba);
 	ieee80211_vap_detach(vap);
-	free((struct wtap_vap*) vap, M_80211_VAP);
+	free(avp, M_80211_VAP);
 }
 
 static void
@@ -451,6 +451,7 @@ wtap_inject(struct wtap_softc *sc, struct mbuf *m)
 void
 wtap_rx_deliver(struct wtap_softc *sc, struct mbuf *m)
 {
+	struct epoch_tracker et;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_node *ni;
 	int type;
@@ -472,6 +473,7 @@ wtap_rx_deliver(struct wtap_softc *sc, struct mbuf *m)
 	  */
 	ni = ieee80211_find_rxnode_withkey(ic,
 	    mtod(m, const struct ieee80211_frame_min *),IEEE80211_KEYIX_NONE);
+	NET_EPOCH_ENTER(et);
 	if (ni != NULL) {
 		/*
 		 * Sending station is known, dispatch directly.
@@ -481,11 +483,13 @@ wtap_rx_deliver(struct wtap_softc *sc, struct mbuf *m)
 	} else {
 		type = ieee80211_input_all(ic, m, 1<<7, 10);
 	}
+	NET_EPOCH_EXIT(et);
 }
 
 static void
 wtap_rx_proc(void *arg, int npending)
 {
+	struct epoch_tracker et;
 	struct wtap_softc *sc = (struct wtap_softc *)arg;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mbuf *m;
@@ -526,6 +530,7 @@ wtap_rx_proc(void *arg, int npending)
 		ni = ieee80211_find_rxnode_withkey(ic,
 		    mtod(m, const struct ieee80211_frame_min *),
 		    IEEE80211_KEYIX_NONE);
+		NET_EPOCH_ENTER(et);
 		if (ni != NULL) {
 			/*
 			 * Sending station is known, dispatch directly.
@@ -535,7 +540,8 @@ wtap_rx_proc(void *arg, int npending)
 		} else {
 			type = ieee80211_input_all(ic, m, 1<<7, 10);
 		}
-		
+		NET_EPOCH_EXIT(et);
+
 		/* The mbufs are freed by the Net80211 stack */
 		free(bf, M_WTAP_RXBUF);
 	}
@@ -602,6 +608,8 @@ wtap_node_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN])
 
 	ni = malloc(sizeof(struct ieee80211_node), M_80211_NODE,
 	    M_NOWAIT|M_ZERO);
+	if (ni == NULL)
+		return (NULL);
 
 	ni->ni_txrate = 130;
 	return ni;
@@ -629,7 +637,7 @@ wtap_attach(struct wtap_softc *sc, const uint8_t *macaddr)
 	sc->sc_tq = taskqueue_create("wtap_taskq", M_NOWAIT | M_ZERO,
 	    taskqueue_thread_enqueue, &sc->sc_tq);
 	taskqueue_start_threads(&sc->sc_tq, 1, PI_SOFT, "%s taskQ", sc->name);
-	TASK_INIT(&sc->sc_rxtask, 0, wtap_rx_proc, sc);
+	NET_TASK_INIT(&sc->sc_rxtask, 0, wtap_rx_proc, sc);
 
 	ic->ic_softc = sc;
 	ic->ic_name = sc->name;

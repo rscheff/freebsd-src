@@ -57,6 +57,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcib_private.h>
 #include <dev/pci/pci_host_generic.h>
+#include <dev/pci/pci_host_generic_acpi.h>
 
 #include <machine/cpu.h>
 #include <machine/bus.h>
@@ -87,11 +88,6 @@ __FBSDID("$FreeBSD$");
 #define	SPACE_CODE_IO_SPACE	0x1
 #define	PROPS_CELL_SIZE		1
 #define	PCI_ADDR_CELL_SIZE	2
-
-struct generic_pcie_acpi_softc {
-	struct generic_pcie_core_softc base;
-	ACPI_BUFFER		ap_prt;		/* interrupt routing table */
-};
 
 /* Forward prototypes */
 
@@ -148,8 +144,6 @@ pci_host_generic_acpi_parse_resource(ACPI_RESOURCE *res, void *arg)
 		off = res->Data.Address32.Address.TranslationOffset;
 		break;
 	case ACPI_RESOURCE_TYPE_ADDRESS64:
-		if (res->Data.Address.ResourceType != ACPI_MEMORY_RANGE)
-			break;
 		min = res->Data.Address64.Address.Minimum;
 		max = res->Data.Address64.Address.Maximum;
 		off = res->Data.Address64.Address.TranslationOffset;
@@ -207,11 +201,7 @@ pci_host_acpi_get_ecam_resource(device_t dev)
 				mcfg_entry++;
 		}
 		if (found) {
-			if (mcfg_entry->EndBusNumber < sc->base.bus_end) {
-				device_printf(dev, "bus end mismatch! expected %d found %d.\n",
-				    sc->base.bus_end, (int)mcfg_entry->EndBusNumber);
-				sc->base.bus_end = mcfg_entry->EndBusNumber;
-			}
+			sc->base.bus_end = mcfg_entry->EndBusNumber;
 			base = mcfg_entry->Address;
 		} else {
 			device_printf(dev, "MCFG exists, but does not have bus %d-%d\n",
@@ -220,9 +210,10 @@ pci_host_acpi_get_ecam_resource(device_t dev)
 		}
 	} else {
 		status = acpi_GetInteger(handle, "_CBA", &val);
-		if (ACPI_SUCCESS(status))
+		if (ACPI_SUCCESS(status)) {
 			base = val;
-		else
+			sc->base.bus_end = 255;
+		} else
 			return (ENXIO);
 	}
 
@@ -238,8 +229,8 @@ pci_host_acpi_get_ecam_resource(device_t dev)
 	return (0);
 }
 
-static int
-pci_host_generic_acpi_attach(device_t dev)
+int
+pci_host_generic_acpi_init(device_t dev)
 {
 	struct generic_pcie_acpi_softc *sc;
 	ACPI_HANDLE handle;
@@ -259,7 +250,6 @@ pci_host_generic_acpi_attach(device_t dev)
 		device_printf(dev, "No _BBN, using start bus 0\n");
 		sc->base.bus_start = 0;
 	}
-	sc->base.bus_end = 255;
 
 	/* Get PCI Segment (domain) needed for MCFG lookup */
 	status = acpi_GetInteger(handle, "_SEG", &sc->base.ecam);
@@ -297,7 +287,7 @@ pci_host_generic_acpi_attach(device_t dev)
 			continue; /* empty range element */
 		if (sc->base.ranges[tuple].flags & FLAG_MEM) {
 			error = rman_manage_region(&sc->base.mem_rman,
-			   phys_base, phys_base + size - 1);
+			   pci_base, pci_base + size - 1);
 		} else if (sc->base.ranges[tuple].flags & FLAG_IO) {
 			error = rman_manage_region(&sc->base.io_rman,
 			   pci_base + PCI_IO_WINDOW_OFFSET,
@@ -311,6 +301,18 @@ pci_host_generic_acpi_attach(device_t dev)
 			return (error);
 		}
 	}
+
+	return (0);
+}
+
+static int
+pci_host_generic_acpi_attach(device_t dev)
+{
+	int error;
+
+	error = pci_host_generic_acpi_init(dev);
+	if (error != 0)
+		return (error);
 
 	device_add_child(dev, "pci", -1);
 	return (bus_generic_attach(dev));
@@ -348,14 +350,52 @@ generic_pcie_acpi_route_interrupt(device_t bus, device_t dev, int pin)
 	return (acpi_pcib_route_interrupt(bus, dev, pin, &sc->ap_prt));
 }
 
+static u_int
+generic_pcie_get_xref(device_t pci, device_t child)
+{
+	struct generic_pcie_acpi_softc *sc;
+	uintptr_t rid;
+	u_int xref, devid;
+	int err;
+
+	sc = device_get_softc(pci);
+	err = pcib_get_id(pci, child, PCI_ID_RID, &rid);
+	if (err != 0)
+		return (ACPI_MSI_XREF);
+	err = acpi_iort_map_pci_msi(sc->base.ecam, rid, &xref, &devid);
+	if (err != 0)
+		return (ACPI_MSI_XREF);
+	return (xref);
+}
+
+static u_int
+generic_pcie_map_id(device_t pci, device_t child, uintptr_t *id)
+{
+	struct generic_pcie_acpi_softc *sc;
+	uintptr_t rid;
+	u_int xref, devid;
+	int err;
+
+	sc = device_get_softc(pci);
+	err = pcib_get_id(pci, child, PCI_ID_RID, &rid);
+	if (err != 0)
+		return (err);
+        err = acpi_iort_map_pci_msi(sc->base.ecam, rid, &xref, &devid);
+	if (err == 0)
+		*id = devid;
+	else
+		*id = rid;	/* RID not in IORT, likely FW bug, ignore */
+	return (0);
+}
+
 static int
 generic_pcie_acpi_alloc_msi(device_t pci, device_t child, int count,
     int maxcount, int *irqs)
 {
 
 #if defined(INTRNG)
-	return (intr_alloc_msi(pci, child, ACPI_MSI_XREF, count, maxcount,
-	    irqs));
+	return (intr_alloc_msi(pci, child, generic_pcie_get_xref(pci, child),
+	    count, maxcount, irqs));
 #else
 	return (ENXIO);
 #endif
@@ -367,7 +407,8 @@ generic_pcie_acpi_release_msi(device_t pci, device_t child, int count,
 {
 
 #if defined(INTRNG)
-	return (intr_release_msi(pci, child, ACPI_MSI_XREF, count, irqs));
+	return (intr_release_msi(pci, child, generic_pcie_get_xref(pci, child),
+	    count, irqs));
 #else
 	return (ENXIO);
 #endif
@@ -379,7 +420,8 @@ generic_pcie_acpi_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
 {
 
 #if defined(INTRNG)
-	return (intr_map_msi(pci, child, ACPI_MSI_XREF, irq, addr, data));
+	return (intr_map_msi(pci, child, generic_pcie_get_xref(pci, child), irq,
+	    addr, data));
 #else
 	return (ENXIO);
 #endif
@@ -390,7 +432,8 @@ generic_pcie_acpi_alloc_msix(device_t pci, device_t child, int *irq)
 {
 
 #if defined(INTRNG)
-	return (intr_alloc_msix(pci, child, ACPI_MSI_XREF, irq));
+	return (intr_alloc_msix(pci, child, generic_pcie_get_xref(pci, child),
+	    irq));
 #else
 	return (ENXIO);
 #endif
@@ -401,7 +444,8 @@ generic_pcie_acpi_release_msix(device_t pci, device_t child, int irq)
 {
 
 #if defined(INTRNG)
-	return (intr_release_msix(pci, child, ACPI_MSI_XREF, irq));
+	return (intr_release_msix(pci, child, generic_pcie_get_xref(pci, child),
+	    irq));
 #else
 	return (ENXIO);
 #endif
@@ -412,14 +456,8 @@ generic_pcie_acpi_get_id(device_t pci, device_t child, enum pci_id_type type,
     uintptr_t *id)
 {
 
-	/*
-	 * Use the PCI RID to find the MSI ID for now, we support only 1:1
-	 * mapping
-	 *
-	 * On aarch64, more complex mapping would come from IORT table
-	 */
 	if (type == PCI_ID_MSI)
-		return (pcib_get_id(pci, child, PCI_ID_RID, id));
+		return (generic_pcie_map_id(pci, child, id));
 	else
 		return (pcib_get_id(pci, child, type, id));
 }
