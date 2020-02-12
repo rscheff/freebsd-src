@@ -52,7 +52,6 @@ __FBSDID("$FreeBSD$");
 #include "opt_hwpmc_hooks.h"
 #include "opt_isa.h"
 #include "opt_kdb.h"
-#include "opt_stack.h"
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -226,11 +225,6 @@ trap(struct trapframe *frame)
 		 */
 		if (pmc_intr != NULL &&
 		    (*pmc_intr)(frame) != 0)
-			return;
-#endif
-
-#ifdef STACK
-		if (stack_nmi_handler(frame) != 0)
 			return;
 #endif
 	}
@@ -998,8 +992,6 @@ cpu_fetch_syscall_args_fallback(struct thread *td, struct syscall_args *sa)
 	frame = td->td_frame;
 	reg = 0;
 	regcnt = NARGREGS;
-
-	sa->code = frame->tf_rax;
 
 	if (sa->code == SYS_syscall || sa->code == SYS___syscall) {
 		sa->code = frame->tf_rdi;

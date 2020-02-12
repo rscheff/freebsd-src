@@ -69,7 +69,6 @@ __DEFAULT_YES_OPTIONS = \
     BOOTPARAMD \
     BOOTPD \
     BSD_CPIO \
-    BSD_CRTBEGIN \
     BSDINSTALL \
     BSNMP \
     BZIP2 \
@@ -206,7 +205,6 @@ __DEFAULT_NO_OPTIONS = \
     GNU_GREP_COMPAT \
     GPL_DTC \
     HESIOD \
-    HTTPD \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
@@ -350,7 +348,12 @@ BROKEN_OPTIONS+=LIB32
 BROKEN_OPTIONS+=LIBSOFT
 .endif
 .if ${__T:Mmips*}
-BROKEN_OPTIONS+=SSP
+# GOOGLETEST cannot currently be compiled on mips due to external circumstances.
+# Notably, the freebsd-gcc port isn't linking in libgcc so we end up trying ot
+# link to a hidden symbol. LLVM would successfully link this in, but some of
+# the mips variants are broken under LLVM until LLVM 10. GOOGLETEST should be
+# marked no longer broken with the switch to LLVM.
+BROKEN_OPTIONS+=GOOGLETEST SSP
 .endif
 # EFI doesn't exist on mips, powerpc, sparc or riscv.
 .if ${__T:Mmips*} || ${__T:Mpowerpc*} || ${__T:Msparc64} || ${__T:Mriscv*}
@@ -394,8 +397,6 @@ BROKEN_OPTIONS+=NVME
 .endif
 
 .if ${__T:Msparc64}
-# Sparc64 need extra crt*.o files - PR 239851
-BROKEN_OPTIONS+=BSD_CRTBEGIN
 # PR 233405
 BROKEN_OPTIONS+=LLVM_LIBUNWIND
 .endif
