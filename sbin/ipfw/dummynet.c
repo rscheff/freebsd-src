@@ -52,6 +52,7 @@
 
 
 static struct _s_x dummynet_params[] = {
+	{ "pls",		TOK_PLS },
 	{ "plr",		TOK_PLR },
 	{ "noerror",		TOK_NOERROR },
 	{ "buckets",		TOK_BUCKETS },
@@ -1011,6 +1012,150 @@ load_extra_delays(const char *filename, struct dn_profile *p,
 	strlcpy(p->name, profile_name, sizeof(p->name));
 }
 
+/*
+ * Generates a string of the form "1,2,3,6-10,1000,1500-2000" from a specified
+ * range list. If the range list is too large to fit into the provided string
+ * buffer,"..." will be appended to the string to indicate there was more
+ * information that could not be displayed.
+ */
+static void
+gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
+{
+	struct pls_range *node;
+	u_int i = 0, stroffset = 0, ret = 0, str_truncated = 0;
+
+	for (; i < ranges->count; i++) {
+		if(ranges->arr[i].start == ranges->arr[i].end)
+			ret = snprintf(str + stroffset, len - stroffset,
+				"%d,",
+				ranges->arr[i].start);
+		else
+			ret = snprintf(str + stroffset, len - stroffset,
+				"%d-%d,",
+				ranges->arr[i].start, ranges->arr[i].end);
+		if(ret >= (len - stroffset)) {
+			str_truncated = 1;
+			break;
+		}
+		stroffset = strlen(str);
+	}
+	if(str_truncated) {
+		*(str+len-3) = '.';
+		*(str+len-2) = '.';
+		*(str+len-1) = '.';
+		*(str+len) = '\0';
+	}
+	else
+		/* remove the trailing comma from the list */
+		*(str+stroffset-1) = '\0';
+}
+
+/*
+ * This function parses a string of the form "1,2,6-10,3,1000,2000-1500" and turns it
+ * into an array of pls_range structs. The array is sorted in order of range start
+ * value from lowest to highest, and the range start and end values within a range struct
+ * are ordered from lowest to highest for consistency. In the example above,
+ * the range node list extracted from the parsed string would look like this:
+ *
+ * pls_range1.start = 1, pls_range1.end = 1
+ * pls_range2.start = 2, pls_range2.end = 2
+ * pls_range3.start = 3, pls_range3.end = 3
+ * pls_range4.start = 6, pls_range4.end = 10
+ * pls_range5.start = 1000, pls_range5.end = 1000
+ * pls_range6.start = 1500, pls_range6.end = 2000
+ */
+static int
+parse_pls_str(char *str, struct pls_range_array *ranges)
+{
+	char *ch, *tmpstr;
+	char tmp[16];
+	int i = 0, j = 0, comma_count = 0, arr_index = 0;
+	struct pls_range *current_range = NULL;
+
+	for(i = strlen(str), tmpstr = str; i >= 0; i--) {
+		ch = tmpstr++;
+		if(*ch == ',')
+			comma_count++;
+	}
+
+	ranges->size = comma_count + 1;
+	ranges->arr = (struct pls_range *)malloc(ranges->size * sizeof(struct pls_range));
+	bzero(ranges->arr, ranges->size * sizeof(struct pls_range));
+
+	if(ranges->arr == NULL)
+		return (ENOMEM);
+	
+	for(i = strlen(str), tmpstr = str; i >= 0; i--) {
+		ch = tmpstr++;
+		memset(tmp, '\0', sizeof(tmp));
+		
+		j = 0;
+		
+		/* if the character is a number 0-9 */
+		while(CHARPTR_IS_INT(ch)) {
+			/* read until the number ends */
+			tmp[j++] = *ch;
+			ch = tmpstr++;
+			i--;
+		}
+
+		/*
+		 * if we are at the end of a range, or the end of the string and
+		 * we have a number stored in tmp
+		 */
+		if((*ch == ',' && j > 0) || (i == 0 && j > 0)) {
+			if(ranges->arr[arr_index].start == 0) {
+				ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
+			}
+
+			ranges->arr[arr_index].end = strtol(tmp, NULL, 10);
+			
+			/*
+			 * reorder the start and end of the range if they were
+			 * specified out of order
+			 */
+			if(ranges->arr[arr_index].end < ranges->arr[arr_index].start) {
+				u_int tmp = ranges->arr[arr_index].end;
+				ranges->arr[arr_index].end = ranges->arr[arr_index].start;
+				ranges->arr[arr_index].start = tmp;
+			}
+
+			arr_index++;
+		}
+		else if(*ch == '-' && j > 0) {
+			/*
+			 * we are half way through parsing a range, so let's set
+			 * create a new range and set its start value to the
+			 * first number we parsed in the range
+			 */
+			ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
+		}
+		else {
+			flush_range_array(ranges);
+			return 1; /* failed parsing the string */
+		}
+	}
+
+	ranges->count = arr_index;
+
+	struct pls_range tmp_range;
+	
+	/*
+	 * bubble sort of the list to put them in numerical order of range start
+	 * values
+	 */
+	for(i = 0; i < ranges->count; i++) {
+		for(j = 1; j < ranges->count; j++) {
+			if(ranges->arr[j-1].start > ranges->arr[j].start) {
+				tmp_range = ranges->arr[j-1];
+				ranges->arr[j-1] = ranges->arr[j];
+				ranges->arr[j] = tmp_range;
+			}
+		}
+	}
+
+	return 0;
+}
 #ifdef NEW_AQM
 
 /* Parse AQM/extra scheduler parameters */
@@ -1416,6 +1561,14 @@ ipfw_config_pipe(int ac, char **av)
 			else if (d < 0)
 				d = 0;
 			fs->plr = (int)(d*0x7fffffff);
+			ac--; av++;
+			break;
+
+		case TOK_PLS:
+			NEED(fs, "pls is only for pipes");
+			NEED1("pls needs argument x,y-z\n");
+			if (parse_pls_str(av[0], &(p.fs.pls)))
+				errx(EX_DATAERR, "invalid packet loss set");
 			ac--; av++;
 			break;
 

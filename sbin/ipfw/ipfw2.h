@@ -311,6 +311,8 @@ enum tokens {
 	TOK_TCPSETMSS,
 
 	TOK_SKIPACTION,
+
+	TOK_PLS,
 };
 
 /*
