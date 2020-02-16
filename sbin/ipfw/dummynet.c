@@ -1084,13 +1084,13 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 	if(ranges->arr == NULL)
 		return (ENOMEM);
-	
+
 	for(i = strlen(str), tmpstr = str; i >= 0; i--) {
 		ch = tmpstr++;
 		memset(tmp, '\0', sizeof(tmp));
-		
+
 		j = 0;
-		
+
 		/* if the character is a number 0-9 */
 		while(CHARPTR_IS_INT(ch)) {
 			/* read until the number ends */
@@ -1109,7 +1109,7 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 			}
 
 			ranges->arr[arr_index].end = strtol(tmp, NULL, 10);
-			
+
 			/*
 			 * reorder the start and end of the range if they were
 			 * specified out of order
@@ -1139,7 +1139,7 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 	ranges->count = arr_index;
 
 	struct pls_range tmp_range;
-	
+
 	/*
 	 * bubble sort of the list to put them in numerical order of range start
 	 * values
