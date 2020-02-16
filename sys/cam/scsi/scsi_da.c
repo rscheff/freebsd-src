@@ -106,6 +106,7 @@ typedef enum {
 	DA_FLAG_NEW_PACK	= 0x000002,
 	DA_FLAG_PACK_LOCKED	= 0x000004,
 	DA_FLAG_PACK_REMOVABLE	= 0x000008,
+	DA_FLAG_ROTATING	= 0x000010,
 	DA_FLAG_NEED_OTAG	= 0x000020,
 	DA_FLAG_WAS_OTAG	= 0x000040,
 	DA_FLAG_RETRY_UA	= 0x000080,
@@ -120,8 +121,32 @@ typedef enum {
 	DA_FLAG_CAN_ATA_IDLOG	= 0x010000,
 	DA_FLAG_CAN_ATA_SUPCAP	= 0x020000,
 	DA_FLAG_CAN_ATA_ZONE	= 0x040000,
-	DA_FLAG_TUR_PENDING	= 0x080000
+	DA_FLAG_TUR_PENDING	= 0x080000,
+	DA_FLAG_UNMAPPEDIO	= 0x100000
 } da_flags;
+#define DA_FLAG_STRING		\
+	"\020"			\
+	"\001PACK_INVALID"	\
+	"\002NEW_PACK"		\
+	"\003PACK_LOCKED"	\
+	"\004PACK_REMOVABLE"	\
+	"\005ROTATING"		\
+	"\006NEED_OTAG"		\
+	"\007WAS_OTAG"		\
+	"\010RETRY_UA"		\
+	"\011OPEN"		\
+	"\012SCTX_INIT"		\
+	"\013CAN_RC16"		\
+	"\014PROBED"		\
+	"\015DIRTY"		\
+	"\016ANNOUCNED"		\
+	"\017CAN_ATA_DMA"	\
+	"\020CAN_ATA_LOG"	\
+	"\021CAN_ATA_IDLOG"	\
+	"\022CAN_ATA_SUPACP"	\
+	"\023CAN_ATA_ZONE"	\
+	"\024TUR_PENDING"	\
+	"\025UNMAPPEDIO"
 
 typedef enum {
 	DA_Q_NONE		= 0x00,
@@ -345,8 +370,6 @@ struct da_softc {
 	da_delete_methods	delete_method_pref;
 	da_delete_methods	delete_method;
 	da_delete_func_t	*delete_func;
-	int			unmappedio;
-	int			rotating;
 	int			p_type;
 	struct	 disk_params params;
 	struct	 disk *disk;
@@ -1442,6 +1465,8 @@ static	void		dasysctlinit(void *context, int pending);
 static	int		dasysctlsofttimeout(SYSCTL_HANDLER_ARGS);
 static	int		dacmdsizesysctl(SYSCTL_HANDLER_ARGS);
 static	int		dadeletemethodsysctl(SYSCTL_HANDLER_ARGS);
+static	int		dabitsysctl(SYSCTL_HANDLER_ARGS);
+static	int		daflagssysctl(SYSCTL_HANDLER_ARGS);
 static	int		dazonemodesysctl(SYSCTL_HANDLER_ARGS);
 static	int		dazonesupsysctl(SYSCTL_HANDLER_ARGS);
 static	int		dadeletemaxsysctl(SYSCTL_HANDLER_ARGS);
@@ -1522,6 +1547,7 @@ static int da_default_timeout = DA_DEFAULT_TIMEOUT;
 static sbintime_t da_default_softtimeout = DA_DEFAULT_SOFTTIMEOUT;
 static int da_send_ordered = DA_DEFAULT_SEND_ORDERED;
 static int da_disable_wp_detection = 0;
+static int da_enable_biospeedup = 1;
 
 static SYSCTL_NODE(_kern_cam, OID_AUTO, da, CTLFLAG_RD, 0,
             "CAM Direct Access Disk driver");
@@ -1536,6 +1562,8 @@ SYSCTL_INT(_kern_cam_da, OID_AUTO, send_ordered, CTLFLAG_RWTUN,
 SYSCTL_INT(_kern_cam_da, OID_AUTO, disable_wp_detection, CTLFLAG_RWTUN,
            &da_disable_wp_detection, 0,
 	   "Disable detection of write-protected disks");
+SYSCTL_INT(_kern_cam_da, OID_AUTO, enable_biospeedup, CTLFLAG_RDTUN,
+	    &da_enable_biospeedup, 0, "Enable BIO_SPEEDUP processing");
 
 SYSCTL_PROC(_kern_cam_da, OID_AUTO, default_softtimeout,
     CTLTYPE_UINT | CTLFLAG_RW, NULL, 0, dasysctlsofttimeout, "I",
@@ -1796,7 +1824,7 @@ daclose(struct disk *dp)
 	}
 
 	/*
-	 * If we've got removeable media, mark the blocksize as
+	 * If we've got removable media, mark the blocksize as
 	 * unavailable, since it could change when new media is
 	 * inserted.
 	 */
@@ -1941,6 +1969,9 @@ dagetattr(struct bio *bp)
 {
 	int ret;
 	struct cam_periph *periph;
+
+	if (g_handleattr_int(bp, "GEOM::canspeedup", da_enable_biospeedup))
+		return (EJUSTRETURN);
 
 	periph = (struct cam_periph *)bp->bio_disk->d_drv1;
 	cam_periph_lock(periph);
@@ -2292,29 +2323,24 @@ dasysctlinit(void *context, int pending)
 	SYSCTL_ADD_INT(&softc->sysctl_ctx,
 		       SYSCTL_CHILDREN(softc->sysctl_tree),
 		       OID_AUTO,
-		       "unmapped_io",
-		       CTLFLAG_RD,
-		       &softc->unmappedio,
-		       0,
-		       "Unmapped I/O support");
-
-	SYSCTL_ADD_INT(&softc->sysctl_ctx,
-		       SYSCTL_CHILDREN(softc->sysctl_tree),
-		       OID_AUTO,
-		       "rotating",
-		       CTLFLAG_RD,
-		       &softc->rotating,
-		       0,
-		       "Rotating media");
-
-	SYSCTL_ADD_INT(&softc->sysctl_ctx,
-		       SYSCTL_CHILDREN(softc->sysctl_tree),
-		       OID_AUTO,
 		       "p_type",
 		       CTLFLAG_RD,
 		       &softc->p_type,
 		       0,
 		       "DIF protection type");
+
+	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
+	    OID_AUTO, "flags", CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    softc, 0, daflagssysctl, "A",
+	    "Flags for drive");
+	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
+	    OID_AUTO, "rotating", CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    &softc->flags, DA_FLAG_ROTATING, dabitsysctl, "I",
+	    "Rotating media *DEPRECATED* gone in FreeBSD 14");
+	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
+	    OID_AUTO, "unmapped_io", CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
+	    &softc->flags, DA_FLAG_UNMAPPEDIO, dabitsysctl, "I",
+	    "Unmapped I/O support *DEPRECATED* gone in FreeBSD 14");
 
 #ifdef CAM_TEST_FAILURE
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
@@ -2591,6 +2617,39 @@ dadeletemethodchoose(struct da_softc *softc, da_delete_methods default_method)
 }
 
 static int
+dabitsysctl(SYSCTL_HANDLER_ARGS)
+{
+	int flags = (intptr_t)arg1;
+	int test = arg2;
+	int tmpout, error;
+
+	tmpout = !!(flags & test);
+	error = SYSCTL_OUT(req, &tmpout, sizeof(tmpout));
+	if (error || !req->newptr)
+		return (error);
+
+	return (EPERM);
+}
+
+static int
+daflagssysctl(SYSCTL_HANDLER_ARGS)
+{
+	struct sbuf sbuf;
+	struct da_softc *softc = arg1;
+	int error;
+
+	sbuf_new_for_sysctl(&sbuf, NULL, 0, req);
+	if (softc->flags != 0)
+		sbuf_printf(&sbuf, "0x%b", softc->flags, DA_FLAG_STRING);
+	else
+		sbuf_printf(&sbuf, "0");
+	error = sbuf_finish(&sbuf);
+	sbuf_delete(&sbuf);
+
+	return (error);
+}
+
+static int
 dadeletemethodsysctl(SYSCTL_HANDLER_ARGS)
 {
 	char buf[16];
@@ -2729,7 +2788,7 @@ daregister(struct cam_periph *periph, void *arg)
 	softc->unmap_gran_align = 0;
 	softc->ws_max_blks = WS16_MAX_BLKS;
 	softc->trim_max_ranges = ATA_TRIM_MAX_RANGES;
-	softc->rotating = 1;
+	softc->flags |= DA_FLAG_ROTATING;
 
 	periph->softc = softc;
 
@@ -2862,7 +2921,7 @@ daregister(struct cam_periph *periph, void *arg)
 	if ((softc->quirks & DA_Q_NO_SYNC_CACHE) == 0)
 		softc->disk->d_flags |= DISKFLAG_CANFLUSHCACHE;
 	if ((cpi.hba_misc & PIM_UNMAPPED) != 0) {
-		softc->unmappedio = 1;
+		softc->flags |= DA_FLAG_UNMAPPEDIO;
 		softc->disk->d_flags |= DISKFLAG_UNMAPPED_BIO;
 	}
 	cam_strvis(softc->disk->d_descr, cgd->inq_data.vendor,
@@ -3381,6 +3440,10 @@ more:
 			}
 			break;
 		}
+		default:
+			biofinish(bp, NULL, EOPNOTSUPP);
+			xpt_release_ccb(start_ccb);
+			return;
 		}
 		start_ccb->ccb_h.ccb_state = DA_CCB_BUFFER_IO;
 		start_ccb->ccb_h.flags |= CAM_UNLOCKED;
@@ -5138,7 +5201,7 @@ dadone_probebdc(struct cam_periph *periph, union ccb *done_ccb)
 			    SVPD_BDC_RATE_NON_ROTATING) {
 				cam_iosched_set_sort_queue(
 				    softc->cam_iosched, 0);
-				softc->rotating = 0;
+				softc->flags &= ~DA_FLAG_ROTATING;
 			}
 			if (softc->disk->d_rotation_rate != old_rate) {
 				disk_attr_changed(softc->disk,
@@ -5248,7 +5311,7 @@ dadone_probeata(struct cam_periph *periph, union ccb *done_ccb)
 		softc->disk->d_rotation_rate = ata_params->media_rotation_rate;
 		if (softc->disk->d_rotation_rate == ATA_RATE_NON_ROTATING) {
 			cam_iosched_set_sort_queue(softc->cam_iosched, 0);
-			softc->rotating = 0;
+			softc->flags &= ~DA_FLAG_ROTATING;
 		}
 		if (softc->disk->d_rotation_rate != old_rate) {
 			disk_attr_changed(softc->disk,

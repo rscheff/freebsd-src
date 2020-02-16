@@ -254,7 +254,7 @@ namei_cleanup_cnp(struct componentname *cnp)
 }
 
 static int
-namei_handle_root(struct nameidata *ndp, struct vnode **dpp)
+namei_handle_root(struct nameidata *ndp, struct vnode **dpp, u_int n)
 {
 	struct componentname *cnp;
 
@@ -276,7 +276,7 @@ namei_handle_root(struct nameidata *ndp, struct vnode **dpp)
 		ndp->ni_pathlen--;
 	}
 	*dpp = ndp->ni_rootdir;
-	vrefact(*dpp);
+	vrefactn(*dpp, n);
 	return (0);
 }
 
@@ -308,6 +308,7 @@ namei(struct nameidata *ndp)
 	struct vnode *dp;	/* the directory we are searching */
 	struct iovec aiov;		/* uio for reading symbolic links */
 	struct componentname *cnp;
+	struct file *dfp;
 	struct thread *td;
 	struct proc *p;
 	cap_rights_t rights;
@@ -395,8 +396,11 @@ namei(struct nameidata *ndp)
 	 * Get starting point for the translation.
 	 */
 	FILEDESC_SLOCK(fdp);
+	/*
+	 * The reference on ni_rootdir is acquired in the block below to avoid
+	 * back-to-back atomics for absolute lookups.
+	 */
 	ndp->ni_rootdir = fdp->fd_rdir;
-	vrefact(ndp->ni_rootdir);
 	ndp->ni_topdir = fdp->fd_jdir;
 
 	/*
@@ -412,26 +416,59 @@ namei(struct nameidata *ndp)
 	cnp->cn_nameptr = cnp->cn_pnbuf;
 	if (cnp->cn_pnbuf[0] == '/') {
 		ndp->ni_resflags |= NIRES_ABS;
-		error = namei_handle_root(ndp, &dp);
+		error = namei_handle_root(ndp, &dp, 2);
+		if (error != 0) {
+			/*
+			 * Simplify error handling, we should almost never be
+			 * here.
+			 */
+			vrefact(ndp->ni_rootdir);
+		}
 	} else {
 		if (ndp->ni_startdir != NULL) {
+			vrefact(ndp->ni_rootdir);
 			dp = ndp->ni_startdir;
 			startdir_used = 1;
 		} else if (ndp->ni_dirfd == AT_FDCWD) {
 			dp = fdp->fd_cdir;
-			vrefact(dp);
+			if (dp == ndp->ni_rootdir) {
+				vrefactn(dp, 2);
+			} else {
+				vrefact(ndp->ni_rootdir);
+				vrefact(dp);
+			}
 		} else {
+			vrefact(ndp->ni_rootdir);
 			rights = ndp->ni_rightsneeded;
-			cap_rights_set(&rights, CAP_LOOKUP);
+			cap_rights_set_one(&rights, CAP_LOOKUP);
 
 			if (cnp->cn_flags & AUDITVNODE1)
 				AUDIT_ARG_ATFD1(ndp->ni_dirfd);
 			if (cnp->cn_flags & AUDITVNODE2)
 				AUDIT_ARG_ATFD2(ndp->ni_dirfd);
-			error = fgetvp_rights(td, ndp->ni_dirfd,
-			    &rights, &ndp->ni_filecaps, &dp);
-			if (error == EINVAL)
+			/*
+			 * Effectively inlined fgetvp_rights, because we need to
+			 * inspect the file as well as grabbing the vnode.
+			 */
+			error = fget_cap_locked(fdp, ndp->ni_dirfd, &rights,
+			    &dfp, &ndp->ni_filecaps);
+			if (error != 0) {
+				/*
+				 * Preserve the error; it should either be EBADF
+				 * or capability-related, both of which can be
+				 * safely returned to the caller.
+				 */
+			} else if (dfp->f_ops == &badfileops) {
+				error = EBADF;
+			} else if (dfp->f_vnode == NULL) {
 				error = ENOTDIR;
+			} else {
+				dp = dfp->f_vnode;
+				vrefact(dp);
+
+				if ((dfp->f_flag & FSEARCH) != 0)
+					cnp->cn_flags |= NOEXECCHECK;
+			}
 #ifdef CAPABILITIES
 			/*
 			 * If file descriptor doesn't have all rights,
@@ -456,7 +493,7 @@ namei(struct nameidata *ndp)
 			vrefact(ndp->ni_beneath_latch);
 		} else {
 			rights = ndp->ni_rightsneeded;
-			cap_rights_set(&rights, CAP_LOOKUP);
+			cap_rights_set_one(&rights, CAP_LOOKUP);
 			error = fgetvp_rights(td, ndp->ni_dirfd, &rights,
 			    &dirfd_caps, &ndp->ni_beneath_latch);
 			if (error == 0 && dp->v_type != VDIR) {
@@ -567,7 +604,7 @@ namei(struct nameidata *ndp)
 		cnp->cn_nameptr = cnp->cn_pnbuf;
 		if (*(cnp->cn_nameptr) == '/') {
 			vrele(dp);
-			error = namei_handle_root(ndp, &dp);
+			error = namei_handle_root(ndp, &dp, 1);
 			if (error != 0)
 				goto out;
 		}
@@ -895,12 +932,9 @@ dirloop:
 	 */
 unionlookup:
 #ifdef MAC
-	if ((cnp->cn_flags & NOMACCHECK) == 0) {
-		error = mac_vnode_check_lookup(cnp->cn_thread->td_ucred, dp,
-		    cnp);
-		if (error)
-			goto bad;
-	}
+	error = mac_vnode_check_lookup(cnp->cn_thread->td_ucred, dp, cnp);
+	if (error)
+		goto bad;
 #endif
 	ndp->ni_dvp = dp;
 	ndp->ni_vp = NULL;
@@ -1310,7 +1344,7 @@ NDINIT_ALL(struct nameidata *ndp, u_long op, u_long flags, enum uio_seg segflg,
 	if (rightsp != NULL)
 		ndp->ni_rightsneeded = *rightsp;
 	else
-		cap_rights_init(&ndp->ni_rightsneeded);
+		cap_rights_init_zero(&ndp->ni_rightsneeded);
 }
 
 /*
