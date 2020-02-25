@@ -1555,13 +1555,19 @@ ipfw_config_pipe(int ac, char **av)
 		case TOK_PLR:
 			NEED(fs, "plr is only for pipes");
 			NEED1("plr needs argument 0..1\n");
-			d = strtod(av[0], NULL);
+			
+			fs->plr = { 0 };
+			int j = 0;
+			char **ptr;
+			do {
+			d = strtod(av[0], ptr);
 			if (d > 1)
 				d = 1;
 			else if (d < 0)
 				d = 0;
 			fs->plr = (int)(d*0x7fffffff);
 			ac--; av++;
+			} while (i < 5);
 			break;
 
 		case TOK_PLS:
