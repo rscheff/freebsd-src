@@ -13,7 +13,7 @@ MK_MAN=no
 .include "${.CURDIR:H}/config.mk"
 
 LIB=		ncurses${LIB_SUFFIX}
-SHLIB_MAJOR=	8
+SHLIB_MAJOR=	9
 
 NO_LINT=
 
@@ -292,7 +292,6 @@ CLEANFILES=	${GENSRCS} ${GENHDRS} keys.list make_hash term.h.new \
 		make_keys MKterm.h.awk comp_captab.c curses.head
 
 CFLAGS+=	-DFREEBSD_NATIVE -DTERMIOS
-CFLAGS.lib_freeall.c+=	-Wno-missing-prototypes
 
 # Installed
 HEADERS=	curses.h term.h termcap.h unctrl.h
@@ -345,7 +344,7 @@ names.c: MKnames.awk
 codes.c: MKcodes.awk
 	${AWK} -f ${NCURSES_DIR}/ncurses/tinfo/MKcodes.awk bigstrings=${USE_BIG_STRINGS} ${NCURSES_DIR}/include/Caps > codes.c
 
-lib_gen.c: MKlib_gen.sh curses.h
+lib_gen.c: MKlib_gen.sh curses.h ncurses_dll.h
 	LC_ALL=C sh ${NCURSES_DIR}/ncurses/base/MKlib_gen.sh "${CPP:N${CCACHE_BIN}} ${CPPFLAGS}" \
 	    "${AWK}" generated < curses.h >$@
 
