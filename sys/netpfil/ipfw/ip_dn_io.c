@@ -511,7 +511,7 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 	ni->tot_pkts++;
 	if (drop)
 		goto drop;
-	if (f->plr && random() < f->plr)
+	if (f->plr[0] && random() < f->plr[0])
 		goto drop;
 #ifdef NEW_AQM
 	/* Call AQM enqueue function */

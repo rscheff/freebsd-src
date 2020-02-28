@@ -147,7 +147,6 @@ struct dn_fs {
 	uint32_t fs_nr;		/* the flowset number */
 	uint32_t flags;		/* userland flags */
 	int qsize;		/* queue size in slots or bytes */
-	int32_t plr;		/* PLR, pkt loss rate (2^31-1 means 100%) */
 	uint32_t buckets;	/* buckets used for the queue hash table */
 
 	struct ipfw_flow_id flow_mask;
@@ -169,7 +168,10 @@ struct dn_fs {
 	int max_th ;		/* maximum threshold for queue (scaled) */
 	int min_th ;		/* minimum threshold for queue (scaled) */
 	int max_p ;		/* maximum value for p_b (scaled) */
-
+	union {
+		int32_t plr[5];		/* PLR, pkt loss rate (2^31-1 means 100%) */
+		int32_t pls[100][2]; 	/* PLS, static packet loss list */
+	};
 };
 
 /*

@@ -484,8 +484,8 @@ print_flowset_parms(struct dn_fs *fs, char *prefix)
 			sprintf(qs, "%d B", l);
 	} else
 		sprintf(qs, "%3d sl.", l);
-	if (fs->plr)
-		sprintf(plr, "plr %f", 1.0 * fs->plr / (double)(0x7fffffff));
+	if (fs->plr[0])
+		sprintf(plr, "plr %f", 1.0 * fs->plr[0] / (double)(0x7fffffff));
 	else
 		plr[0] = '\0';
 
@@ -1018,7 +1018,7 @@ load_extra_delays(const char *filename, struct dn_profile *p,
  * buffer,"..." will be appended to the string to indicate there was more
  * information that could not be displayed.
  */
-static void
+/*static void
 gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
 {
 	struct pls_range *node;
@@ -1046,9 +1046,9 @@ gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
 		*(str+len) = '\0';
 	}
 	else
-		/* remove the trailing comma from the list */
+		/ * remove the trailing comma from the list *//*
 		*(str+stroffset-1) = '\0';
-}
+}*/
 
 /*
  * This function parses a string of the form "1,2,6-10,3,1000,2000-1500" and turns it
@@ -1064,7 +1064,7 @@ gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
  * pls_range5.start = 1000, pls_range5.end = 1000
  * pls_range6.start = 1500, pls_range6.end = 2000
  */
-static int
+/*static int
 parse_pls_str(char *str, struct pls_range_array *ranges)
 {
 	char *ch, *tmpstr;
@@ -1091,18 +1091,18 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 		j = 0;
 
-		/* if the character is a number 0-9 */
+		/ * if the character is a number 0-9 *//*
 		while(CHARPTR_IS_INT(ch)) {
-			/* read until the number ends */
+			/ * read until the number ends *//*
 			tmp[j++] = *ch;
 			ch = tmpstr++;
 			i--;
 		}
 
-		/*
+		/ *
 		 * if we are at the end of a range, or the end of the string and
 		 * we have a number stored in tmp
-		 */
+		 *//*
 		if((*ch == ',' && j > 0) || (i == 0 && j > 0)) {
 			if(ranges->arr[arr_index].start == 0) {
 				ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
@@ -1110,10 +1110,10 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 			ranges->arr[arr_index].end = strtol(tmp, NULL, 10);
 
-			/*
+			/ *
 			 * reorder the start and end of the range if they were
 			 * specified out of order
-			 */
+			 *//*
 			if(ranges->arr[arr_index].end < ranges->arr[arr_index].start) {
 				u_int tmp = ranges->arr[arr_index].end;
 				ranges->arr[arr_index].end = ranges->arr[arr_index].start;
@@ -1123,16 +1123,16 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 			arr_index++;
 		}
 		else if(*ch == '-' && j > 0) {
-			/*
+			/ *
 			 * we are half way through parsing a range, so let's set
 			 * create a new range and set its start value to the
 			 * first number we parsed in the range
-			 */
+			 *//*
 			ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
 		}
 		else {
 			flush_range_array(ranges);
-			return 1; /* failed parsing the string */
+			return 1; / * failed parsing the string *//*
 		}
 	}
 
@@ -1140,10 +1140,10 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 	struct pls_range tmp_range;
 
-	/*
+	/ *
 	 * bubble sort of the list to put them in numerical order of range start
 	 * values
-	 */
+	 *//*
 	for(i = 0; i < ranges->count; i++) {
 		for(j = 1; j < ranges->count; j++) {
 			if(ranges->arr[j-1].start > ranges->arr[j].start) {
@@ -1155,7 +1155,7 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 	}
 
 	return 0;
-}
+}*/
 #ifdef NEW_AQM
 
 /* Parse AQM/extra scheduler parameters */
@@ -1554,26 +1554,29 @@ ipfw_config_pipe(int ac, char **av)
 
 		case TOK_PLR:
 			NEED(fs, "plr is only for pipes");
-			NEED1("plr needs argument 0..1\n");
+			NEED1("plr needs up to 5 arguments between 0..1 inclusive\n");
 			
-			fs->plr = { 0 };
+			bzero(fs->plr, sizeof(fs->plr));
 			int j = 0;
-			char **ptr;
+			char *ptr;
 			do {
-			d = strtod(av[0], ptr);
-			if (d > 1)
-				d = 1;
-			else if (d < 0)
-				d = 0;
-			fs->plr = (int)(d*0x7fffffff);
-			ac--; av++;
-			} while (i < 5);
+				d = strtod(av[0], &ptr);
+				if (ptr != *av) {
+					if (d > 1)
+						d = 1;
+					else if (d < 0)
+						d = 0;
+					fs->plr[j++] = (int)(d*0x7fffffff);
+					ac--; av++;
+				} else if (j == 0)
+					errx(EX_DATAERR, "plr needs at least one parsable argument");
+			} while (j < 5);
 			break;
 
 		case TOK_PLS:
 			NEED(fs, "pls is only for pipes");
 			NEED1("pls needs argument x,y-z\n");
-			if (parse_pls_str(av[0], &(p.fs.pls)))
+//			if (parse_pls_str(av[0], &(p.fs.pls)))
 				errx(EX_DATAERR, "invalid packet loss set");
 			ac--; av++;
 			break;

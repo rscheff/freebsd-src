@@ -96,7 +96,7 @@ struct dn_flow_set {
 
 	int weight ;        /* WFQ queue weight */
 	int qsize ;         /* queue size in slots or bytes */
-	int plr ;           /* pkt loss rate (2^31-1 means 100%) */
+	int plr[5] ;           /* pkt loss rate (2^31-1 means 100%) */
 
 	struct ipfw_flow_id flow_mask ;
 
@@ -423,7 +423,11 @@ dn_compat_config_queue(struct dn_fs *fs, void* v)
 	fs->flow_mask = f->flow_mask;
 	fs->buckets = f->rq_size;
 	fs->qsize = f->qsize;
-	fs->plr = f->plr;
+	fs->plr[0] = f->plr[0];
+	fs->plr[1] = f->plr[1];
+	fs->plr[2] = f->plr[2];
+	fs->plr[3] = f->plr[3];
+	fs->plr[4] = f->plr[4];
 	fs->par[0] = f->weight;
 	fs->flags = convertflags2new(f->flags_fs);
 	if (fs->flags & DN_IS_GENTLE_RED || fs->flags & DN_IS_RED) {
@@ -648,7 +652,11 @@ dn_c_copy_pipe(struct dn_schk *s, struct copy_args *a, int nq)
 
 	fs->parent_nr = l->link_nr - DN_MAX_ID;
 	fs->qsize = f->fs.qsize;
-	fs->plr = f->fs.plr;
+	fs->plr[0] = f->fs.plr[0];
+	fs->plr[1] = f->fs.plr[1];
+	fs->plr[2] = f->fs.plr[2];
+	fs->plr[3] = f->fs.plr[3];
+	fs->plr[4] = f->fs.plr[4];
 	fs->w_q = f->fs.w_q;
 	fs->max_th = f->max_th;
 	fs->min_th = f->min_th;
@@ -702,7 +710,12 @@ dn_c_copy_fs(struct dn_fsk *f, struct copy_args *a, int nq)
 	fs->next.sle_next = (struct dn_flow_set *)DN_IS_QUEUE;
 	fs->fs_nr = f->fs.fs_nr;
 	fs->qsize = f->fs.qsize;
-	fs->plr = f->fs.plr;
+	fs->plr[0] = f->fs.plr[0];
+	fs->plr[1] = f->fs.plr[1];
+	fs->plr[2] = f->fs.plr[2];
+	fs->plr[3] = f->fs.plr[3];
+	fs->plr[4] = f->fs.plr[4];
+
 	fs->w_q = f->fs.w_q;
 	fs->max_th = f->max_th;
 	fs->min_th = f->min_th;
