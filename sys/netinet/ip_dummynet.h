@@ -188,6 +188,11 @@ struct dn_flow {
 	uint32_t	length; /* Queue length, in packets */
 	uint32_t	len_bytes; /* Queue length, in bytes */
 	uint32_t	drops;
+#define TX_IN_GAP_PERIOD	0
+#define TX_IN_BURST_PERIOD	1
+#define LOST_IN_GAP_PERIOD	2
+#define LOST_IN_BURST_PERIOD	3
+	int		state;
 };
 
 

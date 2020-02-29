@@ -511,8 +511,116 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 	ni->tot_pkts++;
 	if (drop)
 		goto drop;
-	if (f->plr[0] && random() < f->plr[0])
-		goto drop;
+
+	/* Correlated Loss Generation */
+	if (f->plr[0] > 0) {
+		int rnd = random();
+		if (f->plr[1] == 0) {
+			/* Bernoulli random loss */
+			if (rnd < f->plr[0])
+				goto drop;
+		} else
+		if (f->plr[2] == 0) {
+			/* Simple Gilbert model */
+			switch (q->ni.state) {
+			case 0:
+				if (rnd < f->plr[0])
+					q->ni.state = 1;
+				break;
+			case 1:
+				if (rnd < f->plr[1])
+					q->ni.state = 0;
+				goto drop;
+				break;
+			default:
+				q->ni.state = 0;
+			}
+		} else
+		if (f->plr[3] == 0) {
+			/* Gilbert model */
+			switch (q->ni.state) {
+			case 0:
+				if (rnd < f->plr[0])
+					q->ni.state = 1;
+				break;
+			case 1:
+				if (rnd < f->plr[1])
+					q->ni.state = 0;
+				rnd = random();
+				if (f->plr[2] < rnd)
+					goto drop;
+				break;
+			default:
+				q->ni.state = 0;
+			}
+		} else
+		if (f->plr[4] == 0) {
+			/* Gilbert-Elliot model */
+			switch (q->ni.state) {
+			case 0:
+				if (rnd < f->plr[0])
+					q->ni.state = 1;
+				rnd = random();
+				if (f->plr[3] < rnd)
+					goto drop;
+				break;
+			case 1:
+				if (rnd < f->plr[1])
+					q->ni.state = 0;
+				rnd = random();
+				if (f->plr[2] < rnd)
+					goto drop;
+				break;
+			default:
+				q->ni.state = 0;
+			}
+		} else {
+			switch (q->ni.state) {
+			case TX_IN_GAP_PERIOD:
+				if (rnd < f->plr[3]) {
+					q->ni.state = LOST_IN_BURST_PERIOD;
+					goto drop;
+				} else 
+				if (f->plr[3] < rnd && rnd < (f->plr[0] + f->plr[3])) {
+					q->ni.state = LOST_IN_GAP_PERIOD;
+					goto drop;
+				} else 
+				if (f->plr[0] + f->plr[3] < rnd) {
+					q->ni.state = TX_IN_GAP_PERIOD;
+				}
+				break;
+			case TX_IN_BURST_PERIOD:
+				if (rnd < f->plr[4]) {
+					q->ni.state = LOST_IN_GAP_PERIOD;
+					goto drop;
+				} else {
+					q->ni.state = TX_IN_BURST_PERIOD;
+				}
+				break;
+			case LOST_IN_GAP_PERIOD:
+				if (rnd < f->plr[2]) {
+					q->ni.state = TX_IN_BURST_PERIOD;
+				} else 
+				if (f->plr[2] < rnd && rnd < (f->plr[1] + f->plr[2])) {
+					q->ni.state = TX_IN_GAP_PERIOD;
+				} else 
+				if (f->plr[1] + f->plr[2] < rnd) {
+					q->ni.state = LOST_IN_GAP_PERIOD;
+					goto drop;
+				}
+				break;
+			case LOST_IN_BURST_PERIOD:
+				q->ni.state = TX_IN_GAP_PERIOD;
+				break;
+			default:
+				q->ni.state = TX_IN_GAP_PERIOD;
+				break;
+			}
+		}
+	} else
+	/* Static Packet Loss */
+	if (f->plr[0] < 0) {
+	}
 #ifdef NEW_AQM
 	/* Call AQM enqueue function */
 	if (q->fs->aqmfp)

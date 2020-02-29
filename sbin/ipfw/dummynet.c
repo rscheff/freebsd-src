@@ -473,24 +473,45 @@ print_flowset_parms(struct dn_fs *fs, char *prefix)
 {
 	int l;
 	char qs[30];
-	char plr[30];
+	char plr[100];
 	char red[200];	/* Display RED parameters */
 
 	l = fs->qsize;
 	if (fs->flags & DN_QSIZE_BYTES) {
 		if (l >= 8192)
-			sprintf(qs, "%d KB", l / 1024);
+			snprintf(qs, sizeof(qs), "%d KB", l / 1024);
 		else
-			sprintf(qs, "%d B", l);
+			snprintf(qs, sizeof(qs), "%d B", l);
 	} else
-		sprintf(qs, "%3d sl.", l);
-	if (fs->plr[0])
-		sprintf(plr, "plr %f", 1.0 * fs->plr[0] / (double)(0x7fffffff));
-	else
+		snprintf(qs, sizeof(qs), "%3d sl.", l);
+	if (fs->plr[0]) {
+		snprintf(plr, sizeof(plr), "plr %s%.10g",
+		    fs->plr[1] ? "{" : "",
+		    1.0 * fs->plr[0] / (double)(0x7fffffff));
+		if (fs->plr[1]) {
+			snprintf(plr, sizeof(plr), "%s,%.10g%s", plr,
+			    1.0 * fs->plr[1] / (double)(0x7fffffff),
+			    fs->plr[2] ? "" : "}");
+			if (fs->plr[2]) {
+				snprintf(plr, sizeof(plr), "%s,%.10g%s", plr,
+				    1.0 * fs->plr[2] / (double)(0x7fffffff),
+				    fs->plr[3] ? "" : "}");
+				if (fs->plr[3]) {
+					snprintf(plr, sizeof(plr), "%s,%.10g%s", plr,
+					    1.0 * fs->plr[3] / (double)(0x7fffffff),
+					    fs->plr[4] ? "" : "}");
+					if (fs->plr[4]) {
+						snprintf(plr, sizeof(plr), "%s,%.10g}", plr,
+						1.0 * fs->plr[4] / (double)(0x7fffffff));
+					}
+				}
+			}
+		}
+	} else
 		plr[0] = '\0';
 
 	if (fs->flags & DN_IS_RED) {	/* RED parameters */
-		sprintf(red,
+		snprintf(red, sizeof(red),
 		    "\n\t %cRED w_q %f min_th %d max_th %d max_p %f",
 		    (fs->flags & DN_IS_GENTLE_RED) ? 'G' : ' ',
 		    1.0 * fs->w_q / (double)(1 << SCALE_RED),
@@ -1570,7 +1591,7 @@ ipfw_config_pipe(int ac, char **av)
 					ac--; av++;
 				} else if (j == 0)
 					errx(EX_DATAERR, "plr needs at least one parsable argument");
-			} while (j < 5);
+			} while (av[0] && (j < 5));
 			break;
 
 		case TOK_PLS:
