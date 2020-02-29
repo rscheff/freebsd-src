@@ -484,10 +484,10 @@ print_flowset_parms(struct dn_fs *fs, char *prefix)
 			snprintf(qs, sizeof(qs), "%d B", l);
 	} else
 		snprintf(qs, sizeof(qs), "%3d sl.", l);
-	if (fs->plr[0]) {
+	if (fs->plr[0] < 0) {
 		snprintf(plr, sizeof(plr), "plr %s%.10g",
 		    fs->plr[1] ? "{" : "",
-		    1.0 * fs->plr[0] / (double)(0x7fffffff));
+		    1.0 * -fs->plr[0] / (double)(0x7fffffff));
 		if (fs->plr[1]) {
 			snprintf(plr, sizeof(plr), "%s,%.10g%s", plr,
 			    1.0 * fs->plr[1] / (double)(0x7fffffff),
@@ -507,6 +507,9 @@ print_flowset_parms(struct dn_fs *fs, char *prefix)
 				}
 			}
 		}
+	} else
+	if (fs->plr[0] > 0) {
+		/* XXXRS: PLS output here */
 	} else
 		plr[0] = '\0';
 
@@ -1039,7 +1042,7 @@ load_extra_delays(const char *filename, struct dn_profile *p,
  * buffer,"..." will be appended to the string to indicate there was more
  * information that could not be displayed.
  */
-/*static void
+static void
 gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
 {
 	struct pls_range *node;
@@ -1067,9 +1070,9 @@ gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
 		*(str+len) = '\0';
 	}
 	else
-		/ * remove the trailing comma from the list *//*
+		/* remove the trailing comma from the list */
 		*(str+stroffset-1) = '\0';
-}*/
+}
 
 /*
  * This function parses a string of the form "1,2,6-10,3,1000,2000-1500" and turns it
@@ -1588,6 +1591,8 @@ ipfw_config_pipe(int ac, char **av)
 					else if (d < 0)
 						d = 0;
 					fs->plr[j++] = (int)(d*0x7fffffff);
+					if (j==1)
+					    fs->plr[0] = -fs->plr[0];
 					ac--; av++;
 				} else if (j == 0)
 					errx(EX_DATAERR, "plr needs at least one parsable argument");

@@ -136,6 +136,15 @@ struct dn_link {
 	uint64_t	burst;		/* scaled. bits*Hz  XXX */
 };
 
+struct pls_range {
+	uint32_t	start;
+	uint32_t	end;
+};
+
+struct pls_range_array {
+	struct pls_range arr[100];
+};
+
 /*
  * A flowset, which is a template for flows. Contains parameters
  * from the command line: id, target scheduler, queue sizes, plr,
@@ -170,7 +179,7 @@ struct dn_fs {
 	int max_p ;		/* maximum value for p_b (scaled) */
 	union {
 		int32_t plr[5];		/* PLR, pkt loss rate (2^31-1 means 100%) */
-		int32_t pls[100][2]; 	/* PLS, static packet loss list */
+		struct pls_range_array pls; 	/* PLS, static packet loss list */
 	};
 };
 

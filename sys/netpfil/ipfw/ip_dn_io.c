@@ -513,18 +513,18 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 		goto drop;
 
 	/* Correlated Loss Generation */
-	if (f->plr[0] > 0) {
+	if (f->plr[0] < 0) {
 		int rnd = random();
 		if (f->plr[1] == 0) {
 			/* Bernoulli random loss */
-			if (rnd < f->plr[0])
+			if (rnd < -f->plr[0])
 				goto drop;
 		} else
 		if (f->plr[2] == 0) {
 			/* Simple Gilbert model */
 			switch (q->ni.state) {
 			case 0:
-				if (rnd < f->plr[0])
+				if (rnd < -f->plr[0])
 					q->ni.state = 1;
 				break;
 			case 1:
@@ -540,7 +540,7 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 			/* Gilbert model */
 			switch (q->ni.state) {
 			case 0:
-				if (rnd < f->plr[0])
+				if (rnd < -f->plr[0])
 					q->ni.state = 1;
 				break;
 			case 1:
@@ -558,7 +558,7 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 			/* Gilbert-Elliot model */
 			switch (q->ni.state) {
 			case 0:
-				if (rnd < f->plr[0])
+				if (rnd < -f->plr[0])
 					q->ni.state = 1;
 				rnd = random();
 				if (f->plr[3] < rnd)
@@ -580,12 +580,12 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 				if (rnd < f->plr[3]) {
 					q->ni.state = LOST_IN_BURST_PERIOD;
 					goto drop;
-				} else 
-				if (f->plr[3] < rnd && rnd < (f->plr[0] + f->plr[3])) {
+				} else
+				if (f->plr[3] < rnd && rnd < (-f->plr[0] + f->plr[3])) {
 					q->ni.state = LOST_IN_GAP_PERIOD;
 					goto drop;
-				} else 
-				if (f->plr[0] + f->plr[3] < rnd) {
+				} else
+				if (-f->plr[0] + f->plr[3] < rnd) {
 					q->ni.state = TX_IN_GAP_PERIOD;
 				}
 				break;
@@ -600,10 +600,10 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 			case LOST_IN_GAP_PERIOD:
 				if (rnd < f->plr[2]) {
 					q->ni.state = TX_IN_BURST_PERIOD;
-				} else 
+				} else
 				if (f->plr[2] < rnd && rnd < (f->plr[1] + f->plr[2])) {
 					q->ni.state = TX_IN_GAP_PERIOD;
-				} else 
+				} else
 				if (f->plr[1] + f->plr[2] < rnd) {
 					q->ni.state = LOST_IN_GAP_PERIOD;
 					goto drop;
@@ -619,7 +619,7 @@ dn_enqueue(struct dn_queue *q, struct mbuf* m, int drop)
 		}
 	} else
 	/* Static Packet Loss */
-	if (f->plr[0] < 0) {
+	if (f->plr[0] > 0) {
 	}
 #ifdef NEW_AQM
 	/* Call AQM enqueue function */
