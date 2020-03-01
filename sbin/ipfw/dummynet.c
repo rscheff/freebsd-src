@@ -1045,7 +1045,6 @@ load_extra_delays(const char *filename, struct dn_profile *p,
 static void
 gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
 {
-	struct pls_range *node;
 	u_int i = 0, stroffset = 0, ret = 0, str_truncated = 0;
 
 	for (; i < ranges->count; i++) {
@@ -1088,13 +1087,19 @@ gen_pls_str(char *str, u_int len, struct pls_range_array *ranges)
  * pls_range5.start = 1000, pls_range5.end = 1000
  * pls_range6.start = 1500, pls_range6.end = 2000
  */
-/*static int
+
+#define CHARPTR_IS_INT(x) \
+	(((unsigned int)(((unsigned char)(*(x)))) - (unsigned char)'0') < 11)
+
+#define flush_range_array(PLS)
+
+static int
 parse_pls_str(char *str, struct pls_range_array *ranges)
 {
 	char *ch, *tmpstr;
 	char tmp[16];
-	int i = 0, j = 0, comma_count = 0, arr_index = 0;
-	struct pls_range *current_range = NULL;
+	uint32_t val;
+	int i = 0, j = 0, comma_count = 0, arr_index = 0, rel_pos = 0;
 
 	for(i = strlen(str), tmpstr = str; i >= 0; i--) {
 		ch = tmpstr++;
@@ -1103,11 +1108,15 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 	}
 
 	ranges->size = comma_count + 1;
-	ranges->arr = (struct pls_range *)malloc(ranges->size * sizeof(struct pls_range));
-	bzero(ranges->arr, ranges->size * sizeof(struct pls_range));
 
-	if(ranges->arr == NULL)
+	if ((comma_count+1) > sizeof(ranges->arr)/sizeof(struct pls_range)) {
+		errx(EX_DATAERR, "too many loss ranges given");
+	}
+/*	ranges->arr = (struct pls_range *)malloc(ranges->size * sizeof(struct pls_range)); */
+/*	if(ranges->arr == NULL)
 		return (ENOMEM);
+*/
+	bzero(ranges->arr, ranges->size * sizeof(struct pls_range));
 
 	for(i = strlen(str), tmpstr = str; i >= 0; i--) {
 		ch = tmpstr++;
@@ -1115,29 +1124,34 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 		j = 0;
 
-		/ * if the character is a number 0-9 *//*
-		while(CHARPTR_IS_INT(ch)) {
-			/ * read until the number ends *//*
+		/* if the character is a number 0-9 */
+		while(CHARPTR_IS_INT(ch) || *ch == '+') {
+			/* read until the number ends */
 			tmp[j++] = *ch;
 			ch = tmpstr++;
 			i--;
+			if (*ch == '+')
+				break;
 		}
 
-		/ *
+		/*
 		 * if we are at the end of a range, or the end of the string and
 		 * we have a number stored in tmp
-		 *//*
+		 */
 		if((*ch == ',' && j > 0) || (i == 0 && j > 0)) {
+			val = strtol(tmp, NULL, 10);
+			if (tmp[0] == '+')
+				val += rel_pos;
 			if(ranges->arr[arr_index].start == 0) {
-				ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
+				ranges->arr[arr_index].start = val;
 			}
 
-			ranges->arr[arr_index].end = strtol(tmp, NULL, 10);
+			ranges->arr[arr_index].end = val;
 
-			/ *
+			/*
 			 * reorder the start and end of the range if they were
 			 * specified out of order
-			 *//*
+			 */
 			if(ranges->arr[arr_index].end < ranges->arr[arr_index].start) {
 				u_int tmp = ranges->arr[arr_index].end;
 				ranges->arr[arr_index].end = ranges->arr[arr_index].start;
@@ -1146,28 +1160,36 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 
 			arr_index++;
 		}
-		else if(*ch == '-' && j > 0) {
-			/ *
+		else if((*ch == '-' || *ch == '+') && j > 0) {
+			/*
 			 * we are half way through parsing a range, so let's set
 			 * create a new range and set its start value to the
 			 * first number we parsed in the range
-			 *//*
-			ranges->arr[arr_index].start = strtol(tmp, NULL, 10);
+			 */
+			val = strtol(tmp, NULL, 10);
+			if (tmp[0] == '+')
+				val += rel_pos;
+			ranges->arr[arr_index].start = val;
+			if (*ch == '+') {
+				tmpstr--;
+				i++;
+			}
 		}
 		else {
 			flush_range_array(ranges);
-			return 1; / * failed parsing the string *//*
+			return 1; /* failed parsing the string */
 		}
+		rel_pos = val;
 	}
 
 	ranges->count = arr_index;
 
 	struct pls_range tmp_range;
 
-	/ *
+	/*
 	 * bubble sort of the list to put them in numerical order of range start
 	 * values
-	 *//*
+	 */
 	for(i = 0; i < ranges->count; i++) {
 		for(j = 1; j < ranges->count; j++) {
 			if(ranges->arr[j-1].start > ranges->arr[j].start) {
@@ -1178,8 +1200,21 @@ parse_pls_str(char *str, struct pls_range_array *ranges)
 		}
 	}
 
+	/*
+	 * merge all overlapping and adjacent intervals
+	 */
+	for(i = ranges->count - 1; i > 0; i--) {
+		if (ranges->arr[i-1].end + 1 >= ranges->arr[i].start) {
+			ranges->arr[i-1].end = ranges->arr[i].end;
+			for (j = i; j < ranges->count - 1; j++) {
+				ranges->arr[j] = ranges->arr[j+1];
+			}
+			ranges->count--;
+		}
+	}
+
 	return 0;
-}*/
+}
 #ifdef NEW_AQM
 
 /* Parse AQM/extra scheduler parameters */
@@ -1579,7 +1614,7 @@ ipfw_config_pipe(int ac, char **av)
 		case TOK_PLR:
 			NEED(fs, "plr is only for pipes");
 			NEED1("plr needs up to 5 arguments between 0..1 inclusive\n");
-			
+
 			bzero(fs->plr, sizeof(fs->plr));
 			int j = 0;
 			char *ptr;
@@ -1602,7 +1637,7 @@ ipfw_config_pipe(int ac, char **av)
 		case TOK_PLS:
 			NEED(fs, "pls is only for pipes");
 			NEED1("pls needs argument x,y-z\n");
-//			if (parse_pls_str(av[0], &(p.fs.pls)))
+			if (parse_pls_str(av[0], &(fs->pls)))
 				errx(EX_DATAERR, "invalid packet loss set");
 			ac--; av++;
 			break;

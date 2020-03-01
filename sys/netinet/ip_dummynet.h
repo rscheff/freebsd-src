@@ -142,6 +142,8 @@ struct pls_range {
 };
 
 struct pls_range_array {
+	int32_t		size;
+	int32_t		count;
 	struct pls_range arr[100];
 };
 
@@ -178,7 +180,10 @@ struct dn_fs {
 	int min_th ;		/* minimum threshold for queue (scaled) */
 	int max_p ;		/* maximum value for p_b (scaled) */
 	union {
-		int32_t plr[5];		/* PLR, pkt loss rate (2^31-1 means 100%) */
+		struct {
+			int32_t model;
+			int32_t plr[5];		/* PLR, pkt loss rate (2^31-1 means 100%) */
+		};
 		struct pls_range_array pls; 	/* PLS, static packet loss list */
 	};
 };
