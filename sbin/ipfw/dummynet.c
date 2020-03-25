@@ -1626,12 +1626,11 @@ ipfw_config_pipe(int ac, char **av)
 					else if (d < 0)
 						d = 0;
 					fs->plr[j++] = (int)(d*0x7fffffff);
-					if (j==1)
-					    fs->plr[0] = -fs->plr[0];
 					ac--; av++;
 				} else if (j == 0)
 					errx(EX_DATAERR, "plr needs at least one parsable argument");
 			} while (av[0] && (j < 5));
+			fs->model = -j;
 			break;
 
 		case TOK_PLS:
