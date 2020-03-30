@@ -28,10 +28,13 @@ CFLAGS+=	-I${KYUA_SRCDIR}
 # kyua uses auto_ptr
 CFLAGS+=	-Wno-deprecated-declarations
 
-FILESGROUPS=	EXAMPLES MISC STORE
+FILESGROUPS=	DOCS EXAMPLES MISC STORE
 
 CONFS=		kyua.conf
 CONFSDIR=	${KYUA_CONFDIR}
+
+DOCS=		AUTHORS CONTRIBUTORS LICENSE
+DOCSDIR=	${KYUA_DOCDIR}
 
 EXAMPLES=	Kyuafile.top kyua.conf
 EXAMPLESDIR=	${KYUA_EGDIR}
@@ -49,7 +52,7 @@ CLEANFILES+=	${MAN}
 .PATH: ${KYUA_SRCDIR}/doc
 .for man in ${MAN}
 ${man}: ${man}.in
-	${SH} ${KYUA_SRCDIR}/doc/manbuild.sh \
+	sh ${KYUA_SRCDIR}/doc/manbuild.sh \
 	    -v "CONFDIR=${KYUA_CONFDIR}" \
 	    -v "DOCDIR=${KYUA_DOCDIR}" \
 	    -v "EGDIR=${KYUA_EGDIR}" \
