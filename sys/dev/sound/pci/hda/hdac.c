@@ -56,7 +56,6 @@ SND_DECLARE_FILE("$FreeBSD$");
 #define hdac_lock(sc)		snd_mtxlock((sc)->lock)
 #define hdac_unlock(sc)		snd_mtxunlock((sc)->lock)
 #define hdac_lockassert(sc)	snd_mtxassert((sc)->lock)
-#define hdac_lockowned(sc)	mtx_owned((sc)->lock)
 
 #define HDAC_QUIRK_64BIT	(1 << 0)
 #define HDAC_QUIRK_DMAPOS	(1 << 1)
@@ -965,7 +964,7 @@ hdac_unsolq_flush(struct hdac_softc *sc)
 }
 
 /****************************************************************************
- * uint32_t hdac_command_sendone_internal
+ * uint32_t hdac_send_command
  *
  * Wrapper function that sends only one command to a given codec
  ****************************************************************************/
@@ -975,8 +974,7 @@ hdac_send_command(struct hdac_softc *sc, nid_t cad, uint32_t verb)
 	int timeout;
 	uint32_t *corb;
 
-	if (!hdac_lockowned(sc))
-		device_printf(sc->dev, "WARNING!!!! mtx not owned!!!!\n");
+	hdac_lockassert(sc);
 	verb &= ~HDA_CMD_CAD_MASK;
 	verb |= ((uint32_t)cad) << HDA_CMD_CAD_SHIFT;
 	sc->codecs[cad].response = HDA_INVALID;
