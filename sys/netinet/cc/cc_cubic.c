@@ -270,7 +270,7 @@ cubic_cong_signal(struct cc_var *ccv, uint32_t type)
 		if (!IN_FASTRECOVERY(CCV(ccv, t_flags))) {
 			if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
 				cubic_ssthresh_update(ccv);
-				cubic_data->num_cong_events++;
+				INCMAX(cubic_data->num_cong_events);
 				cubic_data->prev_max_cwnd = cubic_data->max_cwnd;
 				cubic_data->max_cwnd = CCV(ccv, snd_cwnd);
 			}
@@ -281,7 +281,7 @@ cubic_cong_signal(struct cc_var *ccv, uint32_t type)
 	case CC_ECN:
 		if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
 			cubic_ssthresh_update(ccv);
-			cubic_data->num_cong_events++;
+			INCMAX(cubic_data->num_cong_events);
 			cubic_data->prev_max_cwnd = cubic_data->max_cwnd;
 			cubic_data->max_cwnd = CCV(ccv, snd_cwnd);
 			cubic_data->t_last_cong = ticks;
@@ -299,7 +299,7 @@ cubic_cong_signal(struct cc_var *ccv, uint32_t type)
 		 * congestion.
 		 */
 		if (CCV(ccv, t_rxtshift) >= 2) {
-			cubic_data->num_cong_events++;
+			INCMAX(cubic_data->num_cong_events);
 			cubic_data->t_last_cong = ticks;
 		}
 		break;
