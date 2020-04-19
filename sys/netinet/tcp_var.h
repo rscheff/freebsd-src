@@ -182,7 +182,6 @@ struct tcpcb {
 	uint32_t  snd_ssthresh_prev;	/* ssthresh prior to retransmit */
 	tcp_seq	snd_recover_prev;	/* snd_recover prior to retransmit */
 	int	t_sndzerowin;		/* zero-window updates sent */
-	u_long	t_rttupdated;		/* number of times rtt sampled */
 	int	snd_numholes;		/* number of holes seen by sender */
 	u_int	t_badrxtwin;		/* window for retransmit recovery */
 	TAILQ_HEAD(sackhole_head, sackhole) snd_holes;
@@ -218,6 +217,7 @@ struct tcpcb {
 	tcp_seq gput_seq;		/* Outbound measurement seq */
 	tcp_seq gput_ack;		/* Inbound measurement ack */
 	int32_t t_stats_gput_prev;	/* XXXLAS: Prev gput measurement */
+	uint8_t t_rttupdated;		/* number of times rtt sampled */
 	uint8_t t_tfo_client_cookie_len; /* TCP Fast Open client cookie length */
 	unsigned int *t_tfo_pending;	/* TCP Fast Open server pending counter */
 	union {
@@ -510,6 +510,33 @@ struct tcptw {
 #define	TCP_REXMTVAL(tp) \
 	max((tp)->t_rttmin, (((tp)->t_srtt >> (TCP_RTT_SHIFT - TCP_DELTA_SHIFT))  \
 	  + (tp)->t_rttvar) >> TCP_DELTA_SHIFT)
+
+/*
+ * Programmatically determine the maximum value of
+ * a signed or unsigned type, without integer overflow.
+ * Determining if the type of a variable is signed
+ * or not in a portable way without typeof() is quite
+ * involved but the resuting code is still optimal.
+ */
+#define UTYPE_MAX(x) \
+	((((1 << (sizeof((x)) * 8 - 1)) - 1) * 2) + 1)
+#define TYPE_MAX(x) \
+	((((1 << (sizeof((x)) * 8 - 2)) - 1) * 2) + 1)
+#define HIGH_BIT(n) \
+	((n) & (1 << sizeof(n) * 8 - 1))
+#define IS_SIGNED(n) \
+	(HIGH_BIT(n) ? \
+	    HIGH_BIT(n >> 1) != 0 : \
+	    HIGH_BIT(~n >> 1) != 0)
+
+/*
+ * Macro to Post-increment counters that should NOT
+ * overflow, as a drop-in replacement for 'x++'.
+ */
+#define INCMAX(x) \
+	IS_SIGNED(x) ? \
+	    ((x) < TYPE_MAX(x)) ? (x)++ : (x) : \
+	    ((x) < UTYPE_MAX(x)) ? (x)++ : (x)
 
 /*
  * TCP statistics.

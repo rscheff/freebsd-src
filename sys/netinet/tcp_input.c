@@ -3408,7 +3408,7 @@ tcp_xmit_timer(struct tcpcb *tp, int rtt)
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 
 	TCPSTAT_INC(tcps_rttupdated);
-	tp->t_rttupdated++;
+	INCMAX(tp->t_rttupdated);
 #ifdef STATS
 	stats_voi_update_abs_u32(tp->t_stats, VOI_TCP_RTT,
 	    imax(0, rtt * 1000 / hz));
