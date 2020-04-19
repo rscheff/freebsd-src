@@ -523,7 +523,7 @@ struct tcptw {
 #define TYPE_MAX(x) \
 	((((1 << (sizeof((x)) * 8 - 2)) - 1) * 2) + 1)
 #define HIGH_BIT(n) \
-	((n) & (1 << sizeof(n) * 8 - 1))
+	((n) & (1 << (sizeof(n) * 8 - 1)))
 #define IS_SIGNED(n) \
 	(HIGH_BIT(n) ? \
 	    HIGH_BIT(n >> 1) != 0 : \
