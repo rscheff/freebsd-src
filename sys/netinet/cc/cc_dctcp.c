@@ -245,7 +245,7 @@ dctcp_cong_signal(struct cc_var *ccv, uint32_t type)
 				if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
 					CCV(ccv, snd_ssthresh) =
 					    max(cwin / 2, 2 * mss);
-					INCMAX(dctcp_data->num_cong_events);
+					CEILINC(dctcp_data->num_cong_events);
 				} else {
 					/* cwnd has already updated as congestion
 					 * recovery. Reverse cwnd value using
@@ -266,7 +266,7 @@ dctcp_cong_signal(struct cc_var *ccv, uint32_t type)
 			CCV(ccv, snd_cwnd_prev) = cwin;
 			if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
 				if (V_dctcp_slowstart &&
-				    INCMAX(dctcp_data->num_cong_events) == 0) {
+				    CEILINC(dctcp_data->num_cong_events) == 0) {
 					CCV(ccv, snd_ssthresh) =
 					    max(cwin / 2, 2 * mss);
 					dctcp_data->alpha = MAX_ALPHA_VALUE;
@@ -286,7 +286,7 @@ dctcp_cong_signal(struct cc_var *ccv, uint32_t type)
 		case CC_RTO:
 			dctcp_update_alpha(ccv);
 			dctcp_data->save_sndnxt += CCV(ccv, t_maxseg);
-			INCMAX(dctcp_data->num_cong_events);
+			CEILINC(dctcp_data->num_cong_events);
 			break;
 		}
 	} else
