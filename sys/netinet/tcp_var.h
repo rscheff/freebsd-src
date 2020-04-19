@@ -533,7 +533,7 @@ struct tcptw {
  * Macro to Post-increment counters that should NOT
  * overflow, as a drop-in replacement for 'x++'.
  */
-#define INCMAX(x) \
+#define CEILINC(x) \
 	IS_SIGNED(x) ? \
 	    ((x) < TYPE_MAX(x)) ? (x)++ : (x) : \
 	    ((x) < UTYPE_MAX(x)) ? (x)++ : (x)
