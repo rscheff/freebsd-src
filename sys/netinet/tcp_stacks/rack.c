@@ -3905,7 +3905,8 @@ tcp_rack_xmit_timer_commit(struct tcp_rack *rack, struct tcpcb *tp)
 	}
 	KMOD_TCPSTAT_INC(tcps_rttupdated);
 	rack_log_rtt_upd(tp, rack, rtt, o_srtt, o_var);
-	CEILINC(tp->t_rttupdated);
+	if (tp->t_rttupdated < UTYPE_MAX(tp->t_rttupdated))
+		(tp->t_rttupdated)++;
 #ifdef STATS
 	stats_voi_update_abs_u32(tp->t_stats, VOI_TCP_RTT, imax(0, rtt));
 #endif

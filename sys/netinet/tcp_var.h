@@ -513,30 +513,10 @@ struct tcptw {
 
 /*
  * Programmatically determine the maximum value of
- * a signed or unsigned type, without integer overflow.
- * Determining if the type of a variable is signed
- * or not in a portable way without typeof() is quite
- * involved but the resuting code is still optimal.
+ * an unsigned type, without integer overflow.
  */
 #define UTYPE_MAX(x) \
 	((((1 << (sizeof((x)) * 8 - 1)) - 1) * 2) + 1)
-#define TYPE_MAX(x) \
-	((((1 << (sizeof((x)) * 8 - 2)) - 1) * 2) + 1)
-#define HIGH_BIT(n) \
-	((n) & (1 << (sizeof(n) * 8 - 1)))
-#define IS_SIGNED(n) \
-	(HIGH_BIT(n) ? \
-	    HIGH_BIT(n >> 1) != 0 : \
-	    HIGH_BIT(~n >> 1) != 0)
-
-/*
- * Macro to Post-increment counters that should NOT
- * overflow, as a drop-in replacement for 'x++'.
- */
-#define CEILINC(x) \
-	IS_SIGNED(x) ? \
-	    ((x) < TYPE_MAX(x)) ? (x)++ : (x) : \
-	    ((x) < UTYPE_MAX(x)) ? (x)++ : (x)
 
 /*
  * TCP statistics.
