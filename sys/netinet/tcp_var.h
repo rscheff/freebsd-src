@@ -556,7 +556,7 @@ struct tcptw {
  * an unsigned type, without integer overflow.
  */
 #define UTYPE_MAX(x) \
-	((((1 << (sizeof((x)) * 8 - 1)) - 1) * 2) + 1)
+	((((1ULL << (sizeof((x)) * 8 - 1)) - 1) * 2) + 1)
 
 /*
  * TCP statistics.
