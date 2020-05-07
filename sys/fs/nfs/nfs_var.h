@@ -324,7 +324,6 @@ int nfsm_mbufuio(struct nfsrv_descript *, struct uio *, int);
 int nfsm_fhtom(struct nfsrv_descript *, u_int8_t *, int, int);
 int nfsm_advance(struct nfsrv_descript *, int, int);
 void *nfsm_dissct(struct nfsrv_descript *, int, int);
-void newnfs_trimleading(struct nfsrv_descript *);
 void newnfs_trimtrailing(struct nfsrv_descript *, struct mbuf *,
     caddr_t);
 void newnfs_copycred(struct nfscred *, struct ucred *);
@@ -361,8 +360,6 @@ int nfsv4_sequencelookup(struct nfsmount *, struct nfsclsession *, int *,
 void nfsv4_freeslot(struct nfsclsession *, int);
 struct ucred *nfsrv_getgrpscred(struct ucred *);
 struct nfsdevice *nfsv4_findmirror(struct nfsmount *);
-int nfsm_set(struct nfsrv_descript *, u_int, bool);
-bool nfsm_shiftnext(struct nfsrv_descript *, int *);
 
 /* nfs_clcomsubs.c */
 void nfsm_uiombuf(struct nfsrv_descript *, struct uio *, int);
