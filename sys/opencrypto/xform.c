@@ -59,16 +59,13 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <machine/cpu.h>
 
-#include <crypto/blowfish/blowfish.h>
 #include <crypto/des/des.h>
 #include <crypto/rijndael/rijndael.h>
 #include <crypto/camellia/camellia.h>
 #include <crypto/sha1.h>
 
-#include <opencrypto/cast.h>
 #include <opencrypto/deflate.h>
 #include <opencrypto/rmd160.h>
-#include <opencrypto/skipjack.h>
 
 #include <sys/md5.h>
 
@@ -77,25 +74,10 @@ __FBSDID("$FreeBSD$");
 
 MALLOC_DEFINE(M_XDATA, "xform", "xform data buffers");
 
-/* Encryption instances */
-struct enc_xform enc_xform_arc4 = {
-	CRYPTO_ARC4, "ARC4",
-	ARC4_BLOCK_LEN, ARC4_IV_LEN, ARC4_MIN_KEY, ARC4_MAX_KEY,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-};
-
-
 /* Include the encryption algorithms */
 #include "xform_null.c"
 #include "xform_des1.c"
 #include "xform_des3.c"
-#include "xform_blf.c"
-#include "xform_cast5.c"
-#include "xform_skipjack.c"
 #include "xform_rijndael.c"
 #include "xform_aes_icm.c"
 #include "xform_aes_xts.c"
