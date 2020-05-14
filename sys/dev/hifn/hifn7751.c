@@ -1604,14 +1604,6 @@ hifn_write_command(struct hifn_command *cmd, u_int8_t *buf)
 
 	if (using_crypt && cmd->cry_masks & HIFN_CRYPT_CMD_NEW_KEY) {
 		switch (cmd->cry_masks & HIFN_CRYPT_CMD_ALG_MASK) {
-		case HIFN_CRYPT_CMD_ALG_3DES:
-			bcopy(cmd->ck, buf_pos, HIFN_3DES_KEY_LENGTH);
-			buf_pos += HIFN_3DES_KEY_LENGTH;
-			break;
-		case HIFN_CRYPT_CMD_ALG_DES:
-			bcopy(cmd->ck, buf_pos, HIFN_DES_KEY_LENGTH);
-			buf_pos += HIFN_DES_KEY_LENGTH;
-			break;
 		case HIFN_CRYPT_CMD_ALG_AES:
 			/*
 			 * AES keys are variable 128, 192 and
@@ -2304,7 +2296,6 @@ hifn_auth_supported(struct hifn_softc *sc,
 	switch (csp->csp_auth_alg) {
 	case CRYPTO_SHA1:
 		break;
-	case CRYPTO_MD5_HMAC:
 	case CRYPTO_SHA1_HMAC:
 		if (csp->csp_auth_klen > HIFN_MAC_KEY_LENGTH)
 			return (false);
@@ -2328,8 +2319,6 @@ hifn_cipher_supported(struct hifn_softc *sc,
 	switch (sc->sc_ena) {
 	case HIFN_PUSTAT_ENA_2:
 		switch (csp->csp_cipher_alg) {
-		case CRYPTO_3DES_CBC:
-			break;
 		case CRYPTO_AES_CBC:
 			if ((sc->sc_flags & HIFN_HAS_AES) == 0)
 				return (false);
@@ -2343,13 +2332,6 @@ hifn_cipher_supported(struct hifn_softc *sc,
 			}
 			return (true);
 		}
-		/*FALLTHROUGH*/
-	case HIFN_PUSTAT_ENA_1:
-		switch (csp->csp_cipher_alg) {
-		case CRYPTO_DES_CBC:
-			return (true);
-		}
-		break;
 	}
 	return (false);
 }
@@ -2448,16 +2430,6 @@ hifn_process(device_t dev, struct cryptop *crp, int hint)
 			cmd->base_masks |= HIFN_BASE_CMD_DECODE;
 		cmd->base_masks |= HIFN_BASE_CMD_CRYPT;
 		switch (csp->csp_cipher_alg) {
-		case CRYPTO_DES_CBC:
-			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_DES |
-			    HIFN_CRYPT_CMD_MODE_CBC |
-			    HIFN_CRYPT_CMD_NEW_IV;
-			break;
-		case CRYPTO_3DES_CBC:
-			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_3DES |
-			    HIFN_CRYPT_CMD_MODE_CBC |
-			    HIFN_CRYPT_CMD_NEW_IV;
-			break;
 		case CRYPTO_AES_CBC:
 			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_AES |
 			    HIFN_CRYPT_CMD_MODE_CBC |
@@ -2505,11 +2477,6 @@ hifn_process(device_t dev, struct cryptop *crp, int hint)
 		cmd->base_masks |= HIFN_BASE_CMD_MAC;
 
 		switch (csp->csp_auth_alg) {
-		case CRYPTO_MD5_HMAC:
-			cmd->mac_masks |= HIFN_MAC_CMD_ALG_MD5 |
-			    HIFN_MAC_CMD_RESULT | HIFN_MAC_CMD_MODE_HMAC |
-			    HIFN_MAC_CMD_POS_IPSEC | HIFN_MAC_CMD_TRUNC;
-			break;
 		case CRYPTO_SHA1:
 			cmd->mac_masks |= HIFN_MAC_CMD_ALG_SHA1 |
 			    HIFN_MAC_CMD_RESULT | HIFN_MAC_CMD_MODE_HASH |
@@ -2522,8 +2489,7 @@ hifn_process(device_t dev, struct cryptop *crp, int hint)
 			break;
 		}
 
-		if (csp->csp_auth_alg == CRYPTO_SHA1_HMAC ||
-		    csp->csp_auth_alg == CRYPTO_MD5_HMAC) {
+		if (csp->csp_auth_alg == CRYPTO_SHA1_HMAC) {
 			cmd->mac_masks |= HIFN_MAC_CMD_NEW_KEY;
 			if (crp->crp_auth_key != NULL)
 				mackey = crp->crp_auth_key;
