@@ -62,6 +62,7 @@ __FBSDID("$FreeBSD$");
 #include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/route.h>
+#include <net/route/route_var.h>
 #include <net/route/nhop.h>
 #include <net/vnet.h>
 
@@ -137,7 +138,8 @@ static void nd6_free_redirect(const struct llentry *);
 static void nd6_llinfo_timer(void *);
 static void nd6_llinfo_settimer_locked(struct llentry *, long);
 static void clear_llinfo_pqueue(struct llentry *);
-static void nd6_rtrequest(int, struct rtentry *, struct rt_addrinfo *);
+static void nd6_rtrequest(int, struct rtentry *, struct nhop_object *,
+    struct rt_addrinfo *);
 static int nd6_resolve_slow(struct ifnet *, int, struct mbuf *,
     const struct sockaddr_in6 *, u_char *, uint32_t *, struct llentry **);
 static int nd6_need_cache(struct ifnet *);
@@ -819,9 +821,27 @@ nd6_llinfo_timer(void *arg)
 				clear_llinfo_pqueue(ln);
 			}
 			nd6_free(&ln, 0);
-			if (m != NULL)
-				icmp6_error2(m, ICMP6_DST_UNREACH,
-				    ICMP6_DST_UNREACH_ADDR, 0, ifp);
+			if (m != NULL) {
+				struct mbuf *n = m;
+
+				/*
+				 * if there are any ummapped mbufs, we
+				 * must free them, rather than using
+				 * them for an ICMP, as they cannot be
+				 * checksummed.
+				 */
+				while ((n = n->m_next) != NULL) {
+					if (n->m_flags & M_EXTPG)
+						break;
+				}
+				if (n != NULL) {
+					m_freem(m);
+					m = NULL;
+				} else {
+					icmp6_error2(m, ICMP6_DST_UNREACH,
+					    ICMP6_DST_UNREACH_ADDR, 0, ifp);
+				}
+			}
 		}
 		break;
 	case ND6_LLINFO_REACHABLE:
@@ -1561,13 +1581,12 @@ nd6_free_redirect(const struct llentry *ln)
  * processing.
  */
 void
-nd6_rtrequest(int req, struct rtentry *rt, struct rt_addrinfo *info)
+nd6_rtrequest(int req, struct rtentry *rt, struct nhop_object *nh,
+    struct rt_addrinfo *info)
 {
 	struct sockaddr_in6 *gateway;
 	struct nd_defrouter *dr;
-	struct nhop_object *nh;
 
-	nh = rt->rt_nhop;
 	gateway = &nh->gw6_sa;
 
 	switch (req) {

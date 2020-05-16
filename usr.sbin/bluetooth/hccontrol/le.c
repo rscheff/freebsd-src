@@ -39,6 +39,7 @@
 #include <errno.h>
 #include <netgraph/ng_message.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +61,8 @@ static int le_enable(int s, int argc, char *argv[]);
 static int le_set_advertising_enable(int s, int argc, char *argv[]);
 static int le_set_advertising_param(int s, int argc, char *argv[]);
 static int le_read_advertising_channel_tx_power(int s, int argc, char *argv[]);
+static int le_scan(int s, int argc, char *argv[]);
+static void handle_le_event(ng_hci_event_pkt_t* e, bool verbose);
 
 static int
 le_set_scan_param(int s, int argc, char *argv[])
@@ -69,20 +72,20 @@ le_set_scan_param(int s, int argc, char *argv[])
 	int window;
 	int adrtype;
 	int policy;
-	int e, n;
+	int n;
 
 	ng_hci_le_set_scan_parameters_cp cp;
 	ng_hci_le_set_scan_parameters_rp rp;
 
 	if (argc != 5)
-		return USAGE;
+		return (USAGE);
 	
 	if (strcmp(argv[0], "active") == 0)
 		type = 1;
 	else if (strcmp(argv[0], "passive") == 0)
 		type = 0;
 	else
-		return USAGE;
+		return (USAGE);
 
 	interval = (int)(atof(argv[1])/0.625);
 	interval = (interval < 4)? 4: interval;
@@ -94,14 +97,14 @@ le_set_scan_param(int s, int argc, char *argv[])
 	else if (strcmp(argv[3], "random") == 0)
 		adrtype = 1;
 	else
-		return USAGE;
+		return (USAGE);
 
 	if (strcmp(argv[4], "all") == 0)
 		policy = 0;
 	else if (strcmp(argv[4], "whitelist") == 0)
 		policy = 1;
 	else
-		return USAGE;
+		return (USAGE);
 
 	cp.le_scan_type = type;
 	cp.le_scan_interval = interval;
@@ -109,11 +112,19 @@ le_set_scan_param(int s, int argc, char *argv[])
 	cp.le_scan_window = window;
 	cp.scanning_filter_policy = policy;
 	n = sizeof(rp);
-	e = hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
-		NG_HCI_OCF_LE_SET_SCAN_PARAMETERS), 
-		(void *)&cp, sizeof(cp), (void *)&rp, &n);
 
-	return 0;
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+		NG_HCI_OCF_LE_SET_SCAN_PARAMETERS), 
+		(void *)&cp, sizeof(cp), (void *)&rp, &n) == ERROR)
+		return (ERROR);
+
+	if (rp.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.status), rp.status);
+		return (FAILED);
+	}
+
+	return (OK);
 }
 
 static int
@@ -121,27 +132,35 @@ le_set_scan_enable(int s, int argc, char *argv[])
 {
 	ng_hci_le_set_scan_enable_cp cp;
 	ng_hci_le_set_scan_enable_rp rp;
-	int e, n, enable = 0;
+	int n, enable = 0;
 
 	if (argc != 1)
-		return USAGE;
+		return (USAGE);
 	  
 	if (strcmp(argv[0], "enable") == 0)
 		enable = 1;
 	else if (strcmp(argv[0], "disable") != 0)
-		return USAGE;
+		return (USAGE);
 
 	n = sizeof(rp);
 	cp.le_scan_enable = enable;
 	cp.filter_duplicates = 0;
-	e = hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
 		NG_HCI_OCF_LE_SET_SCAN_ENABLE), 
-		(void *)&cp, sizeof(cp), (void *)&rp, &n);
+		(void *)&cp, sizeof(cp),
+		(void *)&rp, &n) == ERROR)
+		return (ERROR);
 			
-	if (e != 0 || rp.status != 0)
-		return ERROR;
+	if (rp.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.status), rp.status);
+		return (FAILED);
+	}
 
-	return OK;
+	fprintf(stdout, "LE Scan: %s\n",
+		enable? "Enabled" : "Disabled");
+
+	return (OK);
 }
 
 static int
@@ -197,7 +216,7 @@ parse_param(int argc, char *argv[], char *buf, int *len)
 done:
 	*len = curbuf - buf;
 
-	return OK;
+	return (OK);
 }
 
 static int
@@ -206,7 +225,6 @@ le_set_scan_response(int s, int argc, char *argv[])
 	ng_hci_le_set_scan_response_data_cp cp;
 	ng_hci_le_set_scan_response_data_rp rp;
 	int n;
-	int e;
 	int len;
 	char buf[NG_HCI_ADVERTISING_DATA_SIZE];
 
@@ -216,13 +234,19 @@ le_set_scan_response(int s, int argc, char *argv[])
 	cp.scan_response_data_length = len;
 	memcpy(cp.scan_response_data, buf, len);
 	n = sizeof(rp);
-	e = hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
 			NG_HCI_OCF_LE_SET_SCAN_RESPONSE_DATA), 
-			(void *)&cp, sizeof(cp), (void *)&rp, &n);
+			(void *)&cp, sizeof(cp),
+			(void *)&rp, &n) == ERROR)
+		return (ERROR);
 			
-	printf("SET SCAN RESPONSE %d %d %d\n", e, rp.status, n);
+	if (rp.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.status), rp.status);
+		return (FAILED);
+	}
 
-	return OK;
+	return (OK);
 }
 
 static int
@@ -259,7 +283,7 @@ le_read_local_supported_features(int s, int argc ,char *argv[])
 		buffer, sizeof(buffer)));
 	fprintf(stdout, "\n");
 
-	return OK;
+	return (OK);
 }
 
 static int
@@ -290,7 +314,7 @@ set_le_event_mask(int s, uint64_t mask)
 {
 	ng_hci_le_set_event_mask_cp semc;
 	ng_hci_le_set_event_mask_rp rp;  
-	int i, n ,e;
+	int i, n;
 	
 	n = sizeof(rp);
 	
@@ -298,11 +322,18 @@ set_le_event_mask(int s, uint64_t mask)
 		semc.event_mask[i] = mask&0xff;
 		mask >>= 8;
 	}
-	e = hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+	if(hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
 			NG_HCI_OCF_LE_SET_EVENT_MASK),
-			(void *)&semc, sizeof(semc), (void *)&rp, &n);
+			(void *)&semc, sizeof(semc), (void *)&rp, &n) == ERROR)
+		return (ERROR);
+
+	if (rp.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.status), rp.status);
+		return (FAILED);
+	}
 	
-	return 0;
+	return (OK);
 }
 
 static int
@@ -310,7 +341,7 @@ set_event_mask(int s, uint64_t mask)
 {
 	ng_hci_set_event_mask_cp semc;
 	ng_hci_set_event_mask_rp rp;  
-	int i, n, e;
+	int i, n;
 	
 	n = sizeof(rp);
 	
@@ -318,29 +349,48 @@ set_event_mask(int s, uint64_t mask)
 		semc.event_mask[i] = mask&0xff;
 		mask >>= 8;
 	}
-	e = hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_HC_BASEBAND,
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_HC_BASEBAND,
 			NG_HCI_OCF_SET_EVENT_MASK),
-			(void *)&semc, sizeof(semc), (void *)&rp, &n);
+			(void *)&semc, sizeof(semc), (void *)&rp, &n) == ERROR)
+		return (ERROR);
+
+	if (rp.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.status), rp.status);
+		return (FAILED);
+	}
 	
-	return 0;
+	return (OK);
 }
 
 static
 int le_enable(int s, int argc, char *argv[])
 {
+        int result;
+
 	if (argc != 1)
-		return USAGE;
+		return (USAGE);
 	
 	if (strcasecmp(argv[0], "enable") == 0) {
-		set_event_mask(s, NG_HCI_EVENT_MASK_DEFAULT |
+		result = set_event_mask(s, NG_HCI_EVENT_MASK_DEFAULT |
 			       NG_HCI_EVENT_MASK_LE);
-		set_le_event_mask(s, NG_HCI_LE_EVENT_MASK_ALL);
-	} else if (strcasecmp(argv[0], "disable") == 0)
-		set_event_mask(s, NG_HCI_EVENT_MASK_DEFAULT);
-	else
-		return USAGE;
-
-	return OK;
+		if (result != OK)
+			return result;
+		result = set_le_event_mask(s, NG_HCI_LE_EVENT_MASK_ALL);
+		if (result == OK) {
+			fprintf(stdout, "LE enabled\n"); 
+			return (OK);
+		} else
+			return result;
+	} else if (strcasecmp(argv[0], "disable") == 0) {
+		result = set_event_mask(s, NG_HCI_EVENT_MASK_DEFAULT);
+		if (result == OK) {
+			fprintf(stdout, "LE disabled\n"); 
+			return (OK);
+		} else
+			return result;
+	} else
+		return (USAGE);
 }
 
 static int
@@ -507,6 +557,210 @@ le_set_advertising_data(int s, int argc, char *argv[])
 
 	return (OK);
 }
+static int
+le_read_buffer_size(int s, int argc, char *argv[])
+{
+	union {
+		ng_hci_le_read_buffer_size_rp 		v1;
+		ng_hci_le_read_buffer_size_rp_v2	v2;
+	} rp;
+
+	int n, ch;
+	uint8_t v;
+	uint16_t cmd;
+
+	optreset = 1;
+	optind = 0;
+
+	/* Default to version 1*/
+	v = 1;
+	cmd = NG_HCI_OCF_LE_READ_BUFFER_SIZE;
+
+	while ((ch = getopt(argc, argv , "v:")) != -1) {
+		switch(ch) {
+		case 'v':
+			v = (uint8_t)strtol(optarg, NULL, 16);	 
+			if (v == 2) 
+				cmd = NG_HCI_OCF_LE_READ_BUFFER_SIZE_V2;
+			else if (v > 2)
+				return (USAGE);
+			break;
+		default:
+			v = 1;
+		}
+	}
+
+	n = sizeof(rp);
+	if (hci_simple_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE, cmd), 
+		(void *)&rp, &n) == ERROR)
+		return (ERROR);
+			
+	if (rp.v1.status != 0x00) {
+		fprintf(stdout, "Status: %s [%#02x]\n", 
+			hci_status2str(rp.v1.status), rp.v1.status);
+		return (FAILED);
+	}
+
+	fprintf(stdout, "ACL data packet length: %d\n",
+		rp.v1.hc_le_data_packet_length);
+	fprintf(stdout, "Number of ACL data packets: %d\n",
+		rp.v1.hc_total_num_le_data_packets);
+
+	if (v == 2) {
+		fprintf(stdout, "ISO data packet length: %d\n",
+			rp.v2.hc_iso_data_packet_length);
+		fprintf(stdout, "Number of ISO data packets: %d\n",
+			rp.v2.hc_total_num_iso_data_packets);
+	}
+
+	return (OK);
+}
+
+static int
+le_scan(int s, int argc, char *argv[])
+{
+	int n, bufsize, scancount, numscans;
+	bool verbose;
+	uint8_t active = 0;
+	char ch;
+
+	char			 b[512];
+	ng_hci_event_pkt_t	*e = (ng_hci_event_pkt_t *) b;
+
+	ng_hci_le_set_scan_parameters_cp scan_param_cp;
+	ng_hci_le_set_scan_parameters_rp scan_param_rp;
+
+	ng_hci_le_set_scan_enable_cp scan_enable_cp;
+	ng_hci_le_set_scan_enable_rp scan_enable_rp;
+
+	optreset = 1;
+	optind = 0;
+	verbose = false;
+	numscans = 1;
+
+	while ((ch = getopt(argc, argv , "an:v")) != -1) {
+		switch(ch) {
+		case 'a':
+			active = 1;
+			break;
+		case 'n':
+			numscans = (uint8_t)strtol(optarg, NULL, 10);
+			break;
+		case 'v':
+			verbose = true;
+			break;
+		}
+	}
+
+	scan_param_cp.le_scan_type = active;
+	scan_param_cp.le_scan_interval = (uint16_t)(100/0.625);
+	scan_param_cp.le_scan_window = (uint16_t)(50/0.625);
+	/* Address type public */
+	scan_param_cp.own_address_type = 0;
+	/* 'All' filter policy */
+	scan_param_cp.scanning_filter_policy = 0;
+	n = sizeof(scan_param_rp);
+
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+		NG_HCI_OCF_LE_SET_SCAN_PARAMETERS), 
+		(void *)&scan_param_cp, sizeof(scan_param_cp),
+		(void *)&scan_param_rp, &n) == ERROR)
+		return (ERROR);
+
+	if (scan_param_rp.status != 0x00) {
+		fprintf(stdout, "LE_Set_Scan_Parameters failed. Status: %s [%#02x]\n", 
+			hci_status2str(scan_param_rp.status),
+			scan_param_rp.status);
+		return (FAILED);
+	}
+
+	/* Enable scanning */
+	n = sizeof(scan_enable_rp);
+	scan_enable_cp.le_scan_enable = 1;
+	scan_enable_cp.filter_duplicates = 1;
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+		NG_HCI_OCF_LE_SET_SCAN_ENABLE), 
+		(void *)&scan_enable_cp, sizeof(scan_enable_cp),
+		(void *)&scan_enable_rp, &n) == ERROR)
+		return (ERROR);
+			
+	if (scan_enable_rp.status != 0x00) {
+		fprintf(stdout, "LE_Scan_Enable enable failed. Status: %s [%#02x]\n", 
+			hci_status2str(scan_enable_rp.status),
+			scan_enable_rp.status);
+		return (FAILED);
+	}
+
+	scancount = 0;
+	while (scancount < numscans) {
+		/* wait for scan events */
+		bufsize = sizeof(b);
+		if (hci_recv(s, b, &bufsize) == ERROR) {
+			return (ERROR);
+		}
+
+		if (bufsize < sizeof(*e)) {
+			errno = EIO;
+			return (ERROR);
+		}
+		scancount++;
+		if (e->event == NG_HCI_EVENT_LE) {
+		 	fprintf(stdout, "Scan %d\n", scancount);	
+			handle_le_event(e, verbose);
+		}
+	}
+
+	fprintf(stdout, "Scan complete\n");
+
+	/* Disable scanning */
+	n = sizeof(scan_enable_rp);
+	scan_enable_cp.le_scan_enable = 0;
+	if (hci_request(s, NG_HCI_OPCODE(NG_HCI_OGF_LE,
+		NG_HCI_OCF_LE_SET_SCAN_ENABLE), 
+		(void *)&scan_enable_cp, sizeof(scan_enable_cp),
+		(void *)&scan_enable_rp, &n) == ERROR)
+		return (ERROR);
+			
+	if (scan_enable_rp.status != 0x00) {
+		fprintf(stdout, "LE_Scan_Enable disable failed. Status: %s [%#02x]\n", 
+			hci_status2str(scan_enable_rp.status),
+			scan_enable_rp.status);
+		return (FAILED);
+	}
+
+	return (OK);
+}
+
+static void handle_le_event(ng_hci_event_pkt_t* e, bool verbose) 
+{
+	int rc;
+	ng_hci_le_ep	*leer = 
+			(ng_hci_le_ep *)(e + 1);
+	ng_hci_le_advertising_report_ep *advrep = 
+		(ng_hci_le_advertising_report_ep *)(leer + 1); 
+	ng_hci_le_advreport	*reports =
+		(ng_hci_le_advreport *)(advrep + 1);
+
+	if (leer->subevent_code == NG_HCI_LEEV_ADVREP) {
+		fprintf(stdout, "Scan result, num_reports: %d\n",
+			advrep->num_reports);
+		for(rc = 0; rc < advrep->num_reports; rc++) {
+			uint8_t length = (uint8_t)reports[rc].length_data;	
+			fprintf(stdout, "\tBD_ADDR %s \n",
+				hci_bdaddr2str(&reports[rc].bdaddr));
+			fprintf(stdout, "\tAddress type: %s\n",
+				hci_addrtype2str(reports[rc].addr_type));
+			if (length > 0 && verbose) {
+				dump_adv_data(length, reports[rc].data);
+				print_adv_data(length, reports[rc].data);
+				fprintf(stdout,
+					"\tRSSI: %d dBm\n",
+					(int8_t)reports[rc].data[length]);
+				fprintf(stdout, "\n");
+			}
+		}
+	}
+}
 
 struct hci_command le_commands[] = {
 {
@@ -573,5 +827,17 @@ struct hci_command le_commands[] = {
 	  "le_set_advertising_data -n $name -f $flag -u $uuid16,$uuid16 \n"
 	  "set LE device advertising packed data",
 	  &le_set_advertising_data
+  },
+  {
+	  "le_read_buffer_size",
+	  "le_read_buffer_size [-v 1|2]\n"
+	  "Read the maximum size of ACL and ISO data packets",
+	  &le_read_buffer_size
+  },
+  {
+	  "le_scan",
+	  "le_scan [-a] [-v] [-n number_of_scans]\n"
+	  "Do an LE scan",
+	  &le_scan
   },
 };
