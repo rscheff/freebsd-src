@@ -434,6 +434,7 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF2_ECN_SND_CWR		0x00000040 /* ECN CWR in queue */
 #define	TF2_ECN_SND_ECE		0x00000080 /* ECN ECE in queue */
 #define	TF2_ACE_PERMIT		0x00000100 /* Accurate ECN mode */
+#define	TF2_ECN_USE_ECT1	0x00000200 /* Use ECT(1) marking on session */
 
 /*
  * Structure to hold TCP options that are only used during segment

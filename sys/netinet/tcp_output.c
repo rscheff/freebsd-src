@@ -1165,13 +1165,20 @@ send:
 		if (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
 		    (sack_rxmit == 0) &&
 		    !((tp->t_flags & TF_FORCEDATA) && len == 1)) {
+			int ect;
+			if (tp->t_flags2 & TF2_ECN_USE_ECT1) {
+				ect = IPTOS_ECN_ECT1;
+				TCPSTAT_INC(tcps_ecn_ect1);
+			} else {
+				ect = IPTOS_ECN_ECT0;
+				TCPSTAT_INC(tcps_ecn_ect0);
+			}
 #ifdef INET6
 			if (isipv6)
-				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
+				ip6->ip6_flow |= htonl(ect << 20);
 			else
 #endif
-				ip->ip_tos |= IPTOS_ECN_ECT0;
-			TCPSTAT_INC(tcps_ecn_ect0);
+				ip->ip_tos |= ect;
 		}
 
 		/*
