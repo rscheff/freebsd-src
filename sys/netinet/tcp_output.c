@@ -836,16 +836,15 @@ send:
 			tp->rfbuf_ts = tcp_ts_getticks();
 
 		/* Selective ACK's. */
-		if (tp->t_flags & TF_SACK_PERMIT) {
-			if (flags & TH_SYN)
-				to.to_flags |= TOF_SACKPERM;
-			else if (TCPS_HAVEESTABLISHED(tp->t_state) &&
-			    (tp->t_flags & TF_SACK_PERMIT) &&
-			    tp->rcv_numsacks > 0) {
-				to.to_flags |= TOF_SACK;
-				to.to_nsacks = tp->rcv_numsacks;
-				to.to_sacks = (u_char *)tp->sackblks;
-			}
+		if ((V_tcp_do_sack) &&
+		    (flags & TH_SYN))
+			to.to_flags |= TOF_SACKPERM;
+		if (TCPS_HAVEESTABLISHED(tp->t_state) &&
+		    (tp->t_flags & TF_SACK_PERMIT) &&
+		    tp->rcv_numsacks > 0) {
+			to.to_flags |= TOF_SACK;
+			to.to_nsacks = tp->rcv_numsacks;
+			to.to_sacks = (u_char *)tp->sackblks;
 		}
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		/* TCP-MD5 (RFC2385). */

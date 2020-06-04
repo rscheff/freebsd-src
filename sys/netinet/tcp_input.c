@@ -2445,7 +2445,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			TCPSTAT_INC(tcps_rcvacktoomuch);
 			goto dropafterack;
 		}
-		if ((tp->t_flags & TF_SACK_PERMIT) &&
+		if ((V_tcp_do_sack) &&
 		    ((to.to_flags & TOF_SACK) ||
 		     !TAILQ_EMPTY(&tp->snd_holes)))
 			sack_changed = tcp_sack_doack(tp, &to, th->th_ack);
