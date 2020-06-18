@@ -12006,12 +12006,12 @@ bbr_window_update_needed(struct tcpcb *tp, struct socket *so, uint32_t recwin, i
 	adv = recwin;
 	if (SEQ_GT(tp->rcv_adv, tp->rcv_nxt)) {
 		oldwin = (tp->rcv_adv - tp->rcv_nxt);
-		if (adv > oldwin)
+//		if (adv > oldwin)
 			adv -= oldwin;
-		else {
+//		else {
 			/* We can't increase the window */
-			adv = 0;
-		}
+//			adv = 0;
+//		}
 	} else
 		oldwin = 0;
 
