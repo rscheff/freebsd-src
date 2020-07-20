@@ -1,14 +1,13 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 2007-2009
- * 	Swinburne University of Technology, Melbourne, Australia.
+ * Copyright (c) 2020
+ * 	NetApp, Inc.
  * Copyright (c) 2009-2010, The FreeBSD Foundation
  * All rights reserved.
  *
- * Portions of this software were developed at the Centre for Advanced
- * Internet Architectures, Swinburne University of Technology, Melbourne,
- * Australia by Lawrence Stewart under sponsorship from the FreeBSD Foundation.
+ * Portions of this software were developed at NetApp, Inc. by 
+ * Richard Scheffenegger.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,34 +30,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-/******************************************************
- * Statistical Information For TCP Research (SIFTR)
- *
- * A FreeBSD kernel module that adds very basic intrumentation to the
- * TCP stack, allowing internal stats to be recorded to a log file
- * for experimental, debugging and performance analysis purposes.
- *
- * SIFTR was first released in 2007 by James Healy and Lawrence Stewart whilst
- * working on the NewTCP research project at Swinburne University of
- * Technology's Centre for Advanced Internet Architectures, Melbourne,
- * Australia, which was made possible in part by a grant from the Cisco
- * University Research Program Fund at Community Foundation Silicon Valley.
- * More details are available at:
- *   http://caia.swin.edu.au/urp/newtcp/
- *
- * Work on SIFTR v1.2.x was sponsored by the FreeBSD Foundation as part of
- * the "Enhancing the FreeBSD TCP Implementation" project 2008-2009.
- * More details are available at:
- *   http://www.freebsdfoundation.org/
- *   http://caia.swin.edu.au/freebsd/etcp09/
- *
- * Lawrence Stewart is the current maintainer, and all contact regarding
- * SIFTR should be directed to him via email: lastewart@swin.edu.au
- *
- * Initial release date: June 2007
- * Most recent update: September 2010
- ******************************************************/
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
@@ -89,21 +60,15 @@ __FBSDID("$FreeBSD$");
 #include <net/pfil.h>
 
 #include <netinet/in.h>
-#include <netinet/in_kdtrace.h>
 #include <netinet/in_pcb.h>
-#include <netinet/in_systm.h>
-#include <netinet/in_var.h>
-#include <netinet/ip.h>
-#include <netinet/ip_var.h>
+#include <netinet/tcp.h>
+#include <netinet/tcp_seq.h>
+#include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
-
-#ifdef SIFTR_IPV6
-#include <netinet/ip6.h>
-#include <netinet/ip6_var.h>
-#include <netinet6/in6_pcb.h>
-#endif /* SIFTR_IPV6 */
-
-#include <machine/in_cksum.h>
+#include <netinet/cc/cc.h>
+#include <netinet/cc/cc_module.h>
+#include <netinet/cc/cc_cubic.h>
+#include <netinet/cc/cc_cubic.c>
 
 /*
  * Three digit version number refers to X.Y.Z where:
@@ -295,30 +260,138 @@ static struct alq *logcubic_alq = NULL;
 static int logcubic_sysctl_enabled_handler(SYSCTL_HANDLER_ARGS);
 static int logcubic_sysctl_logfile_name_handler(SYSCTL_HANDLER_ARGS);
 
+/* CC function prototypes. */
+static void	logcubic_ack_received(struct cc_var *ccv, uint16_t type);
+static void	logcubic_cb_destroy(struct cc_var *ccv);
+static int	logcubic_cb_init(struct cc_var *ccv);
+static void	logcubic_cong_signal(struct cc_var *ccv, uint32_t type);
+static void	logcubic_conn_init(struct cc_var *ccv);
+static int	logcubic_mod_init(void);
+static int	logcubic_mod_destroy(void);
+static void	logcubic_post_recovery(struct cc_var *ccv);
+static void	logcubic_after_idle(struct cc_var *ccv);
+
+struct cc_algo logcubic_cc_algo = {
+	.name = "logcubic",
+	.mod_init	= logcubic_mod_init,
+	.mod_destroy	= logcubic_mod_destroy,
+	.cb_init	= logcubic_cb_init,
+	.cb_destroy	= logcubic_cb_destroy,
+	.conn_init	= logcubic_conn_init,
+	.ack_received	= logcubic_ack_received,
+	.cong_signal	= logcubic_cong_signal,
+	.post_recovery	= logcubic_post_recovery,
+	.after_idle	= logcubic_after_idle,
+	.ecnpkt_handler	= NULL,
+	.ctl_output	= NULL,
+};
 
 /* Declare the net.inet.siftr sysctl tree and populate it. */
 
-SYSCTL_DECL(_net_inet_logcubic);
+SYSCTL_DECL(_net_inet_tcp_cc_logcubic);
 
-SYSCTL_NODE(_net_inet, OID_AUTO, logcubic, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
+SYSCTL_NODE(_net_inet_tcp_cc, OID_AUTO, logcubic, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
     "logcubic related settings");
 
-SYSCTL_PROC(_net_inet_logcubic, OID_AUTO, enabled,
+SYSCTL_PROC(_net_inet_tcp_cc_logcubic, OID_AUTO, enabled,
     CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
     &logcubic_enabled, 0, &logcubic_sysctl_enabled_handler, "IU",
     "switch logcubic module operations on/off");
 
-SYSCTL_PROC(_net_inet_logcubic, OID_AUTO, logfile,
+SYSCTL_PROC(_net_inet_tcp_cc_logcubic, OID_AUTO, logfile,
     CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_NEEDGIANT, &logcubic_logfile_shadow,
     sizeof(logcubic_logfile_shadow), &logcubic_sysctl_logfile_name_handler, "A",
     "file to save logcubic log messages to");
 
-SYSCTL_U16(_net_inet_logcubic, OID_AUTO, port_filter, CTLFLAG_RW,
+SYSCTL_U16(_net_inet_tcp_cc_logcubic, OID_AUTO, port_filter, CTLFLAG_RW,
     &logcubic_port_filter, 0,
     "enable packet filter on a TCP port");
 
 
 /* Begin functions. */
+
+static void
+logcubic_log(struct cc_var *ccv, int AheadBehind, char *func)
+{
+	struct cubic *cubic_data = ccv->cc_data;
+	struct ale *log_buf;
+	struct timeval tval;
+
+	if (logcubic_alq == NULL)
+		return;
+	if ((logcubic_port_filter != 0) &&
+	    (logcubic_port_filter != ntohs(CCV(ccv, t_inpcb->inp_lport))) &&
+	    (logcubic_port_filter != ntohs(CCV(ccv, t_inpcb->inp_fport))))
+		return;
+
+	microtime(&tval);
+	log_buf = alq_getn(logcubic_alq, MAX_LOG_MSG_LEN, ALQ_WAITOK);
+	if (log_buf == NULL)
+		return;
+	if (cubic_data == NULL)
+		return;
+	log_buf->ae_bytesused = snprintf(log_buf->ae_data, MAX_LOG_MSG_LEN,
+	    "%c %s %jd.%06ld %lu\n", AheadBehind ? 'B':'A', func,
+	    tval.tv_sec, tval.tv_usec, cubic_data->K);
+	alq_post_flags(logcubic_alq, log_buf, 0);
+}
+
+static void
+logcubic_ack_received(struct cc_var *ccv, uint16_t type)
+{
+	logcubic_log(ccv, 0, "ack_rcv");
+	cubic_ack_received(ccv, type);
+	logcubic_log(ccv, 1, "ack_rcv");
+}
+
+static void
+logcubic_cb_destroy(struct cc_var *ccv)
+{
+	logcubic_log(ccv, 0, "cb_dsty");
+	cubic_cb_destroy(ccv);
+	logcubic_log(ccv, 1, "cb_dsty");
+}
+
+static int
+logcubic_cb_init(struct cc_var *ccv)
+{
+	logcubic_log(ccv, 0, "cb_init");
+	return cubic_cb_init(ccv);
+	logcubic_log(ccv, 1, "cb_init");
+}
+
+static void
+logcubic_cong_signal(struct cc_var *ccv, uint32_t type)
+{
+	logcubic_log(ccv, 0, "cng_sig");
+	cubic_cong_signal(ccv, type);
+	logcubic_log(ccv, 1, "cng_sig");
+}
+
+static void
+logcubic_conn_init(struct cc_var *ccv)
+{
+	logcubic_log(ccv, 0, "con_ini");
+	cubic_conn_init(ccv);
+	logcubic_log(ccv, 1, "con_ini");
+}
+
+static void
+logcubic_post_recovery(struct cc_var *ccv)
+{
+	logcubic_log(ccv, 0, "pst_rec");
+	cubic_post_recovery(ccv);
+	logcubic_log(ccv, 1, "pst_rec");
+}
+
+static void
+logcubic_after_idle(struct cc_var *ccv)
+{
+	logcubic_log(ccv, 0, "aft_idl");
+	cubic_after_idle(ccv);
+	logcubic_log(ccv, 1, "aft_idl");
+}
+
 
 //static void
 //siftr_process_pkt(struct pkt_node * pkt_node)
@@ -1517,7 +1590,7 @@ logcubic_shutdown_handler(void *arg)
  * Module is being unloaded or machine is shutting down. Take care of cleanup.
  */
 static int
-deinit_logcubic(void)
+logcubic_mod_destroy(void)
 {
 	/* Cleanup. */
 	logcubic_manage_ops(LOGCUBIC_DISABLE);
@@ -1533,7 +1606,7 @@ deinit_logcubic(void)
  * Module has just been loaded into the kernel.
  */
 static int
-init_logcubic(void)
+logcubic_mod_init(void)
 {
 	EVENTHANDLER_REGISTER(shutdown_pre_sync, logcubic_shutdown_handler, NULL,
 	    SHUTDOWN_PRI_FIRST);
@@ -1549,65 +1622,11 @@ init_logcubic(void)
 	uprintf("\nLog detailed congestion control (cc) information For TCP Research %s\n\n",
 	    MODVERSION_STR);
 
-	return (0);
+	return cubic_mod_init();
 }
 
 
-/*
- * This is the function that is called to load and unload the module.
- * When the module is loaded, this function is called once with
- * "what" == MOD_LOAD
- * When the module is unloaded, this function is called twice with
- * "what" = MOD_QUIESCE first, followed by "what" = MOD_UNLOAD second
- * When the system is shut down e.g. CTRL-ALT-DEL or using the shutdown command,
- * this function is called once with "what" = MOD_SHUTDOWN
- * When the system is shut down, the handler isn't called until the very end
- * of the shutdown sequence i.e. after the disks have been synced.
- */
-static int
-logcubic_load_handler(module_t mod, int what, void *arg)
-{
-	int ret;
-
-	switch (what) {
-	case MOD_LOAD:
-		ret = init_logcubic();
-		break;
-
-	case MOD_QUIESCE:
-	case MOD_SHUTDOWN:
-		ret = deinit_logcubic();
-		break;
-
-	case MOD_UNLOAD:
-		ret = 0;
-		break;
-
-	default:
-		ret = EINVAL;
-		break;
-	}
-
-	return (ret);
-}
-
-
-static moduledata_t logcubic_mod = {
-	.name = "logcubic",
-	.evhand = logcubic_load_handler,
-};
-
-/*
- * Param 1: name of the kernel module
- * Param 2: moduledata_t struct containing info about the kernel module
- *          and the execution entry point for the module
- * Param 3: From sysinit_sub_id enumeration in /usr/include/sys/kernel.h
- *          Defines the module initialisation order
- * Param 4: From sysinit_elem_order enumeration in /usr/include/sys/kernel.h
- *          Defines the initialisation order of this kld relative to others
- *          within the same subsystem as defined by param 3
- */
-DECLARE_MODULE(logcubic, logcubic_mod, SI_SUB_LAST, SI_ORDER_ANY);
-MODULE_DEPEND(logcubic, cubic, 0x10000, 0x12007, 0x19999);
+DECLARE_CC_MODULE(logcubic, &logcubic_cc_algo);
+MODULE_DEPEND(logcubic, cubic, 1, 1, 1);
 MODULE_DEPEND(logcubic, alq, 1, 1, 1);
 MODULE_VERSION(logcubic, MODVERSION);
