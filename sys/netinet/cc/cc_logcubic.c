@@ -331,9 +331,19 @@ logcubic_log(struct cc_var *ccv, int AheadBehind, char *func)
 	if (cubic_data == NULL)
 		return;
 	log_buf->ae_bytesused = snprintf(log_buf->ae_data, MAX_LOG_MSG_LEN,
-	    "%c %s %jd.%06ld %lu\n", AheadBehind ? 'B':'A', func,
-	    tval.tv_sec, tval.tv_usec, cubic_data->K);
+	    "%c %s %jd.%06ld %i %u %02x %i  %lu %lu %lu %lu %02x %u %u %u %u %u  %u %u  %lu %lu\n", AheadBehind ? 'B':'A', func,
+	    tval.tv_sec, tval.tv_usec,
+	    ccv->bytes_this_ack, ccv->curack, ccv->flags, ccv->nsegs,
+	    cubic_data->K, cubic_data->sum_rtt_ticks,
+	    cubic_data->max_cwnd, cubic_data->prev_max_cwnd, cubic_data->flags,
+	    cubic_data->min_rtt_ticks, cubic_data->mean_rtt_ticks,
+	    cubic_data->epoch_ack_count, cubic_data->t_last_cong, ticks,
+	    CCV(ccv, snd_ssthresh), CCV(ccv, snd_cwnd),
+	    tf_cwnd((ticks - cubic_data->t_last_cong), cubic_data->mean_rtt_ticks, cubic_data->max_cwnd, CCV(ccv, t_maxseg)),
+	    cubic_cwnd((ticks - cubic_data->t_last_cong) + cubic_data->mean_rtt_ticks, cubic_data->max_cwnd, CCV(ccv, t_maxseg), cubic_data->K)
+	    );
 	alq_post_flags(logcubic_alq, log_buf, 0);
+//	alq_flush(logcubic_alq);
 }
 
 static void
@@ -347,17 +357,19 @@ logcubic_ack_received(struct cc_var *ccv, uint16_t type)
 static void
 logcubic_cb_destroy(struct cc_var *ccv)
 {
-	logcubic_log(ccv, 0, "cb_dsty");
+//	logcubic_log(ccv, 0, "cb_dsty");
 	cubic_cb_destroy(ccv);
-	logcubic_log(ccv, 1, "cb_dsty");
+//	logcubic_log(ccv, 1, "cb_dsty");
 }
 
 static int
 logcubic_cb_init(struct cc_var *ccv)
 {
-	logcubic_log(ccv, 0, "cb_init");
-	return cubic_cb_init(ccv);
-	logcubic_log(ccv, 1, "cb_init");
+	int error;
+//	logcubic_log(ccv, 0, "cb_init");
+	error =  cubic_cb_init(ccv);
+//	logcubic_log(ccv, 1, "cb_init");
+	return error;
 }
 
 static void
@@ -371,9 +383,9 @@ logcubic_cong_signal(struct cc_var *ccv, uint32_t type)
 static void
 logcubic_conn_init(struct cc_var *ccv)
 {
-	logcubic_log(ccv, 0, "con_ini");
+//	logcubic_log(ccv, 0, "con_ini");
 	cubic_conn_init(ccv);
-	logcubic_log(ccv, 1, "con_ini");
+//	logcubic_log(ccv, 1, "con_ini");
 }
 
 static void
