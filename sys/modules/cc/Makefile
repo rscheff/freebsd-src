@@ -14,7 +14,8 @@ SUBDIR+= \
 	cc_cdg \
 	cc_chd \
 	cc_hd \
-	cc_vegas
+	cc_vegas \
+	cc_logcubic
 .endif
 
 .include <bsd.subdir.mk>
