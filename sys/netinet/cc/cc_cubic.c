@@ -137,8 +137,9 @@ cubic_ack_received(struct cc_var *ccv, uint16_t type)
 	 */
 	if (type == CC_ACK && !IN_RECOVERY(CCV(ccv, t_flags)) &&
 	    (ccv->flags & CCF_CWND_LIMITED) && (!V_tcp_do_rfc3465 ||
+	    (cubic_data->flags & (CUBICFLAG_IN_SLOWSTART | CUBICFLAG_IN_APPLIMIT)) ||
 	    CCV(ccv, snd_cwnd) <= CCV(ccv, snd_ssthresh) ||
-	    (V_tcp_do_rfc3465 && ccv->flags & CCF_ABC_SENTAWND))) {
+	    (V_tcp_do_rfc3465 && (ccv->flags & CCF_ABC_SENTAWND)))) {
 		 /* Use the logic in NewReno ack_received() for slow start. */
 		if (CCV(ccv, snd_cwnd) <= CCV(ccv, snd_ssthresh) ||
 		    cubic_data->min_rtt_ticks == TCPTV_SRTTBASE) {
