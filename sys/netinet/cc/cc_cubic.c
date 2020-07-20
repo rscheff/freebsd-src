@@ -159,7 +159,8 @@ cubic_ack_received(struct cc_var *ccv, uint16_t type)
 				cubic_data->flags &= ~(CUBICFLAG_IN_SLOWSTART |
 						       CUBICFLAG_IN_APPLIMIT);
 				cubic_data->t_last_cong = ticks;
-				cubic_data->K = 0;
+				cubic_data->K = cubic_k(cubic_data->max_cwnd /
+							CCV(ccv, t_maxseg));
 			}
 			/*
 			 * The mean RTT is used to best reflect the equations in
