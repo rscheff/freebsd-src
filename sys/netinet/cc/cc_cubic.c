@@ -145,6 +145,14 @@ cubic_ack_received(struct cc_var *ccv, uint16_t type)
 			cubic_data->flags |= CUBICFLAG_IN_SLOWSTART;
 			newreno_cc_algo.ack_received(ccv, type);
 		} else {
+			if (cubic_data->flags & (CUBICFLAG_IN_SLOWSTART |
+						 CUBICFLAG_IN_APPLIMIT)) {
+				cubic_data->flags &= ~(CUBICFLAG_IN_SLOWSTART |
+						       CUBICFLAG_IN_APPLIMIT);
+				cubic_data->t_last_cong = ticks;
+				cubic_data->K = cubic_k(cubic_data->max_cwnd /
+							CCV(ccv, t_maxseg));
+			}
 			if ((ticks_since_cong =
 			    ticks - cubic_data->t_last_cong) < 0) {
 				/*
@@ -152,14 +160,6 @@ cubic_ack_received(struct cc_var *ccv, uint16_t type)
 				 */
 				ticks_since_cong = INT_MAX;
 				cubic_data->t_last_cong = ticks - INT_MAX;
-			}
-
-			if (cubic_data->flags & (CUBICFLAG_IN_SLOWSTART |
-						 CUBICFLAG_IN_APPLIMIT)) {
-				cubic_data->flags &= ~(CUBICFLAG_IN_SLOWSTART |
-						       CUBICFLAG_IN_APPLIMIT);
-				cubic_data->t_last_cong = ticks;
-				cubic_data->K = 0;
 			}
 			/*
 			 * The mean RTT is used to best reflect the equations in
