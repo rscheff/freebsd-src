@@ -75,6 +75,9 @@
 /* Local modifications: need io.popen */
 #ifdef __FreeBSD__
 #define LUA_USE_POSIX
+#ifndef BOOTSTRAPPING
+#define LUA_USE_DLOPEN
+#endif
 #endif
 
 /*
@@ -119,6 +122,7 @@
 #define LUA_FLOAT_FLOAT		1
 #define LUA_FLOAT_DOUBLE	2
 #define LUA_FLOAT_LONGDOUBLE	3
+#define LUA_FLOAT_INT64		4
 
 #if defined(LUA_32BITS)		/* { */
 /*
