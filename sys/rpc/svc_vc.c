@@ -185,6 +185,20 @@ svc_vc_create(SVCPOOL *pool, struct socket *so, size_t sendsize,
 
 	xprt_register(xprt);
 
+	if (so->so_proto->pr_protocol == IPPROTO_TCP) {
+		bzero(&opt, sizeof(struct sockopt));
+		opt.sopt_dir = SOPT_SET;
+		opt.sopt_level = IPPROTO_TCP;
+		opt.sopt_name = TCP_FASTOPEN;
+		opt.sopt_val = &one;
+		opt.sopt_valsize = sizeof(one);
+		error = sosetopt(so, &opt);
+		if (error) {
+			print("could not set tcp_fastopen socket option\n");
+			/* return (NULL); */
+		}
+	}
+
 	solisten(so, -1, curthread);
 
 	SOLISTEN_LOCK(so);
