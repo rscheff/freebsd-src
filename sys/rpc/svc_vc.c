@@ -190,6 +190,8 @@ svc_vc_create(SVCPOOL *pool, struct socket *so, size_t sendsize,
 	xprt_register(xprt);
 
 	if (so->so_proto->pr_protocol == IPPROTO_TCP) {
+		struct sockopt opt;
+		int one = 1;
 		bzero(&opt, sizeof(struct sockopt));
 		opt.sopt_dir = SOPT_SET;
 		opt.sopt_level = IPPROTO_TCP;
@@ -198,7 +200,7 @@ svc_vc_create(SVCPOOL *pool, struct socket *so, size_t sendsize,
 		opt.sopt_valsize = sizeof(one);
 		error = sosetopt(so, &opt);
 		if (error) {
-			print("could not set tcp_fastopen socket option\n");
+			printf("could not set tcp_fastopen socket option\n");
 			/* return (NULL); */
 		}
 	}
