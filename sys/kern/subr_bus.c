@@ -265,12 +265,13 @@ device_sysctl_handler(SYSCTL_HANDLER_ARGS)
 	int error;
 
 	sbuf_new_for_sysctl(&sb, NULL, 1024, req);
+	sbuf_clear_flags(&sb, SBUF_INCLUDENUL);
 	switch (arg2) {
 	case DEVICE_SYSCTL_DESC:
-		sbuf_cpy(&sb, dev->desc ? dev->desc : "");
+		sbuf_cat(&sb, dev->desc ? dev->desc : "");
 		break;
 	case DEVICE_SYSCTL_DRIVER:
-		sbuf_cpy(&sb, dev->driver ? dev->driver->name : "");
+		sbuf_cat(&sb, dev->driver ? dev->driver->name : "");
 		break;
 	case DEVICE_SYSCTL_LOCATION:
 		bus_child_location_sb(dev, &sb);
@@ -279,7 +280,7 @@ device_sysctl_handler(SYSCTL_HANDLER_ARGS)
 		bus_child_pnpinfo_sb(dev, &sb);
 		break;
 	case DEVICE_SYSCTL_PARENT:
-		sbuf_cpy(&sb, dev->parent ? dev->parent->nameunit : "");
+		sbuf_cat(&sb, dev->parent ? dev->parent->nameunit : "");
 		break;
 	default:
 		sbuf_delete(&sb);
@@ -5499,11 +5500,20 @@ sysctl_devices(SYSCTL_HANDLER_ARGS)
 	udev->dv_flags = dev->flags;
 	udev->dv_state = dev->state;
 	sbuf_new(&sb, udev->dv_fields, sizeof(udev->dv_fields), SBUF_FIXEDLEN);
-	sbuf_cat(&sb, dev->nameunit);
+	if (dev->nameunit != NULL)
+		sbuf_cat(&sb, dev->nameunit);
+	else
+		sbuf_putc(&sb, '\0');
 	sbuf_putc(&sb, '\0');
-	sbuf_cat(&sb, dev->desc);
+	if (dev->desc != NULL)
+		sbuf_cat(&sb, dev->desc);
+	else
+		sbuf_putc(&sb, '\0');
 	sbuf_putc(&sb, '\0');
-	sbuf_cat(&sb, dev->driver != NULL ? dev->driver->name : '\0');
+	if (dev->driver != NULL)
+		sbuf_cat(&sb, dev->driver->name);
+	else
+		sbuf_putc(&sb, '\0');
 	sbuf_putc(&sb, '\0');
 	bus_child_pnpinfo_sb(dev, &sb);
 	sbuf_putc(&sb, '\0');
