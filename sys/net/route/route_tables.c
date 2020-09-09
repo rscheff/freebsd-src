@@ -140,7 +140,7 @@ sysctl_fibs(SYSCTL_HANDLER_ARGS)
 	return (error);
 }
 SYSCTL_PROC(_net, OID_AUTO, fibs,
-    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RWTUN | CTLFLAG_MPSAFE, NULL, 0,
+    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_MPSAFE, NULL, 0,
     &sysctl_fibs, "IU",
     "set number of fibs");
 
@@ -324,4 +324,3 @@ rt_tables_get_gen(uint32_t table, sa_family_t family)
 	    __func__, table, family));
 	return (rnh->rnh_gen);
 }
-
