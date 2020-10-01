@@ -2790,25 +2790,31 @@ vn_copy_file_range(struct vnode *invp, off_t *inoffp, struct vnode *outvp,
 {
 	int error;
 	size_t len;
-	uint64_t uvalin, uvalout;
+	uint64_t uval;
 
 	len = *lenp;
 	*lenp = 0;		/* For error returns. */
 	error = 0;
 
 	/* Do some sanity checks on the arguments. */
-	uvalin = *inoffp;
-	uvalin += len;
-	uvalout = *outoffp;
-	uvalout += len;
 	if (invp->v_type == VDIR || outvp->v_type == VDIR)
 		error = EISDIR;
-	else if (*inoffp < 0 || uvalin > INT64_MAX || uvalin <
-	    (uint64_t)*inoffp || *outoffp < 0 || uvalout > INT64_MAX ||
-	    uvalout < (uint64_t)*outoffp || invp->v_type != VREG ||
-	    outvp->v_type != VREG)
+	else if (*inoffp < 0 || *outoffp < 0 ||
+	    invp->v_type != VREG || outvp->v_type != VREG)
 		error = EINVAL;
 	if (error != 0)
+		goto out;
+
+	/* Ensure offset + len does not wrap around. */
+	uval = *inoffp;
+	uval += len;
+	if (uval > INT64_MAX)
+		len = INT64_MAX - *inoffp;
+	uval = *outoffp;
+	uval += len;
+	if (uval > INT64_MAX)
+		len = INT64_MAX - *outoffp;
+	if (len == 0)
 		goto out;
 
 	/*
@@ -3014,7 +3020,7 @@ vn_generic_copy_file_range(struct vnode *invp, off_t *inoffp,
 	int error;
 	bool cantseek, readzeros, eof, lastblock;
 	ssize_t aresid;
-	size_t copylen, len, savlen;
+	size_t copylen, len, rem, savlen;
 	char *dat;
 	long holein, holeout;
 
@@ -3083,7 +3089,17 @@ vn_generic_copy_file_range(struct vnode *invp, off_t *inoffp,
 	 * This value is clipped at 4Kbytes and 1Mbyte.
 	 */
 	blksize = MAX(holein, holeout);
-	if (blksize == 0)
+
+	/* Clip len to end at an exact multiple of hole size. */
+	if (blksize > 1) {
+		rem = *inoffp % blksize;
+		if (rem > 0)
+			rem = blksize - rem;
+		if (len - rem > blksize)
+			len = savlen = rounddown(len - rem, blksize) + rem;
+	}
+
+	if (blksize <= 1)
 		blksize = MAX(invp->v_mount->mnt_stat.f_iosize,
 		    outvp->v_mount->mnt_stat.f_iosize);
 	if (blksize < 4096)
