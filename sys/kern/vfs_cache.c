@@ -3484,25 +3484,24 @@ cache_fplookup_partial_setup(struct cache_fpl *fpl)
 
 	ndp = fpl->ndp;
 	cnp = fpl->cnp;
+	pwd = fpl->pwd;
 	dvp = fpl->dvp;
 	dvp_seqc = fpl->dvp_seqc;
 
-	dvs = vget_prep_smr(dvp);
-	if (__predict_false(dvs == VGET_NONE)) {
+	if (!pwd_hold_smr(pwd)) {
 		cache_fpl_smr_exit(fpl);
 		return (cache_fpl_aborted(fpl));
 	}
 
+	dvs = vget_prep_smr(dvp);
 	cache_fpl_smr_exit(fpl);
-
-	vget_finish_ref(dvp, dvs);
-	if (!vn_seqc_consistent(dvp, dvp_seqc)) {
-		vrele(dvp);
+	if (__predict_false(dvs == VGET_NONE)) {
+		pwd_drop(pwd);
 		return (cache_fpl_aborted(fpl));
 	}
 
-	pwd = pwd_hold(curthread);
-	if (fpl->pwd != pwd) {
+	vget_finish_ref(dvp, dvs);
+	if (!vn_seqc_consistent(dvp, dvp_seqc)) {
 		vrele(dvp);
 		pwd_drop(pwd);
 		return (cache_fpl_aborted(fpl));
@@ -3948,10 +3947,10 @@ cache_fplookup_need_climb_mount(struct cache_fpl *fpl)
 /*
  * Parse the path.
  *
- * The code is mostly copy-pasted from regular lookup, see lookup().
- * The structure is maintained along with comments for easier maintenance.
- * Deduplicating the code will become feasible after fast path lookup
- * becomes more feature-complete.
+ * The code was originally copy-pasted from regular lookup and despite
+ * clean ups leaves performance on the table. Any modifications here
+ * must take into account that in case off fallback the resulting
+ * nameidata state has to be compatible with the original.
  */
 static int
 cache_fplookup_parse(struct cache_fpl *fpl)
