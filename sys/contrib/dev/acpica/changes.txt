@@ -1,8 +1,182 @@
 ----------------------------------------
 
 
-30 April 2020. Summary of changes for version 20200430:
+25 September 2020. Summary of changes for version 20200925:
 
+This release is available at https://acpica.org/downloads
+
+
+1) ACPICA kernel-resident subsystem:
+
+Preserve memory opregion mappings. The ACPICA's strategy with respect to 
+the handling of memory mappings associated with memory operation regions 
+is to avoid mapping the entire region at once which may be problematic at 
+least in principle (for example, it may lead to conflicts with 
+overlapping mappings having different attributes created by drivers).  It 
+may also be wasteful, because memory opregions on some systems take up 
+vastchunks of address space while the fields in those regions actually 
+accessed by AML are sparsely distributed.
+
+For this reason, a one-page "window" is mapped for a given opregion on 
+the first memory access through it and if that "window" does not cover an 
+address range accessed through that opregion subsequently, it is unmapped 
+and a new "window" is mapped to replace it.  Next, if the new "window" is 
+not sufficient to access memory through the opregion in question in the 
+future, it will be replaced with yet another "window" and so on.  That 
+may lead to a suboptimal sequence of memory mapping and unmapping 
+operations, for example if two fields in one opregion separated from each 
+other by a sufficiently wide chunk of unused address space are accessed 
+in an alternating pattern.
+
+Added support for 64 bit risc-v compilation.  Useful for acpica tools and 
+incorporating ACPICA into the Firmware Test Suite. Colin Ian King 
+<colin.king@canonical.com>.
+
+Added support for SMBus predefined names (from SMBus Control Method 
+Interface Specification, Version 1.0, December 10, 1999. New predefined 
+names:
+    _SBA
+    _SBI
+    _SBR
+    _SBT
+    _SBW
+
+AML Disassembler: Added a new command, "All <NameSeg". This command will 
+evaluate all objects in the current namespace whose NameString contains 
+the input NameSeg as the last element of the NameString. Useful for 
+debugging.
+
+
+2) iASL Compiler/Disassembler and ACPICA tools: 
+
+iASL: fixed a crash that occurred when predefined objects return packages 
+with lengths that exceed the initializer list.
+
+iASL: added more detail to external resolution error message when 
+compiling multiple definition blocks.
+
+iASL: improve alias analysis by saving object type. If the alias is a 
+method type, the parameter count is also recorded.
+
+AcpiExec: Increase the default loop timeout value. Was 1 second, is now 
+10 seconds. Prevents unnecessary timeouts when executing control methods 
+from the command line.
+
+AcpiHelp/disassembler: Added a bunch of "known" UUIDs to the internal 
+list. Includes:
+    Memory Device
+    Generic Buttons Device
+    NVDIMM Root Device
+    Control Method Battery
+    Device Graphs for _DSD method
+    Hierarchical Data Extension
+....ARM CoreSight Graph
+
+----------------------------------------
+
+
+17 July 2020. Summary of changes for version 20200717:
+
+This release is available at https://acpica.org/downloads
+
+
+1) ACPICA kernel-resident subsystem:
+
+Do not increment OperationRegion reference counts for field units. Recent 
+server firmware has revealed that this reference count can overflow on 
+large servers that declare many field units (thousands) under the same 
+OperationRegion. This occurs because each field unit declaration will add 
+a reference count to the source OperationRegion. This release solves the 
+reference count overflow for OperationRegion objects by preventing 
+fieldUnits from incrementing their parent OperationRegion's reference 
+count.
+
+Replaced one-element arrays with flexible-arrays, which were introduced 
+in C99.
+
+Restored the readme file containing the directions for generation of 
+ACPICA from source on MSVC 2017. Updated the file for MSVC 2017. File is 
+located at: generate/msvc2017/readme.txt
+
+2) iASL Compiler/Disassembler and ACPICA tools: 
+
+iASL: Fixed a regression found in version 20200214. Prevent iASL from 
+emitting an extra byte of garbage data when control methods declared a 
+single parameter type without using braces. This extra byte is known to 
+cause a blue screen on the Windows AML interpreter.
+
+iASL: Made a change to allow external declarations to specify the type of 
+a named object even when some name segments are not defined.
+This change allows the following ASL code to compile (When DEV0 is not 
+defined or not defined yet):
+
+    External (\_SB.DEV0.OBJ1, IntObj)
+    External (\_SB.DEV0, DeviceObj)
+
+iASL: Fixed a problem where method names in "Alias ()" statement could be 
+misinterpreted. They are now interpreted correctly as method invocations.
+
+iASL: capture a method parameter count (Within the Method info segment, 
+as well as the argument node) when using parameter type lists.
+
+----------------------------------------
+
+
+28 May 2020. Summary of changes for version 20200528:
+
+
+1) ACPICA kernel-resident subsystem:
+
+Removed old/obsolete Visual Studio files which were used to build the 
+Windows versions of the ACPICA tools. Since we have moved to Visual 
+Studio 2017, we are no longer supporting Visual Studio 2006 and 2009 
+project files. The new subdirectory and solution file are located at:
+
+    acpica/generate/msvc2017/AcpiComponents.sln
+
+
+2) iASL Compiler/Disassembler and ACPICA tools: 
+
+iASL: added support for a new OperationRegion Address Space (subtype): 
+PlatformRtMechanism. Support for this new keyword is being released for 
+early prototyping. It will appear in the next release of the ACPI 
+specification.
+
+iASL: do not optimize the NameString parameter of the CondRefOf operator. 
+In the previous iASL compiler release, the NameString parameter of the 
+CondRefOf was optimized. There is evidence that some implementations of 
+the AML interpreter do not perform the recursive search-to-parent search 
+during the execution of the CondRefOf operator. Therefore, the CondRefOf 
+operator behaves differently when the NameString parameter is a single 
+name segment (a NameSeg) as opposed to a full NamePath (starting at the 
+root scope) or a NameString containing parent prefixes.
+
+iASL: Prevent an inadvertent remark message. This change prevents a 
+remark if within a control method the following exist:
+1) An Operation Region is defined, and
+2) A Field operator is defined that refers to the region.
+This happens because at the top level, the Field operator does not 
+actually create a new named object, it simply references the operation 
+region.
+
+Removed support for the acpinames utility. The acpinames was a simple 
+utility used to populate and display the ACPI namespace without executing 
+any AML code. However, ACPICA now supports executable opcodes outside of 
+control methods. This means that executable AML opcodes such as If and 
+Store opcodes need to be executed during table load. Therefore, acpinames 
+would need to be updated to match the same behavior as the acpiexec 
+utility and since acpiexec can already dump the entire namespace (via the 
+'namespace' command), we no longer have the need to maintain acpinames.
+
+    In order to dump the contents of the ACPI namespace using acpiexec,
+execute the following command from the command line:
+
+        acpiexec -b "n" [aml files]
+
+----------------------------------------
+
+
+30 April 2020. Summary of changes for version 20200430:
 
 1) ACPICA kernel-resident subsystem:
 
@@ -17506,7 +17680,7 @@ bypass the "implicit conversion" mechanism of the Store operator.)
 The ACPI 2.0 semantics for the SizeOf operator are fully
 implemented.  The change is that performing a SizeOf on a
 reference object causes an automatic dereference of the object to
-tha actual value before the size is evaluated. This behavior was
+the actual value before the size is evaluated. This behavior was
 undefined in ACPI 1.0.
 
 The ACPI 2.0 semantics for the Extended IRQ resource descriptor

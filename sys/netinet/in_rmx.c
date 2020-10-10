@@ -30,8 +30,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "opt_mpath.h"
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -42,9 +40,9 @@ __FBSDID("$FreeBSD$");
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/route.h>
+#include <net/route/route_ctl.h>
 #include <net/route/route_var.h>
 #include <net/route/nhop.h>
-#include <net/route/shared.h>
 #include <net/vnet.h>
 
 #include <netinet/in.h>
@@ -52,11 +50,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/ip_var.h>
-
-extern int	in_inithead(void **head, int off, u_int fibnum);
-#ifdef VIMAGE
-extern int	in_detachhead(void **head, int off);
-#endif
 
 static int
 rib4_preadd(u_int fibnum, const struct sockaddr *addr, const struct sockaddr *mask,
@@ -71,7 +64,6 @@ rib4_preadd(u_int fibnum, const struct sockaddr *addr, const struct sockaddr *ma
 	rt_flags = nhop_get_rtflags(nh);
 
 	if (rt_flags & RTF_HOST) {
-
 		/*
 		 * Backward compatibility:
 		 * if the destination is broadcast,
@@ -120,38 +112,29 @@ rib4_preadd(u_int fibnum, const struct sockaddr *addr, const struct sockaddr *ma
 	return (0);
 }
 
-static int _in_rt_was_here;
 /*
  * Initialize our routing tree.
  */
-int
-in_inithead(void **head, int off, u_int fibnum)
+struct rib_head *
+in_inithead(uint32_t fibnum)
 {
 	struct rib_head *rh;
 
 	rh = rt_table_init(32, AF_INET, fibnum);
 	if (rh == NULL)
-		return (0);
+		return (NULL);
 
 	rh->rnh_preadd = rib4_preadd;
-#ifdef	RADIX_MPATH
-	rt_mpath_init_rnh(rh);
-#endif
-	*head = (void *)rh;
 
-	if (_in_rt_was_here == 0 ) {
-		_in_rt_was_here = 1;
-	}
-	return 1;
+	return (rh);
 }
 
 #ifdef VIMAGE
-int
-in_detachhead(void **head, int off)
+void
+in_detachhead(struct rib_head *rh)
 {
 
-	rt_table_destroy((struct rib_head *)(*head));
-	return (1);
+	rt_table_destroy(rh);
 }
 #endif
 
@@ -198,4 +181,3 @@ in_ifadown(struct ifaddr *ifa, int delete)
 	rt_foreach_fib_walk_del(AF_INET, in_ifadownkill, &arg);
 	ifa->ifa_flags &= ~IFA_ROUTE;		/* XXXlocking? */
 }
-

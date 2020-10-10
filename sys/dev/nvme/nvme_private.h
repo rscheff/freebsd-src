@@ -118,7 +118,6 @@ extern int32_t		nvme_retry_count;
 extern bool		nvme_verbose_cmd_dump;
 
 struct nvme_completion_poll_status {
-
 	struct nvme_completion	cpl;
 	int			done;
 };
@@ -132,7 +131,6 @@ extern devclass_t nvme_devclass;
 #define NVME_REQUEST_CCB        5
 
 struct nvme_request {
-
 	struct nvme_command		cmd;
 	struct nvme_qpair		*qpair;
 	union {
@@ -149,7 +147,6 @@ struct nvme_request {
 };
 
 struct nvme_async_event_request {
-
 	struct nvme_controller		*ctrlr;
 	struct nvme_request		*req;
 	struct nvme_completion		cpl;
@@ -159,7 +156,6 @@ struct nvme_async_event_request {
 };
 
 struct nvme_tracker {
-
 	TAILQ_ENTRY(nvme_tracker)	tailq;
 	struct nvme_request		*req;
 	struct nvme_qpair		*qpair;
@@ -172,7 +168,6 @@ struct nvme_tracker {
 };
 
 struct nvme_qpair {
-
 	struct nvme_controller	*ctrlr;
 	uint32_t		id;
 	int			domain;
@@ -221,7 +216,6 @@ struct nvme_qpair {
 } __aligned(CACHE_LINE_SIZE);
 
 struct nvme_namespace {
-
 	struct nvme_controller		*ctrlr;
 	struct nvme_namespace_data	data;
 	uint32_t			id;
@@ -236,7 +230,6 @@ struct nvme_namespace {
  * One of these per allocated PCI device.
  */
 struct nvme_controller {
-
 	device_t		dev;
 
 	struct mtx		lock;
@@ -463,20 +456,22 @@ int	nvme_detach(device_t dev);
  * Wait for a command to complete using the nvme_completion_poll_cb.
  * Used in limited contexts where the caller knows it's OK to block
  * briefly while the command runs. The ISR will run the callback which
- * will set status->done to true.usually within microseconds. A 1s
- * pause means something is seriously AFU and we should panic to
- * provide the proper context to diagnose.
+ * will set status->done to true, usually within microseconds. If not,
+ * then after one second timeout handler should reset the controller
+ * and abort all outstanding requests including this polled one. If
+ * still not after ten seconds, then something is wrong with the driver,
+ * and panic is the only way to recover.
  */
 static __inline
 void
 nvme_completion_poll(struct nvme_completion_poll_status *status)
 {
-	int sanity = hz * 1;
+	int sanity = hz * 10;
 
 	while (!atomic_load_acq_int(&status->done) && --sanity > 0)
 		pause("nvme", 1);
 	if (sanity <= 0)
-		panic("NVME polled command failed to complete within 1s.");
+		panic("NVME polled command failed to complete within 10s.");
 }
 
 static __inline void

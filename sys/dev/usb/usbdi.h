@@ -102,7 +102,6 @@ typedef int (usb_fifo_ioctl_t)(struct usb_fifo *fifo, u_long cmd, void *addr, in
 typedef void (usb_fifo_cmd_t)(struct usb_fifo *fifo);
 typedef void (usb_fifo_filter_t)(struct usb_fifo *fifo, struct usb_mbuf *m);
 
-
 /* USB events */
 #ifndef USB_GLOBAL_INCLUDE_FILE
 #include <sys/_eventhandler.h>
@@ -267,7 +266,6 @@ struct usb_config {
  * "usb_device_id".
  */
 struct usb_device_id {
-
 	/* Select which fields to match against */
 #if BYTE_ORDER == LITTLE_ENDIAN
 	uint16_t
@@ -605,6 +603,9 @@ uint8_t	usbd_get_interface_altindex(struct usb_interface *iface);
 usb_error_t usbd_set_alt_interface_index(struct usb_device *udev,
 	    uint8_t iface_index, uint8_t alt_index);
 uint32_t usbd_get_isoc_fps(struct usb_device *udev);
+uint32_t usbd_get_max_frame_length(const struct usb_endpoint_descriptor *,
+    const struct usb_endpoint_ss_comp_descriptor *,
+    enum usb_dev_speed);
 usb_error_t usbd_transfer_setup(struct usb_device *udev,
 	    const uint8_t *ifaces, struct usb_xfer **pxfer,
 	    const struct usb_config *setup_start, uint16_t n_setup,

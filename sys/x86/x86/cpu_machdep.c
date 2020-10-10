@@ -194,17 +194,6 @@ SYSCTL_BOOL(_machdep, OID_AUTO, mwait_cpustop_broken, CTLFLAG_RDTUN,
     "Can not reliably wake MONITOR/MWAIT cpus without interrupts");
 
 /*
- * Machine dependent boot() routine
- *
- * I haven't seen anything to put here yet
- * Possibly some stuff might be grafted back here from boot()
- */
-void
-cpu_boot(int howto)
-{
-}
-
-/*
  * Flush the D-cache for non-DMA I/O so that the I-cache can
  * be made coherent later.
  */
@@ -831,6 +820,7 @@ int nmi_is_broadcast = 1;
 SYSCTL_INT(_machdep, OID_AUTO, nmi_is_broadcast, CTLFLAG_RWTUN,
     &nmi_is_broadcast, 0,
     "Chipset NMI is broadcast");
+int (*apei_nmi)(void);
 
 void
 nmi_call_kdb(u_int cpu, u_int type, struct trapframe *frame)
@@ -845,6 +835,10 @@ nmi_call_kdb(u_int cpu, u_int type, struct trapframe *frame)
 			panic("NMI indicates hardware failure");
 	}
 #endif /* DEV_ISA */
+
+	/* ACPI Platform Error Interfaces callback. */
+	if (apei_nmi != NULL && (*apei_nmi)())
+		claimed = true;
 
 	/*
 	 * NMIs can be useful for debugging.  They can be hooked up to a
@@ -1078,11 +1072,11 @@ hw_mds_recalculate(void)
 	 * reported.  For instance, hypervisor might unknowingly
 	 * filter the cap out.
 	 * For the similar reasons, and for testing, allow to enable
-	 * mitigation even for RDCL_NO or MDS_NO caps.
+	 * mitigation even when MDS_NO cap is set.
 	 */
 	if (cpu_vendor_id != CPU_VENDOR_INTEL || hw_mds_disable == 0 ||
-	    ((cpu_ia32_arch_caps & (IA32_ARCH_CAP_RDCL_NO |
-	    IA32_ARCH_CAP_MDS_NO)) != 0 && hw_mds_disable == 3)) {
+	    ((cpu_ia32_arch_caps & IA32_ARCH_CAP_MDS_NO) != 0 &&
+	    hw_mds_disable == 3)) {
 		mds_handler = mds_handler_void;
 	} else if (((cpu_stdext_feature3 & CPUID_STDEXT3_MD_CLEAR) != 0 &&
 	    hw_mds_disable == 3) || hw_mds_disable == 1) {
@@ -1396,6 +1390,65 @@ SYSCTL_PROC(_machdep_mitigations_taa, OID_AUTO, state,
     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
     sysctl_taa_state_handler, "A",
     "TAA Mitigation state");
+
+int __read_frequently cpu_flush_rsb_ctxsw;
+SYSCTL_INT(_machdep_mitigations, OID_AUTO, flush_rsb_ctxsw,
+    CTLFLAG_RW | CTLFLAG_NOFETCH, &cpu_flush_rsb_ctxsw, 0,
+    "Flush Return Stack Buffer on context switch");
+
+SYSCTL_NODE(_machdep_mitigations, OID_AUTO, rngds,
+    CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "MCU Optimization, disable RDSEED mitigation");
+
+int x86_rngds_mitg_enable = 1;
+void
+x86_rngds_mitg_recalculate(bool all_cpus)
+{
+	if ((cpu_stdext_feature3 & CPUID_STDEXT3_MCUOPT) == 0)
+		return;
+	x86_msr_op(MSR_IA32_MCU_OPT_CTRL,
+	    (x86_rngds_mitg_enable ? MSR_OP_OR : MSR_OP_ANDNOT) |
+	    (all_cpus ? MSR_OP_RENDEZVOUS : MSR_OP_LOCAL),
+	    IA32_RNGDS_MITG_DIS);
+}
+
+static int
+sysctl_rngds_mitg_enable_handler(SYSCTL_HANDLER_ARGS)
+{
+	int error, val;
+
+	val = x86_rngds_mitg_enable;
+	error = sysctl_handle_int(oidp, &val, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+	x86_rngds_mitg_enable = val;
+	x86_rngds_mitg_recalculate(true);
+	return (0);
+}
+SYSCTL_PROC(_machdep_mitigations_rngds, OID_AUTO, enable, CTLTYPE_INT |
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0,
+    sysctl_rngds_mitg_enable_handler, "I",
+    "MCU Optimization, disabling RDSEED mitigation control "
+    "(0 - mitigation disabled (RDSEED optimized), 1 - mitigation enabled");
+
+static int
+sysctl_rngds_state_handler(SYSCTL_HANDLER_ARGS)
+{
+	const char *state;
+
+	if ((cpu_stdext_feature3 & CPUID_STDEXT3_MCUOPT) == 0) {
+		state = "Not applicable";
+	} else if (x86_rngds_mitg_enable == 0) {
+		state = "RDSEED not serialized";
+	} else {
+		state = "Mitigated";
+	}
+	return (SYSCTL_OUT(req, state, strlen(state)));
+}
+SYSCTL_PROC(_machdep_mitigations_rngds, OID_AUTO, state,
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
+    sysctl_rngds_state_handler, "A",
+    "MCU Optimization state");
 
 /*
  * Enable and restore kernel text write permissions.

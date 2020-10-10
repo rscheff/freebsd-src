@@ -57,7 +57,11 @@
 #endif
 #ifndef MACHINE_ARCH
 #ifdef __powerpc64__
+#if defined(__LITTLE_ENDIAN__)
+#define	MACHINE_ARCH	"powerpc64le"
+#else
 #define	MACHINE_ARCH	"powerpc64"
+#endif
 #else
 #ifdef	__SPE__
 #define	MACHINE_ARCH	"powerpcspe"
@@ -133,6 +137,9 @@
 #endif
 #define	KSTACK_GUARD_PAGES	1	/* pages of kstack guard; 0 disables */
 #define	USPACE		(kstack_pages * PAGE_SIZE)	/* total size of pcb */
+
+#define	COPYFAULT		0x1
+#define	FUSUFAULT		0x2
 
 /*
  * Mach derived conversion macros

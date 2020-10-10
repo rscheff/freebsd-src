@@ -148,8 +148,6 @@ SYSCTL_STRING(_hw_device, OID_AUTO, revision, CTLFLAG_RD, hw_device_revision, 0,
 	   "Board revision");
 #endif
 
-extern char cpu_model[];
-
 void
 platform_start(__register_t a0 __unused, __register_t a1 __unused, 
     __register_t a2 __unused, __register_t a3 __unused)
@@ -242,7 +240,6 @@ platform_start(__register_t a0 __unused, __register_t a1 __unused,
 //	boothowto |= (RB_SINGLE);
 
 	/* Detect the system type - this is needed for subsequent chipset-specific calls */
-
 
 	ar531x_device_soc_init();
 	ar531x_detect_sys_frequency();

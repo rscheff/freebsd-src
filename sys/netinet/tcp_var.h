@@ -105,12 +105,12 @@ struct sackhole {
 
 struct sackhint {
 	struct sackhole	*nexthole;
-	int		sack_bytes_rexmit;
+	int32_t		sack_bytes_rexmit;
 	tcp_seq		last_sack_ack;	/* Most recent/largest sacked ack */
 
-	int		ispare;		/* explicit pad for 64bit alignment */
-	int             sacked_bytes;	/*
-					 * Total sacked bytes reported by the
+	int32_t		delivered_data; /* Newly acked data from last SACK */
+
+	int32_t		sacked_bytes;	/* Total sacked bytes reported by the
 					 * receiver via sack option
 					 */
 	uint32_t	_pad1[1];	/* TBD */
@@ -188,8 +188,9 @@ struct tcpcb {
 	tcp_seq	snd_wl2;		/* window update seg ack number */
 
 	tcp_seq	irs;			/* initial receive sequence number */
-	tcp_seq	iss;		        /* initial send sequence number */
-	u_int   t_acktime;
+	tcp_seq	iss;			/* initial send sequence number */
+	u_int	t_acktime;		/* RACK and BBR incoming new data was acked */
+	u_int	t_sndtime;		/* time last data was sent */
 	u_int	ts_recent_age;		/* when last updated */
 	tcp_seq	snd_recover;		/* for use in NewReno Fast Recovery */
 	uint16_t cl4_spare;		/* Spare to adjust CL 4 */
@@ -202,6 +203,8 @@ struct tcpcb {
 
 	tcp_seq	t_rtseq;		/* sequence number being timed */
 	u_int	t_starttime;		/* time connection was established */
+	u_int	t_fbyte_in;		/* ticks time when first byte queued in */
+	u_int	t_fbyte_out;		/* ticks time when first byte queued out */
 
 	u_int	t_pmtud_saved_maxseg;	/* pre-blackhole MSS */
 	int	t_blackhole_enter;	/* when to enter blackhole detection */
@@ -434,7 +437,7 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF2_ECN_SND_CWR		0x00000040 /* ECN CWR in queue */
 #define	TF2_ECN_SND_ECE		0x00000080 /* ECN ECE in queue */
 #define	TF2_ACE_PERMIT		0x00000100 /* Accurate ECN mode */
-
+#define TF2_FBYTES_COMPLETE	0x00000400 /* We have first bytes in and out */
 /*
  * Structure to hold TCP options that are only used during segment
  * processing (in tcp_input), but not held in the tcpcb.
@@ -758,7 +761,8 @@ struct xtcpcb {
 	struct xinpcb	xt_inp;
 	char		xt_stack[TCP_FUNCTION_NAME_LEN_MAX];	/* (s) */
 	char		xt_logid[TCP_LOG_ID_LEN];	/* (s) */
-	int64_t		spare64[8];
+	char		xt_cc[TCP_CA_NAME_MAX];	/* (s) */
+	int64_t		spare64[6];
 	int32_t		t_state;		/* (s,p) */
 	uint32_t	t_flags;		/* (s,p) */
 	int32_t		t_sndzerowin;		/* (s) */
@@ -771,7 +775,13 @@ struct xtcpcb {
 	int32_t		tt_2msl;		/* (s) */
 	int32_t		tt_delack;		/* (s) */
 	int32_t		t_logstate;		/* (3) */
-	int32_t		spare32[32];
+	uint32_t	t_snd_cwnd;		/* (s) */
+	uint32_t	t_snd_ssthresh;		/* (s) */
+	uint32_t	t_maxseg;		/* (s) */
+	uint32_t	t_rcv_wnd;		/* (s) */
+	uint32_t	t_snd_wnd;		/* (s) */
+	uint32_t	xt_ecn;			/* (s) */
+	int32_t		spare32[26];
 } __aligned(8);
 
 #ifdef _KERNEL

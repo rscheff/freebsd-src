@@ -67,11 +67,15 @@ linux_execve(struct thread *td, struct linux_execve_args *uap)
 	char *path;
 	int error;
 
-	LCONVPATHEXIST(td, uap->path, &path);
-
-	error = exec_copyin_args(&eargs, path, UIO_SYSSPACE, uap->argp,
-	    uap->envp);
-	free(path, M_TEMP);
+	if (!LUSECONVPATH(td)) {
+		error = exec_copyin_args(&eargs, uap->path, UIO_USERSPACE,
+		    uap->argp, uap->envp);
+	} else {
+		LCONVPATHEXIST(td, uap->path, &path);
+		error = exec_copyin_args(&eargs, path, UIO_SYSSPACE,
+		    uap->argp, uap->envp);
+		LFREEPATH(path);
+	}
 	if (error == 0)
 		error = linux_common_execve(td, &eargs);
 	return (error);
@@ -102,6 +106,13 @@ linux_mprotect(struct thread *td, struct linux_mprotect_args *uap)
 
 	return (linux_mprotect_common(td, PTROUT(uap->addr), uap->len,
 	    uap->prot));
+}
+
+int
+linux_madvise(struct thread *td, struct linux_madvise_args *uap)
+{
+
+	return (linux_madvise_common(td, PTROUT(uap->addr), uap->len, uap->behav));
 }
 
 /* LINUXTODO: implement arm64 linux_rt_sigsuspend */

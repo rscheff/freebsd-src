@@ -92,7 +92,9 @@ __FBSDID("$FreeBSD$");
 
 #include <net/if.h>
 #include <net/if_var.h>
+#include <net/if_vlan_var.h>
 #include <net/if_llatbl.h>
+#include <net/ethernet.h>
 #include <net/netisr.h>
 #include <net/route.h>
 #include <net/route/nhop.h>
@@ -114,7 +116,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/in6_rss.h>
 
 #include <netipsec/ipsec_support.h>
-#ifdef SCTP
+#if defined(SCTP) || defined(SCTP_SUPPORT)
 #include <netinet/sctp.h>
 #include <netinet/sctp_crc32.h>
 #endif
@@ -154,7 +156,6 @@ static int ip6_calcmtu(struct ifnet *, const struct in6_addr *, u_long,
 	u_long *, int *, u_int);
 static int ip6_getpmtu_ctl(u_int, const struct in6_addr *, u_long *);
 static int copypktopts(struct ip6_pktopts *, struct ip6_pktopts *, int);
-
 
 /*
  * Make an extension header from option data.  hp is the source,
@@ -221,7 +222,7 @@ ip6_output_delayed_csum(struct mbuf *m, struct ifnet *ifp, int csum_flags,
 	    __func__, __LINE__, plen, optlen, m, ifp, csum_flags, frag));
 
 	if ((csum_flags & CSUM_DELAY_DATA_IPV6) ||
-#ifdef SCTP
+#if defined(SCTP) || defined(SCTP_SUPPORT)
 	    (csum_flags & CSUM_SCTP_IPV6) ||
 #endif
 	    (!frag && (ifp->if_capenable & IFCAP_NOMAP) == 0)) {
@@ -238,7 +239,7 @@ ip6_output_delayed_csum(struct mbuf *m, struct ifnet *ifp, int csum_flags,
 			    sizeof(struct ip6_hdr) + optlen);
 			m->m_pkthdr.csum_flags &= ~CSUM_DELAY_DATA_IPV6;
 		}
-#ifdef SCTP
+#if defined(SCTP) || defined(SCTP_SUPPORT)
 		if (csum_flags & CSUM_SCTP_IPV6) {
 			sctp_delayed_cksum(m, sizeof(struct ip6_hdr) + optlen);
 			m->m_pkthdr.csum_flags &= ~CSUM_SCTP_IPV6;
@@ -437,6 +438,7 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt,
 	u_char *nexthdrp;
 	int tlen, len;
 	int error = 0;
+	int vlan_pcp = -1;
 	struct in6_ifaddr *ia = NULL;
 	u_long mtu;
 	int alwaysfrag, dontfrag;
@@ -461,6 +463,9 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt,
 			m->m_pkthdr.flowid = inp->inp_flowid;
 			M_HASHTYPE_SET(m, inp->inp_flowtype);
 		}
+		if ((inp->inp_flags2 & INP_2PCP_SET) != 0)
+			vlan_pcp = (inp->inp_flags2 & INP_2PCP_MASK) >>
+			    INP_2PCP_SHIFT;
 #ifdef NUMA
 		m->m_pkthdr.numa_domain = inp->inp_numa_domain;
 #endif
@@ -736,7 +741,7 @@ again:
 			counter_u64_add(nh->nh_pksent, 1);
 		}
 	} else {
-		struct nhop6_extended nh6;
+		struct nhop_object *nh;
 		struct in6_addr kdst;
 		uint32_t scopeid;
 
@@ -761,25 +766,28 @@ again:
 		    IN6_IS_ADDR_MC_NODELOCAL(&dst_sa.sin6_addr)) {
 			if (scopeid > 0) {
 				ifp = in6_getlinkifnet(scopeid);
+				if (ifp == NULL) {
+					error = EHOSTUNREACH;
+					goto bad;
+				}
 				*dst = dst_sa;	/* XXX */
 				goto nonh6lookup;
 			}
 		}
 
-		error = fib6_lookup_nh_ext(fibnum, &kdst, scopeid, NHR_REF, 0,
-		    &nh6);
-		if (error != 0) {
+		nh = fib6_lookup(fibnum, &kdst, scopeid, NHR_NONE, 0);
+		if (nh == NULL) {
 			IP6STAT_INC(ip6s_noroute);
 			/* No ifp in6_ifstat_inc(ifp, ifs6_out_discard); */
 			error = EHOSTUNREACH;;
 			goto bad;
 		}
 
-		ifp = nh6.nh_ifp;
-		mtu = nh6.nh_mtu;
-		dst->sin6_addr = nh6.nh_addr;
-		ia = nh6.nh_ia;
-		fib6_free_nh_ext(fibnum, &nh6);
+		ifp = nh->nh_ifp;
+		mtu = nh->nh_mtu;
+		ia = ifatoia6(nh->nh_ifa);
+		if (nh->nh_flags & NHF_GATEWAY)
+			dst->sin6_addr = nh->gw6_sa.sin6_addr;
 nonh6lookup:
 		;
 	}
@@ -823,7 +831,7 @@ nonh6lookup:
 		 * more details.
 		 */
 		origifp = ifp;
-	
+
 		/*
 		 * We should use ia_ifp to support the case of sending
 		 * packets to an address of our own.
@@ -1042,7 +1050,7 @@ nonh6lookup:
 				    CSUM_DATA_VALID_IPV6 | CSUM_PSEUDO_HDR;
 				m->m_pkthdr.csum_data = 0xffff;
 			}
-#ifdef SCTP
+#if defined(SCTP) || defined(SCTP_SUPPORT)
 			if (m->m_pkthdr.csum_flags & CSUM_SCTP_IPV6)
 				m->m_pkthdr.csum_flags |= CSUM_SCTP_VALID;
 #endif
@@ -1074,7 +1082,7 @@ nonh6lookup:
 			    CSUM_DATA_VALID_IPV6 | CSUM_PSEUDO_HDR;
 			m->m_pkthdr.csum_data = 0xffff;
 		}
-#ifdef SCTP
+#if defined(SCTP) || defined(SCTP_SUPPORT)
 		if (m->m_pkthdr.csum_flags & CSUM_SCTP_IPV6)
 			m->m_pkthdr.csum_flags |= CSUM_SCTP_VALID;
 #endif
@@ -1096,6 +1104,8 @@ nonh6lookup:
 	}
 
 passout:
+	if (vlan_pcp > -1)
+		EVL_APPLY_PRI(m, vlan_pcp);
 	/*
 	 * Send the packet to the outgoing interface.
 	 * If necessary, do IPv6 fragmentation before sending.
@@ -1117,7 +1127,8 @@ passout:
 	 */
 	sw_csum = m->m_pkthdr.csum_flags;
 	if (!hdrsplit) {
-		tso = ((sw_csum & ifp->if_hwassist & CSUM_TSO) != 0) ? 1 : 0;
+		tso = ((sw_csum & ifp->if_hwassist &
+		    (CSUM_TSO | CSUM_INNER_TSO)) != 0) ? 1 : 0;
 		sw_csum &= ~ifp->if_hwassist;
 	} else
 		tso = 0;
@@ -1262,6 +1273,8 @@ sendorfree:
 				counter_u64_add(ia->ia_ifa.ifa_obytes,
 				    m->m_pkthdr.len);
 			}
+			if (vlan_pcp > -1)
+				EVL_APPLY_PRI(m, vlan_pcp);
 			error = ip6_output_send(inp, ifp, origifp, m, dst, ro,
 			    true);
 		} else
@@ -1449,22 +1462,21 @@ ip6_insertfraghdr(struct mbuf *m0, struct mbuf *m, int hlen,
 static int
 ip6_getpmtu_ctl(u_int fibnum, const struct in6_addr *dst, u_long *mtup)
 {
-	struct nhop6_extended nh6;
+	struct epoch_tracker et;
+	struct nhop_object *nh;
 	struct in6_addr kdst;
 	uint32_t scopeid;
-	struct ifnet *ifp;
-	u_long mtu;
 	int error;
 
 	in6_splitscope(dst, &kdst, &scopeid);
-	if (fib6_lookup_nh_ext(fibnum, &kdst, scopeid, NHR_REF, 0, &nh6) != 0)
-		return (EHOSTUNREACH);
 
-	ifp = nh6.nh_ifp;
-	mtu = nh6.nh_mtu;
-
-	error = ip6_calcmtu(ifp, dst, mtu, mtup, NULL, 0);
-	fib6_free_nh_ext(fibnum, &nh6);
+	NET_EPOCH_ENTER(et);
+	nh = fib6_lookup(fibnum, &kdst, scopeid, NHR_NONE, 0);
+	if (nh != NULL)
+		error = ip6_calcmtu(nh->nh_ifp, dst, nh->nh_mtu, mtup, NULL, 0);
+	else
+		error = EHOSTUNREACH;
+	NET_EPOCH_EXIT(et);
 
 	return (error);
 }
@@ -1484,15 +1496,16 @@ ip6_getpmtu(struct route_in6 *ro_pmtu, int do_lookup,
     struct ifnet *ifp, const struct in6_addr *dst, u_long *mtup,
     int *alwaysfragp, u_int fibnum, u_int proto)
 {
-	struct nhop6_basic nh6;
+	struct nhop_object *nh;
 	struct in6_addr kdst;
 	uint32_t scopeid;
 	struct sockaddr_in6 *sa6_dst, sin6;
 	u_long mtu;
 
+	NET_EPOCH_ASSERT();
+
 	mtu = 0;
 	if (ro_pmtu == NULL || do_lookup) {
-
 		/*
 		 * Here ro_pmtu has final destination address, while
 		 * ro might represent immediate destination.
@@ -1512,9 +1525,9 @@ ip6_getpmtu(struct route_in6 *ro_pmtu, int do_lookup,
 			sa6_dst->sin6_addr = *dst;
 
 			in6_splitscope(dst, &kdst, &scopeid);
-			if (fib6_lookup_nh_basic(fibnum, &kdst, scopeid, 0, 0,
-			    &nh6) == 0) {
-				mtu = nh6.nh_mtu;
+			nh = fib6_lookup(fibnum, &kdst, scopeid, NHR_NONE, 0);
+			if (nh != NULL) {
+				mtu = nh->nh_mtu;
 				if (ro_pmtu != NULL)
 					ro_pmtu->ro_mtu = mtu;
 			}
@@ -1677,7 +1690,6 @@ ip6_ctloutput(struct socket *so, struct sockopt *sopt)
 		}
 	} else {		/* level == IPPROTO_IPV6 */
 		switch (op) {
-
 		case SOPT_SET:
 			switch (optname) {
 			case IPV6_2292PKTOPTIONS:
@@ -1750,6 +1762,7 @@ ip6_ctloutput(struct socket *so, struct sockopt *sopt)
 #ifdef	RSS
 			case IPV6_RSS_LISTEN_BUCKET:
 #endif
+			case IPV6_VLAN_PCP:
 				if (optname == IPV6_BINDANY && td != NULL) {
 					error = priv_check(td,
 					    PRIV_NETINET_BINDANY);
@@ -1766,7 +1779,6 @@ ip6_ctloutput(struct socket *so, struct sockopt *sopt)
 				if (error)
 					break;
 				switch (optname) {
-
 				case IPV6_UNICAST_HOPS:
 					if (optval < -1 || optval >= 256)
 						error = EINVAL;
@@ -1944,6 +1956,29 @@ do {									\
 					}
 					break;
 #endif
+				case IPV6_VLAN_PCP:
+					if ((optval >= -1) && (optval <=
+					    (INP_2PCP_MASK >> INP_2PCP_SHIFT))) {
+						if (optval == -1) {
+							INP_WLOCK(inp);
+							inp->inp_flags2 &=
+							    ~(INP_2PCP_SET |
+							    INP_2PCP_MASK);
+							INP_WUNLOCK(inp);
+						} else {
+							INP_WLOCK(inp);
+							inp->inp_flags2 |=
+							    INP_2PCP_SET;
+							inp->inp_flags2 &=
+							    ~INP_2PCP_MASK;
+							inp->inp_flags2 |=
+							    optval <<
+							    INP_2PCP_SHIFT;
+							INP_WUNLOCK(inp);
+						}
+					} else
+						error = EINVAL;
+					break;
 				}
 				break;
 
@@ -2129,7 +2164,6 @@ do {									\
 
 		case SOPT_GET:
 			switch (optname) {
-
 			case IPV6_2292PKTOPTIONS:
 #ifdef IPV6_PKTOPTIONS
 			case IPV6_PKTOPTIONS:
@@ -2168,8 +2202,8 @@ do {									\
 			case IPV6_RECVRSSBUCKETID:
 #endif
 			case IPV6_BINDMULTI:
+			case IPV6_VLAN_PCP:
 				switch (optname) {
-
 				case IPV6_RECVHOPOPTS:
 					optval = OPTBIT(IN6P_HOPOPTS);
 					break;
@@ -2266,7 +2300,17 @@ do {									\
 					optval = OPTBIT2(INP_BINDMULTI);
 					break;
 
+				case IPV6_VLAN_PCP:
+					if (OPTBIT2(INP_2PCP_SET)) {
+						optval = (inp->inp_flags2 &
+							    INP_2PCP_MASK) >>
+							    INP_2PCP_SHIFT;
+					} else {
+						optval = -1;
+					}
+					break;
 				}
+
 				if (error)
 					break;
 				error = sooptcopyout(sopt, &optval,

@@ -791,11 +791,6 @@ enum {
 	MLX5E_SQ_FULL
 };
 
-struct mlx5e_snd_tag {
-	struct m_snd_tag m_snd_tag;	/* send tag */
-	u32	type;	/* tag type */
-};
-
 struct mlx5e_sq {
 	/* persistant fields */
 	struct	mtx lock;
@@ -876,7 +871,7 @@ mlx5e_sq_queue_level(struct mlx5e_sq *sq)
 
 struct mlx5e_channel {
 	struct mlx5e_rq rq;
-	struct mlx5e_snd_tag tag;
+	struct m_snd_tag tag;
 	struct mlx5e_sq sq[MLX5E_MAX_TX_NUM_TC];
 	struct mlx5e_priv *priv;
 	struct completion completion;
@@ -1105,7 +1100,7 @@ struct mlx5e_eeprom {
 #define	MLX5E_FLD_MAX(typ, fld) ((1ULL << __mlx5_bit_sz(typ, fld)) - 1ULL)
 
 bool	mlx5e_do_send_cqe(struct mlx5e_sq *);
-int	mlx5e_get_full_header_size(struct mbuf *, struct tcphdr **);
+int	mlx5e_get_full_header_size(const struct mbuf *, const struct tcphdr **);
 int	mlx5e_xmit(struct ifnet *, struct mbuf *);
 
 int	mlx5e_open_locked(struct ifnet *);

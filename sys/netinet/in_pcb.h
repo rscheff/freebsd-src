@@ -748,6 +748,13 @@ int	inp_so_options(const struct inpcb *inp);
 #define INP_SUPPORTS_MBUFQ	0x00004000 /* Supports the mbuf queue method of LRO */
 #define INP_MBUF_QUEUE_READY	0x00008000 /* The transport is pacing, inputs can be queued */
 #define INP_DONT_SACK_QUEUE	0x00010000 /* If a sack arrives do not wake me */
+#define INP_2PCP_SET		0x00020000 /* If the Eth PCP should be set explicitly */
+#define INP_2PCP_BIT0		0x00040000 /* Eth PCP Bit 0 */
+#define INP_2PCP_BIT1		0x00080000 /* Eth PCP Bit 1 */
+#define INP_2PCP_BIT2		0x00100000 /* Eth PCP Bit 2 */
+#define INP_2PCP_BASE	INP_2PCP_BIT0
+#define INP_2PCP_MASK	(INP_2PCP_BIT0 | INP_2PCP_BIT1 | INP_2PCP_BIT2)
+#define INP_2PCP_SHIFT		18         /* shift PCP field in/out of inp_flags2 */
 /*
  * Flags passed to in_pcblookup*() functions.
  */
@@ -824,6 +831,9 @@ void	in_pcbgroup_update_mbuf(struct inpcb *, struct mbuf *);
 void	in_pcbpurgeif0(struct inpcbinfo *, struct ifnet *);
 int	in_pcballoc(struct socket *, struct inpcbinfo *);
 int	in_pcbbind(struct inpcb *, struct sockaddr *, struct ucred *);
+int	in_pcb_lport_dest(struct inpcb *inp, struct sockaddr *lsa,
+	    u_short *lportp, struct sockaddr *fsa, u_short fport,
+	    struct ucred *cred, int lookupflags);
 int	in_pcb_lport(struct inpcb *, struct in_addr *, u_short *,
 	    struct ucred *, int);
 int	in_pcbbind_setup(struct inpcb *, struct sockaddr *, in_addr_t *,

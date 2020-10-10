@@ -29,8 +29,11 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/kernel.h>
 #include <sys/systm.h>
 #include <sys/types.h>
+#include <sys/eventhandler.h>
+#include <sys/reboot.h>
 
 #include <machine/md_var.h>
 #include <machine/sbi.h>
@@ -67,7 +70,6 @@ sbi_get_mvendorid(void)
 	return (SBI_CALL0(SBI_EXT_ID_BASE, SBI_BASE_GET_MVENDORID));
 }
 
-
 static struct sbi_ret
 sbi_get_marchid(void)
 {
@@ -78,6 +80,13 @@ static struct sbi_ret
 sbi_get_mimpid(void)
 {
 	return (SBI_CALL0(SBI_EXT_ID_BASE, SBI_BASE_GET_MIMPID));
+}
+
+static void
+sbi_shutdown_final(void *dummy __unused, int howto)
+{
+	if ((howto & RB_POWEROFF) != 0)
+		sbi_shutdown();
 }
 
 void
@@ -95,7 +104,7 @@ sbi_print_version(void)
 
 	switch (sbi_impl_id) {
 	case (SBI_IMPL_ID_BBL):
-		printf("SBI: Berkely Boot Loader %u\n", sbi_impl_version);
+		printf("SBI: Berkely Boot Loader %lu\n", sbi_impl_version);
 		break;
 	case (SBI_IMPL_ID_OPENSBI):
 		major = sbi_impl_version >> OPENSBI_VERSION_MAJOR_OFFSET;
@@ -103,7 +112,7 @@ sbi_print_version(void)
 		printf("SBI: OpenSBI v%u.%u\n", major, minor);
 		break;
 	default:
-		printf("SBI: Unrecognized Implementation: %u\n", sbi_impl_id);
+		printf("SBI: Unrecognized Implementation: %lu\n", sbi_impl_id);
 		break;
 	}
 
@@ -187,3 +196,12 @@ sbi_init(void)
 	KASSERT(sbi_probe_extension(SBI_SHUTDOWN) != 0,
 	    ("SBI doesn't implement sbi_shutdown()"));
 }
+
+static void
+sbi_late_init(void *dummy __unused)
+{
+	EVENTHANDLER_REGISTER(shutdown_final, sbi_shutdown_final, NULL,
+	    SHUTDOWN_PRI_LAST);
+}
+
+SYSINIT(sbi, SI_SUB_KLD, SI_ORDER_ANY, sbi_late_init, NULL);

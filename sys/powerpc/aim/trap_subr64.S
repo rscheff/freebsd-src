@@ -87,6 +87,9 @@ restore_usersrs:
  */
 restore_kernsrs:
 	GET_CPUINFO(%r28)
+	lwz	%r29, PC_FLAGS(%r28)
+	mtcr	%r29
+	btlr	0
 	addi	%r28,%r28,PC_KERNSLB
 	ld	%r29,16(%r28)		/* One past USER_SLB_SLOT */
 	cmpdi	%r29,0
@@ -270,9 +273,13 @@ restore_kernsrs:
 	std	%r29,(savearea+CPUSAVE_R29)(%r3);			\
 	std	%r30,(savearea+CPUSAVE_R30)(%r3);			\
 	std	%r31,(savearea+CPUSAVE_R31)(%r3);			\
+	lwz	%r28,PC_FLAGS(%r3);					\
+	mtcr	%r28;							\
+	bt	0, 0f;	/* Check to skip restoring SRs. */		\
 	mflr	%r27;			/* preserve LR */		\
 	bl	restore_usersrs;	/* uses r28-r31 */		\
 	mtlr	%r27;							\
+0:									\
 	ld	%r31,(savearea+CPUSAVE_R31)(%r3);			\
 	ld	%r30,(savearea+CPUSAVE_R30)(%r3);			\
 	ld	%r29,(savearea+CPUSAVE_R29)(%r3);			\
@@ -312,6 +319,19 @@ dtrace_invop_calltrap_addr:
 	.globl	CNAME(cpu_wakeup_handler)
 	.p2align 3
 CNAME(rstcode):
+#ifdef __LITTLE_ENDIAN__
+	/*
+	 * XXX This shouldn't be necessary.
+	 *
+	 * According to the ISA documentation, LE should be set from HILE
+	 * or the LPCR ILE bit automatically. However, the entry into this
+	 * vector from OPAL_START_CPU does not honor this correctly.
+	 *
+	 * We should be able to define an alternate entry for opal's
+	 * start_kernel_secondary asm code to branch to.
+	 */
+	RETURN_TO_NATIVE_ENDIAN
+#endif
 	/*
 	 * Check if this is software reset or
 	 * processor is waking up from power saving mode

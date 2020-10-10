@@ -28,6 +28,14 @@ CFLAGS+=	-std=${CSTD}
 CXXFLAGS+=	-std=${CXXSTD}
 .endif
 
+# This gives the Makefile we're evaluating at the top-level a chance to set
+# WARNS.  If it doesn't do so, we may freely pull a DEFAULTWARNS if it's set
+# and use that.  This allows us to default WARNS to 6 for src builds without
+# needing to set the default in various Makefile.inc.
+.if !defined(WARNS) && defined(DEFAULTWARNS)
+WARNS=	${DEFAULTWARNS}
+.endif
+
 # -pedantic is problematic because it also imposes namespace restrictions
 #CFLAGS+=	-pedantic
 .if defined(WARNS)
@@ -124,7 +132,12 @@ CWARNFLAGS+=	-Wno-format
 # GCC
 # We should clean up warnings produced with these flags.
 # They were originally added as a quick hack to enable gcc5/6.
+# The base system requires at least GCC 6.4, but some ports
+# use this file with older compilers.  Request an exprun
+# before changing these.
 .if ${COMPILER_TYPE} == "gcc"
+# GCC 5.2.0
+.if ${COMPILER_VERSION} >= 50200
 CWARNFLAGS+=	-Wno-error=address			\
 		-Wno-error=array-bounds			\
 		-Wno-error=attributes			\
@@ -136,15 +149,23 @@ CWARNFLAGS+=	-Wno-error=address			\
 		-Wno-error=extra			\
 		-Wno-error=inline			\
 		-Wno-error=logical-not-parentheses	\
-		-Wno-error=nonnull-compare		\
-		-Wno-error=shift-negative-value		\
 		-Wno-error=strict-aliasing		\
-		-Wno-error=tautological-compare		\
 		-Wno-error=uninitialized		\
 		-Wno-error=unused-but-set-variable	\
-		-Wno-error=unused-const-variable	\
 		-Wno-error=unused-function		\
 		-Wno-error=unused-value
+.endif
+
+# GCC 6.1.0
+.if ${COMPILER_VERSION} >= 60100
+CWARNFLAGS+=	-Wno-error=empty-body			\
+		-Wno-error=maybe-uninitialized		\
+		-Wno-error=nonnull-compare		\
+		-Wno-error=redundant-decls		\
+		-Wno-error=shift-negative-value		\
+		-Wno-error=tautological-compare		\
+		-Wno-error=unused-const-variable
+.endif
 
 # GCC 7.1.0
 .if ${COMPILER_VERSION} >= 70100
@@ -171,6 +192,11 @@ CWARNFLAGS+=	-Wno-error=aggressive-loop-optimizations	\
 		-Wno-error=restrict				\
 		-Wno-error=sizeof-pointer-memaccess		\
 		-Wno-error=stringop-truncation
+.endif
+
+# GCC's own arm_neon.h triggers various warnings
+.if ${MACHINE_CPUARCH} == "aarch64"
+CWARNFLAGS+=	-Wno-system-headers
 .endif
 .endif	# gcc
 
@@ -264,6 +290,23 @@ LIBADD+=	${LIBADD.${.TARGET:T}}
 # Prevent rebuilding during install to support read-only objdirs.
 .if ${.TARGETS:M*install*} == ${.TARGETS} && empty(.MAKE.MODE:Mmeta)
 CFLAGS+=	ERROR-tried-to-rebuild-during-make-install
+.endif
+.endif
+
+# Please keep this if in sync with kern.mk
+.if ${LD} != "ld" && (${CC:[1]:H} != ${LD:[1]:H} || ${LD:[1]:T} != "ld")
+# Add -fuse-ld=${LD} if $LD is in a different directory or not called "ld".
+.if ${COMPILER_TYPE} == "clang"
+# Note: Clang does not like relative paths for ld so we map ld.lld -> lld.
+.if ${COMPILER_VERSION} >= 120000
+LDFLAGS+=	--ld-path=${LD:[1]:S/^ld.//1W}
+.else
+LDFLAGS+=	-fuse-ld=${LD:[1]:S/^ld.//1W}
+.endif
+.else
+# GCC does not support an absolute path for -fuse-ld so we just print this
+# warning instead and let the user add the required symlinks.
+.warning LD (${LD}) is not the default linker for ${CC} but -fuse-ld= is not supported
 .endif
 .endif
 

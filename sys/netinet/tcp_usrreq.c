@@ -147,6 +147,16 @@ static int	tcp_pru_options_support(struct tcpcb *tp, int flags);
 #endif
 
 /*
+ * tcp_require_unique port requires a globally-unique source port for each
+ * outgoing connection.  The default is to require the 4-tuple to be unique.
+ */
+VNET_DEFINE(int, tcp_require_unique_port) = 0;
+SYSCTL_INT(_net_inet_tcp, OID_AUTO, require_unique_port,
+    CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(tcp_require_unique_port), 0,
+    "Require globally-unique ephemeral port for outgoing connections");
+#define	V_tcp_require_unique_port	VNET(tcp_require_unique_port)
+
+/*
  * TCP attaches to socket via pru_attach(), reserving space,
  * and an internet control block.
  */
@@ -542,6 +552,9 @@ tcp_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	if (sinp->sin_family == AF_INET
 	    && IN_MULTICAST(ntohl(sinp->sin_addr.s_addr)))
 		return (EAFNOSUPPORT);
+	if ((sinp->sin_family == AF_INET) &&
+	    (ntohl(sinp->sin_addr.s_addr) == INADDR_BROADCAST))
+		return (EACCES);
 	if ((error = prison_remote_ip4(td->td_ucred, &sinp->sin_addr)) != 0)
 		return (error);
 
@@ -640,6 +653,10 @@ tcp6_usr_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 		in6_sin6_2_sin(&sin, sin6);
 		if (IN_MULTICAST(ntohl(sin.sin_addr.s_addr))) {
 			error = EAFNOSUPPORT;
+			goto out;
+		}
+		if (ntohl(sin.sin_addr.s_addr) == INADDR_BROADCAST) {
+			error = EACCES;
 			goto out;
 		}
 		if ((error = prison_remote_ip4(td->td_ucred,
@@ -1014,6 +1031,12 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 				error = EAFNOSUPPORT;
 				goto out;
 			}
+			if (ntohl(sinp->sin_addr.s_addr) == INADDR_BROADCAST) {
+				if (m)
+					m_freem(m);
+				error = EACCES;
+				goto out;
+			}
 			if ((error = prison_remote_ip4(td->td_ucred,
 			    &sinp->sin_addr))) {
 				if (m)
@@ -1169,6 +1192,16 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 			 */
 			socantsendmore(so);
 			tcp_usrclosed(tp);
+		}
+		if (TCPS_HAVEESTABLISHED(tp->t_state) &&
+		    ((tp->t_flags2 & TF2_FBYTES_COMPLETE) == 0) &&
+		    (tp->t_fbyte_out == 0) &&
+		    (so->so_snd.sb_ccc > 0)) {
+			tp->t_fbyte_out = ticks;
+			if (tp->t_fbyte_out == 0)
+				tp->t_fbyte_out = 1;
+			if (tp->t_fbyte_out && tp->t_fbyte_in)
+				tp->t_flags2 |= TF2_FBYTES_COMPLETE;
 		}
 		if (!(inp->inp_flags & INP_DROPPED) &&
 		    !(flags & PRUS_NOTREADY)) {
@@ -1514,7 +1547,7 @@ tcp_connect(struct tcpcb *tp, struct sockaddr *nam, struct thread *td)
 	INP_WLOCK_ASSERT(inp);
 	INP_HASH_WLOCK(&V_tcbinfo);
 
-	if (inp->inp_lport == 0) {
+	if (V_tcp_require_unique_port && inp->inp_lport == 0) {
 		error = in_pcbbind(inp, (struct sockaddr *)0, td->td_ucred);
 		if (error)
 			goto out;
@@ -1534,6 +1567,15 @@ tcp_connect(struct tcpcb *tp, struct sockaddr *nam, struct thread *td)
 	if (oinp) {
 		error = EADDRINUSE;
 		goto out;
+	}
+	/* Handle initial bind if it hadn't been done in advance. */
+	if (inp->inp_lport == 0) {
+		inp->inp_lport = lport;
+		if (in_pcbinshash(inp) != 0) {
+			inp->inp_lport = 0;
+			error = EAGAIN;
+			goto out;
+		}
 	}
 	inp->inp_laddr = laddr;
 	in_pcbrehash(inp);
@@ -1574,7 +1616,7 @@ tcp6_connect(struct tcpcb *tp, struct sockaddr *nam, struct thread *td)
 	INP_WLOCK_ASSERT(inp);
 	INP_HASH_WLOCK(&V_tcbinfo);
 
-	if (inp->inp_lport == 0) {
+	if (V_tcp_require_unique_port && inp->inp_lport == 0) {
 		error = in6_pcbbind(inp, (struct sockaddr *)0, td->td_ucred);
 		if (error)
 			goto out;
@@ -2220,6 +2262,11 @@ unlock_and_done:
 				return (error);
 
 			INP_WLOCK_RECHECK(inp);
+			if ((tp->t_state != TCPS_CLOSED) &&
+			    (tp->t_state != TCPS_LISTEN)) {
+				error = EINVAL;
+				goto unlock_and_done;
+			}
 			if (tfo_optval.enable) {
 				if (tp->t_state == TCPS_LISTEN) {
 					if (!V_tcp_fastopen_server_enable) {
@@ -2227,7 +2274,6 @@ unlock_and_done:
 						goto unlock_and_done;
 					}
 
-					tp->t_flags |= TF_FASTOPEN;
 					if (tp->t_tfo_pending == NULL)
 						tp->t_tfo_pending =
 						    tcp_fastopen_alloc_counter();
@@ -2246,8 +2292,8 @@ unlock_and_done:
 						tp->t_tfo_client_cookie_len =
 						    TCP_FASTOPEN_PSK_LEN;
 					}
-					tp->t_flags |= TF_FASTOPEN;
 				}
+				tp->t_flags |= TF_FASTOPEN;
 			} else
 				tp->t_flags &= ~TF_FASTOPEN;
 			goto unlock_and_done;
@@ -2762,7 +2808,6 @@ db_print_tflags2(u_int t_flags2)
 		comma = 1;
 	}
 }
-
 
 static void
 db_print_toobflags(char t_oobflags)

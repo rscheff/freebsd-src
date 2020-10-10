@@ -121,8 +121,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/mmuvar.h>
 
 #include "mmu_oea64.h"
-#include "mmu_if.h"
-#include "moea64_if.h"
 
 #define	PTESYNC()	__asm __volatile("ptesync");
 #define	TLBSYNC()	__asm __volatile("tlbsync; ptesync");
@@ -215,46 +213,56 @@ static volatile struct pate *moea64_part_table;
 /*
  * Dump function.
  */
-static void	*moea64_dump_pmap_native(mmu_t mmu, void *ctx, void *buf,
+static void	*moea64_dump_pmap_native(void *ctx, void *buf,
 		    u_long *nbytes);
 
 /*
  * PTE calls.
  */
-static int	moea64_pte_insert_native(mmu_t, struct pvo_entry *);
-static int64_t	moea64_pte_synch_native(mmu_t, struct pvo_entry *);
-static int64_t	moea64_pte_clear_native(mmu_t, struct pvo_entry *, uint64_t);
-static int64_t	moea64_pte_replace_native(mmu_t, struct pvo_entry *, int);
-static int64_t	moea64_pte_unset_native(mmu_t mmu, struct pvo_entry *);
+static int64_t	moea64_pte_insert_native(struct pvo_entry *);
+static int64_t	moea64_pte_synch_native(struct pvo_entry *);
+static int64_t	moea64_pte_clear_native(struct pvo_entry *, uint64_t);
+static int64_t	moea64_pte_replace_native(struct pvo_entry *, int);
+static int64_t	moea64_pte_unset_native(struct pvo_entry *);
 
 /*
  * Utility routines.
  */
-static void	moea64_bootstrap_native(mmu_t mmup, 
+static void	moea64_bootstrap_native(
 		    vm_offset_t kernelstart, vm_offset_t kernelend);
-static void	moea64_cpu_bootstrap_native(mmu_t, int ap);
+static void	moea64_cpu_bootstrap_native(int ap);
 static void	tlbia(void);
+static void	moea64_install_native(void);
 
-static mmu_method_t moea64_native_methods[] = {
+static struct pmap_funcs moea64_native_methods = {
+	.install = moea64_install_native,
+
 	/* Internal interfaces */
-	MMUMETHOD(mmu_bootstrap,	moea64_bootstrap_native),
-	MMUMETHOD(mmu_cpu_bootstrap,	moea64_cpu_bootstrap_native),
-        MMUMETHOD(mmu_dump_pmap,        moea64_dump_pmap_native),
-
-	MMUMETHOD(moea64_pte_synch,	moea64_pte_synch_native),
-	MMUMETHOD(moea64_pte_clear,	moea64_pte_clear_native),	
-	MMUMETHOD(moea64_pte_unset,	moea64_pte_unset_native),	
-	MMUMETHOD(moea64_pte_replace,	moea64_pte_replace_native),	
-	MMUMETHOD(moea64_pte_insert,	moea64_pte_insert_native),	
-
-	{ 0, 0 }
+	.bootstrap = moea64_bootstrap_native,
+	.cpu_bootstrap = moea64_cpu_bootstrap_native,
+        .dumpsys_dump_pmap =         moea64_dump_pmap_native,
 };
 
-MMU_DEF_INHERIT(oea64_mmu_native, MMU_TYPE_G5, moea64_native_methods,
-    0, oea64_mmu);
+static struct moea64_funcs moea64_native_funcs = {
+	.pte_synch = moea64_pte_synch_native,
+	.pte_clear = moea64_pte_clear_native,	
+	.pte_unset = moea64_pte_unset_native,	
+	.pte_replace = moea64_pte_replace_native,	
+	.pte_insert = moea64_pte_insert_native,	
+};
+
+MMU_DEF_INHERIT(oea64_mmu_native, MMU_TYPE_G5, moea64_native_methods, oea64_mmu);
+
+static void
+moea64_install_native()
+{
+
+	/* Install the MOEA64 ops. */
+	moea64_ops = &moea64_native_funcs;
+}
 
 static int64_t
-moea64_pte_synch_native(mmu_t mmu, struct pvo_entry *pvo)
+moea64_pte_synch_native(struct pvo_entry *pvo)
 {
 	volatile struct lpte *pt = moea64_pteg_table + pvo->pvo_pte.slot;
 	uint64_t ptelo, pvo_ptevpn;
@@ -274,12 +282,12 @@ moea64_pte_synch_native(mmu_t mmu, struct pvo_entry *pvo)
 	ptelo = be64toh(pt->pte_lo);
 
 	rw_runlock(&moea64_eviction_lock);
-	
+
 	return (ptelo & (LPTE_REF | LPTE_CHG));
 }
 
 static int64_t 
-moea64_pte_clear_native(mmu_t mmu, struct pvo_entry *pvo, uint64_t ptebit)
+moea64_pte_clear_native(struct pvo_entry *pvo, uint64_t ptebit)
 {
 	volatile struct lpte *pt = moea64_pteg_table + pvo->pvo_pte.slot;
 	struct lpte properpt;
@@ -317,15 +325,15 @@ moea64_pte_clear_native(mmu_t mmu, struct pvo_entry *pvo, uint64_t ptebit)
 		critical_exit();
 	} else {
 		rw_runlock(&moea64_eviction_lock);
-		ptelo = moea64_pte_unset_native(mmu, pvo);
-		moea64_pte_insert_native(mmu, pvo);
+		ptelo = moea64_pte_unset_native(pvo);
+		moea64_pte_insert_native(pvo);
 	}
 
 	return (ptelo & (LPTE_REF | LPTE_CHG));
 }
 
 static int64_t
-moea64_pte_unset_native(mmu_t mmu, struct pvo_entry *pvo)
+moea64_pte_unset_native(struct pvo_entry *pvo)
 {
 	volatile struct lpte *pt = moea64_pteg_table + pvo->pvo_pte.slot;
 	uint64_t ptelo, pvo_ptevpn;
@@ -333,7 +341,7 @@ moea64_pte_unset_native(mmu_t mmu, struct pvo_entry *pvo)
 	pvo_ptevpn = moea64_pte_vpn_from_pvo_vpn(pvo);
 
 	rw_rlock(&moea64_eviction_lock);
-	if ((be64toh(pt->pte_hi & LPTE_AVPN_MASK)) != pvo_ptevpn) {
+	if ((be64toh(pt->pte_hi) & LPTE_AVPN_MASK) != pvo_ptevpn) {
 		/* Evicted */
 		STAT_MOEA64(moea64_pte_overflow--);
 		rw_runlock(&moea64_eviction_lock);
@@ -346,7 +354,7 @@ moea64_pte_unset_native(mmu_t mmu, struct pvo_entry *pvo)
 	 */
 	isync();
 	critical_enter();
-	pt->pte_hi = be64toh((pt->pte_hi & ~LPTE_VALID) | LPTE_LOCKED);
+	pt->pte_hi = htobe64((be64toh(pt->pte_hi) & ~LPTE_VALID) | LPTE_LOCKED);
 	PTESYNC();
 	TLBIE(pvo->pvo_vpn);
 	ptelo = be64toh(pt->pte_lo);
@@ -361,7 +369,7 @@ moea64_pte_unset_native(mmu_t mmu, struct pvo_entry *pvo)
 }
 
 static int64_t
-moea64_pte_replace_inval_native(mmu_t mmu, struct pvo_entry *pvo,
+moea64_pte_replace_inval_native(struct pvo_entry *pvo,
     volatile struct lpte *pt)
 {
 	struct lpte properpt;
@@ -370,7 +378,7 @@ moea64_pte_replace_inval_native(mmu_t mmu, struct pvo_entry *pvo,
 	moea64_pte_from_pvo(pvo, &properpt);
 
 	rw_rlock(&moea64_eviction_lock);
-	if ((be64toh(pt->pte_hi & LPTE_AVPN_MASK)) !=
+	if ((be64toh(pt->pte_hi) & LPTE_AVPN_MASK) !=
 	    (properpt.pte_hi & LPTE_AVPN_MASK)) {
 		/* Evicted */
 		STAT_MOEA64(moea64_pte_overflow--);
@@ -384,7 +392,7 @@ moea64_pte_replace_inval_native(mmu_t mmu, struct pvo_entry *pvo,
 	 */
 	isync();
 	critical_enter();
-	pt->pte_hi = be64toh((pt->pte_hi & ~LPTE_VALID) | LPTE_LOCKED);
+	pt->pte_hi = htobe64((be64toh(pt->pte_hi) & ~LPTE_VALID) | LPTE_LOCKED);
 	PTESYNC();
 	TLBIE(pvo->pvo_vpn);
 	ptelo = be64toh(pt->pte_lo);
@@ -400,7 +408,7 @@ moea64_pte_replace_inval_native(mmu_t mmu, struct pvo_entry *pvo,
 }
 
 static int64_t
-moea64_pte_replace_native(mmu_t mmu, struct pvo_entry *pvo, int flags)
+moea64_pte_replace_native(struct pvo_entry *pvo, int flags)
 {
 	volatile struct lpte *pt = moea64_pteg_table + pvo->pvo_pte.slot;
 	struct lpte properpt;
@@ -421,14 +429,14 @@ moea64_pte_replace_native(mmu_t mmu, struct pvo_entry *pvo, int flags)
 		rw_runlock(&moea64_eviction_lock);
 	} else {
 		/* Otherwise, need reinsertion and deletion */
-		ptelo = moea64_pte_replace_inval_native(mmu, pvo, pt);
+		ptelo = moea64_pte_replace_inval_native(pvo, pt);
 	}
 
 	return (ptelo);
 }
 
 static void
-moea64_cpu_bootstrap_native(mmu_t mmup, int ap)
+moea64_cpu_bootstrap_native(int ap)
 {
 	int i = 0;
 	#ifdef __powerpc64__
@@ -485,15 +493,14 @@ moea64_cpu_bootstrap_native(mmu_t mmup, int ap)
 }
 
 static void
-moea64_bootstrap_native(mmu_t mmup, vm_offset_t kernelstart,
-    vm_offset_t kernelend)
+moea64_bootstrap_native(vm_offset_t kernelstart, vm_offset_t kernelend)
 {
 	vm_size_t	size;
 	vm_offset_t	off;
 	vm_paddr_t	pa;
 	register_t	msr;
 
-	moea64_early_bootstrap(mmup, kernelstart, kernelend);
+	moea64_early_bootstrap(kernelstart, kernelend);
 
 	switch (mfpvr() >> 16) {
 	case IBMPOWER9:
@@ -549,15 +556,15 @@ moea64_bootstrap_native(mmu_t mmup, vm_offset_t kernelstart,
 	    sizeof(struct lpteg));
 	if (cpu_features2 & PPC_FEATURE2_ARCH_3_00) {
 		bzero(__DEVOLATILE(void *, moea64_part_table), PART_SIZE);
-		moea64_part_table[0].pagetab =
+		moea64_part_table[0].pagetab = htobe64(
 			(DMAP_TO_PHYS((vm_offset_t)moea64_pteg_table)) |
-			(uintptr_t)(flsl((moea64_pteg_count - 1) >> 11));
+			(uintptr_t)(flsl((moea64_pteg_count - 1) >> 11)));
 	}
 	ENABLE_TRANS(msr);
 
 	CTR1(KTR_PMAP, "moea64_bootstrap: PTEG table at %p", moea64_pteg_table);
 
-	moea64_mid_bootstrap(mmup, kernelstart, kernelend);
+	moea64_mid_bootstrap(kernelstart, kernelend);
 
 	/*
 	 * Add a mapping for the page table itself if there is no direct map.
@@ -572,7 +579,7 @@ moea64_bootstrap_native(mmu_t mmup, vm_offset_t kernelstart,
 	}
 
 	/* Bring up virtual memory */
-	moea64_late_bootstrap(mmup, kernelstart, kernelend);
+	moea64_late_bootstrap(kernelstart, kernelend);
 }
 
 static void
@@ -626,14 +633,45 @@ static int
 atomic_pte_lock(volatile struct lpte *pte, uint64_t bitmask, uint64_t *oldhi)
 {
 	int	ret;
+#ifdef __powerpc64__
+	uint64_t temp;
+#else
 	uint32_t oldhihalf;
+#endif
 
 	/*
 	 * Note: in principle, if just the locked bit were set here, we
 	 * could avoid needing the eviction lock. However, eviction occurs
 	 * so rarely that it isn't worth bothering about in practice.
 	 */
-
+#ifdef __powerpc64__
+	/*
+	 * Note: Success of this sequence has the side effect of invalidating
+	 * the PTE, as we are setting it to LPTE_LOCKED and discarding the
+	 * other bits, including LPTE_V.
+	 */
+	__asm __volatile (
+		"1:\tldarx %1, 0, %3\n\t"	/* load old value */
+		"and. %0,%1,%4\n\t"		/* check if any bits set */
+		"bne 2f\n\t"			/* exit if any set */
+		"stdcx. %5, 0, %3\n\t"		/* attempt to store */
+		"bne- 1b\n\t"			/* spin if failed */
+		"li %0, 1\n\t"			/* success - retval = 1 */
+		"b 3f\n\t"			/* we've succeeded */
+		"2:\n\t"
+		"stdcx. %1, 0, %3\n\t"       	/* clear reservation (74xx) */
+		"li %0, 0\n\t"			/* failure - retval = 0 */
+		"3:\n\t"
+		: "=&r" (ret), "=&r"(temp), "=m" (pte->pte_hi)
+		: "r" ((volatile char *)&pte->pte_hi),
+		  "r" (htobe64(bitmask)), "r" (htobe64(LPTE_LOCKED)),
+		  "m" (pte->pte_hi)
+		: "cr0", "cr1", "cr2", "memory");
+	*oldhi = be64toh(temp);
+#else
+	/*
+	 * This code is used on bridge mode only.
+	 */
 	__asm __volatile (
 		"1:\tlwarx %1, 0, %3\n\t"	/* load old value */
 		"and. %0,%1,%4\n\t"		/* check if any bits set */
@@ -653,6 +691,7 @@ atomic_pte_lock(volatile struct lpte *pte, uint64_t bitmask, uint64_t *oldhi)
 		: "cr0", "cr1", "cr2", "memory");
 
 	*oldhi = (pte->pte_hi & 0xffffffff00000000ULL) | oldhihalf;
+#endif
 
 	return (ret);
 }
@@ -715,8 +754,8 @@ moea64_insert_to_pteg_native(struct lpte *pvo_pt, uintptr_t slotbase,
 	return (k);
 }
 
-static int
-moea64_pte_insert_native(mmu_t mmu, struct pvo_entry *pvo)
+static int64_t
+moea64_pte_insert_native(struct pvo_entry *pvo)
 {
 	struct lpte insertpt;
 	uintptr_t slot;
@@ -790,7 +829,7 @@ moea64_pte_insert_native(mmu_t mmu, struct pvo_entry *pvo)
 }
 
 static void *
-moea64_dump_pmap_native(mmu_t mmu, void *ctx, void *buf, u_long *nbytes)
+moea64_dump_pmap_native(void *ctx, void *buf, u_long *nbytes)
 {
 	struct dump_context *dctx;
 	u_long ptex, ptex_end;

@@ -54,7 +54,6 @@ __FBSDID("$FreeBSD$");
 
 #include "isa_if.h"
 
-
 typedef void (*sio_conf_enter_f)(struct resource*, uint16_t);
 typedef void (*sio_conf_exit_f)(struct resource*, uint16_t);
 
@@ -190,6 +189,7 @@ static void
 sio_conf_exit(struct siosc *sc)
 {
 	sc->methods->exit(sc->io_res, sc->io_port);
+	sc->current_ldn = 0xff;
 	mtx_unlock(&sc->conf_lock);
 }
 

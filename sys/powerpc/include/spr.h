@@ -39,7 +39,6 @@
 	  __asm __volatile("mfspr %0,%1" : "=r"(val) : "K"(reg));	\
 	  val; } )
 
-
 #ifndef __powerpc64__
 
 /* The following routines allow manipulation of the full 64-bit width 
@@ -246,7 +245,7 @@
 #define	  FSL_E300C4		  0x8086
 
 #define   LPCR_PECE_WAKESET     (LPCR_PECE_EXT | LPCR_PECE_DECR | LPCR_PECE_ME)
- 
+
 #define	SPR_DBSR		0x130	/* ..8 Debug Status Register */
 #define	  DBSR_IDE		  0x80000000 /* Imprecise debug event. */
 #define	  DBSR_UDE		  0x40000000 /* Unconditional debug event. */
@@ -293,6 +292,7 @@
 #define	SPR_LPCR		0x13e	/* .6. Logical Partitioning Control */
 #define	  LPCR_LPES		  0x008	/* Bit 60 */
 #define	  LPCR_HVICE		  0x002	/* Hypervisor Virtualization Interrupt (Arch 3.0) */
+#define	  LPCR_ILE		  (1ULL << 25) /* Interrupt Little-Endian (ISA 2.07) */
 #define	  LPCR_UPRT		  (1ULL << 22) /* Use Process Table (ISA 3) */
 #define	  LPCR_HR		  (1ULL << 20) /* Host Radix mode */
 #define	  LPCR_PECE_DRBL          (1ULL << 16) /* Directed Privileged Doorbell */
@@ -887,6 +887,7 @@
 #define	  L1CSR1_ICFI		0x00000002	/* Instruction Cache Flash Invalidate */
 #define	  L1CSR1_ICE		0x00000001	/* Instruction Cache Enable */
 
+#define	SPR_L2CFG0		0x207	/* ..8 L2 Configuration Register 0 */
 #define	SPR_L2CSR0		0x3F9	/* ..8 L2 Cache Control and Status Register 0 */
 #define	  L2CSR0_L2E		0x80000000	/* L2 Cache Enable */
 #define	  L2CSR0_L2PE		0x40000000	/* L2 Cache Parity Enable */

@@ -1,20 +1,20 @@
-# $Id: sys.vars.mk,v 1.3 2018/02/06 00:51:53 sjg Exp $
+# $Id: sys.vars.mk,v 1.5 2020/08/19 17:51:53 sjg Exp $
 #
 #	@(#) Copyright (c) 2003-2009, Simon J. Gerraty
 #
 #	This file is provided in the hope that it will
 #	be of use.  There is absolutely NO WARRANTY.
 #	Permission to copy, redistribute or otherwise
-#	use this file is hereby granted provided that 
+#	use this file is hereby granted provided that
 #	the above copyright notice and this notice are
-#	left intact. 
-#      
+#	left intact.
+#
 #	Please send copies of changes and bug-fixes to:
 #	sjg@crufty.net
 #
 
 # We use the following paradigm for preventing multiple inclusion.
-# It relies on the fact that conditionals and dependencies are resolved 
+# It relies on the fact that conditionals and dependencies are resolved
 # at the time they are read.
 #
 # _this ?= ${.PARSEFILE}
@@ -78,3 +78,8 @@ M_cmpv = S,., ,g:_:range:@i@+ $${_:[-$$i]} \* $${M_cmpv.units:[$$i]}@:S,^,expr 0
 
 # absoulte path to what we are reading.
 _PARSEDIR = ${.PARSEDIR:${M_tA}}
+
+# many projects use MAJOR MINOR PATCH versioning
+# ${OPENSSL:${M_M.M.P_VERSION}} is equivalent to
+# ${OPENSSL_MAJOR_VERSION}.${OPENSSL_MINOR_VERSION}.${OPENSSL_PATCH_VERSION}
+M_M.M.P_VERSION = L:@v@$${MAJOR MINOR PATCH:L:@t@$${$$v_$$t_VERSION:U0}@}@:ts.

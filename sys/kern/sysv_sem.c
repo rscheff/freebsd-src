@@ -381,8 +381,6 @@ sysvsem_modload(struct module *module, int cmd, void *arg)
 	switch (cmd) {
 	case MOD_LOAD:
 		error = seminit();
-		if (error != 0)
-			semunload();
 		break;
 	case MOD_UNLOAD:
 		error = semunload();
@@ -798,6 +796,13 @@ kern_semctl(struct thread *td, int semid, int semnum, int cmd,
 		bcopy(&semakptr->u, arg->buf, sizeof(struct semid_ds));
 		if (cred->cr_prison != semakptr->cred->cr_prison)
 			arg->buf->sem_perm.key = IPC_PRIVATE;
+
+		/*
+		 * Try to hide the fact that the structure layout is shared by
+		 * both the kernel and userland.  This pointer is not useful to
+		 * userspace.
+		 */
+		arg->buf->__sem_base = NULL;
 		break;
 
 	case GETNCNT:

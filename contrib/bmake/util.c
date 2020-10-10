@@ -1,9 +1,9 @@
-/*	$NetBSD: util.c,v 1.54 2013/11/26 13:44:41 joerg Exp $	*/
+/*	$NetBSD: util.c,v 1.58 2020/08/01 14:47:49 rillig Exp $	*/
 
 /*
  * Missing stuff from OS's
  *
- *	$Id: util.c,v 1.33 2014/01/02 02:29:49 sjg Exp $
+ *	$Id: util.c,v 1.36 2020/08/01 23:08:14 sjg Exp $
  */
 #if defined(__MINT__) || defined(__linux__)
 #include <signal.h>
@@ -12,10 +12,10 @@
 #include "make.h"
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: util.c,v 1.54 2013/11/26 13:44:41 joerg Exp $";
+static char rcsid[] = "$NetBSD: util.c,v 1.58 2020/08/01 14:47:49 rillig Exp $";
 #else
 #ifndef lint
-__RCSID("$NetBSD: util.c,v 1.54 2013/11/26 13:44:41 joerg Exp $");
+__RCSID("$NetBSD: util.c,v 1.58 2020/08/01 14:47:49 rillig Exp $");
 #endif
 #endif
 
@@ -68,7 +68,7 @@ getenv(const char *name)
 {
     int offset;
 
-    return(findenv(name, &offset));
+    return findenv(name, &offset);
 }
 
 int
@@ -173,44 +173,44 @@ strrcpy(char *ptr, char *str)
     while (len)
 	*--ptr = str[--len];
 
-    return (ptr);
+    return ptr;
 } /* end strrcpy */
 
 
 char    *sys_siglist[] = {
-        "Signal 0",
-        "Hangup",                       /* SIGHUP    */
-        "Interrupt",                    /* SIGINT    */
-        "Quit",                         /* SIGQUIT   */
-        "Illegal instruction",          /* SIGILL    */
-        "Trace/BPT trap",               /* SIGTRAP   */
-        "IOT trap",                     /* SIGIOT    */
-        "EMT trap",                     /* SIGEMT    */
-        "Floating point exception",     /* SIGFPE    */
-        "Killed",                       /* SIGKILL   */
-        "Bus error",                    /* SIGBUS    */
-        "Segmentation fault",           /* SIGSEGV   */
-        "Bad system call",              /* SIGSYS    */
-        "Broken pipe",                  /* SIGPIPE   */
-        "Alarm clock",                  /* SIGALRM   */
-        "Terminated",                   /* SIGTERM   */
-        "User defined signal 1",        /* SIGUSR1   */
-        "User defined signal 2",        /* SIGUSR2   */
-        "Child exited",                 /* SIGCLD    */
-        "Power-fail restart",           /* SIGPWR    */
-        "Virtual timer expired",        /* SIGVTALRM */
-        "Profiling timer expired",      /* SIGPROF   */
-        "I/O possible",                 /* SIGIO     */
-        "Window size changes",          /* SIGWINDOW */
-        "Stopped (signal)",             /* SIGSTOP   */
-        "Stopped",                      /* SIGTSTP   */
-        "Continued",                    /* SIGCONT   */
-        "Stopped (tty input)",          /* SIGTTIN   */
-        "Stopped (tty output)",         /* SIGTTOU   */
-        "Urgent I/O condition",         /* SIGURG    */
-        "Remote lock lost (NFS)",       /* SIGLOST   */
-        "Signal 31",                    /* reserved  */
-        "DIL signal"                    /* SIGDIL    */
+	"Signal 0",
+	"Hangup",                       /* SIGHUP    */
+	"Interrupt",                    /* SIGINT    */
+	"Quit",                         /* SIGQUIT   */
+	"Illegal instruction",          /* SIGILL    */
+	"Trace/BPT trap",               /* SIGTRAP   */
+	"IOT trap",                     /* SIGIOT    */
+	"EMT trap",                     /* SIGEMT    */
+	"Floating point exception",     /* SIGFPE    */
+	"Killed",                       /* SIGKILL   */
+	"Bus error",                    /* SIGBUS    */
+	"Segmentation fault",           /* SIGSEGV   */
+	"Bad system call",              /* SIGSYS    */
+	"Broken pipe",                  /* SIGPIPE   */
+	"Alarm clock",                  /* SIGALRM   */
+	"Terminated",                   /* SIGTERM   */
+	"User defined signal 1",        /* SIGUSR1   */
+	"User defined signal 2",        /* SIGUSR2   */
+	"Child exited",                 /* SIGCLD    */
+	"Power-fail restart",           /* SIGPWR    */
+	"Virtual timer expired",        /* SIGVTALRM */
+	"Profiling timer expired",      /* SIGPROF   */
+	"I/O possible",                 /* SIGIO     */
+	"Window size changes",          /* SIGWINDOW */
+	"Stopped (signal)",             /* SIGSTOP   */
+	"Stopped",                      /* SIGTSTP   */
+	"Continued",                    /* SIGCONT   */
+	"Stopped (tty input)",          /* SIGTTIN   */
+	"Stopped (tty output)",         /* SIGTTOU   */
+	"Urgent I/O condition",         /* SIGURG    */
+	"Remote lock lost (NFS)",       /* SIGLOST   */
+	"Signal 31",                    /* reserved  */
+	"DIL signal"                    /* SIGDIL    */
 };
 #endif /* __hpux__ || __hpux */
 
@@ -228,32 +228,6 @@ killpg(int pid, int sig)
 {
     return kill(-pid, sig);
 }
-
-#if !defined(__hpux__) && !defined(__hpux)
-void
-srandom(long seed)
-{
-    srand48(seed);
-}
-
-long
-random(void)
-{
-    return lrand48();
-}
-#endif
-
-#if !defined(__hpux__) && !defined(__hpux)
-int
-utimes(char *file, struct timeval tvp[2])
-{
-    struct utimbuf t;
-
-    t.actime  = tvp[0].tv_sec;
-    t.modtime = tvp[1].tv_sec;
-    return(utime(file, &t));
-}
-#endif
 
 #if !defined(BSD) && !defined(d_fileno)
 # define d_fileno d_ino
@@ -302,7 +276,7 @@ getwd(char *pathname)
 	if (st_cur.st_ino == st_root.st_ino &&
 	    DEV_DEV_COMPARE(st_cur.st_dev, st_root.st_dev)) {
 	    (void)strcpy(pathname, *pathptr != '/' ? "/" : pathptr);
-	    return (pathname);
+	    return pathname;
 	}
 
 	/* open the parent directory */
@@ -425,7 +399,7 @@ vsnprintf(char *s, size_t n, const char *fmt, va_list args)
 	putc('\0', &fakebuf);
 	if (fakebuf._cnt<0)
 	    fakebuf._cnt = 0;
-	return (n-fakebuf._cnt-1);
+	return n-fakebuf._cnt-1;
 #else
 #ifndef _PATH_DEVNULL
 # define _PATH_DEVNULL "/dev/null"
@@ -468,7 +442,7 @@ size_t
 strftime(char *buf, size_t len, const char *fmt, const struct tm *tm)
 {
 	static char months[][4] = {
-		"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
 

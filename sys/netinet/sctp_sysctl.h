@@ -120,9 +120,6 @@ struct sctp_sysctl {
 #if defined(SCTP_DEBUG)
 	uint32_t sctp_debug_on;
 #endif
-#if defined(__APPLE__) || defined(SCTP_SO_LOCK_TESTING)
-	uint32_t sctp_output_unlocked;
-#endif
 };
 
 /*
@@ -217,7 +214,6 @@ struct sctp_sysctl {
 #define SCTPCTL_FRMAXBURST_MIN		0
 #define SCTPCTL_FRMAXBURST_MAX		0xFFFFFFFF
 #define SCTPCTL_FRMAXBURST_DEFAULT	SCTP_DEF_FRMAX_BURST
-
 
 /* maxchunks: Default max chunks on queue per asoc */
 #define SCTPCTL_MAXCHUNKS_DESC		"Default max chunks on queue per asoc"
@@ -557,15 +553,6 @@ struct sctp_sysctl {
 #define SCTPCTL_DEBUG_MAX	0xFFFFFFFF
 #define SCTPCTL_DEBUG_DEFAULT	0
 #endif
-
-
-#if defined(__APPLE__) || defined(SCTP_SO_LOCK_TESTING)
-#define SCTPCTL_OUTPUT_UNLOCKED_DESC	"Unlock socket when sending packets down to IP"
-#define SCTPCTL_OUTPUT_UNLOCKED_MIN	0
-#define SCTPCTL_OUTPUT_UNLOCKED_MAX	1
-#define SCTPCTL_OUTPUT_UNLOCKED_DEFAULT	SCTPCTL_OUTPUT_UNLOCKED_MIN
-#endif
-
 
 #if defined(_KERNEL) || defined(__Userspace__)
 #if defined(SYSCTL_DECL)

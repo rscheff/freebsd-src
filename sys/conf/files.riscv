@@ -37,7 +37,6 @@ riscv/riscv/busdma_bounce.c	standard
 riscv/riscv/busdma_machdep.c	standard
 riscv/riscv/clock.c		standard
 riscv/riscv/copyinout.S		standard
-riscv/riscv/copystr.c		standard
 riscv/riscv/cpufunc_asm.S	standard
 riscv/riscv/db_disasm.c		optional	ddb
 riscv/riscv/db_interface.c	optional	ddb
@@ -58,6 +57,7 @@ riscv/riscv/ofw_machdep.c	optional	fdt
 riscv/riscv/plic.c		standard
 riscv/riscv/pmap.c		standard
 riscv/riscv/riscv_console.c	optional	rcons
+riscv/riscv/riscv_syscon.c	optional	ext_resources syscon riscv_syscon fdt
 riscv/riscv/sbi.c		standard
 riscv/riscv/soc.c		standard
 riscv/riscv/stack_machdep.c	optional	ddb | stack

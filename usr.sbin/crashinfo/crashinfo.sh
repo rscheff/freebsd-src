@@ -50,7 +50,7 @@ find_gdb()
 {
 	local binary
 
-	for binary in /usr/local/bin/gdb /usr/libexec/gdb /usr/bin/gdb; do
+	for binary in /usr/local/bin/gdb /usr/libexec/gdb; do
 		if [ -x ${binary} ]; then
 			GDB=${binary}
 			return
@@ -312,12 +312,6 @@ echo
 w -M $VMCORE -N $KERNEL -dn
 echo
 fi
-
-echo "------------------------------------------------------------------------"
-echo "nfsstat"
-echo
-nfsstat -M $VMCORE -N $KERNEL
-echo
 
 echo "------------------------------------------------------------------------"
 echo "netstat -s"

@@ -112,7 +112,6 @@ typedef enum {
 	CTL_FLAG_SERSEQ_DONE	= 0x20000000	/* All storage I/O started */
 } ctl_io_flags;
 
-
 struct ctl_lba_len {
 	uint64_t lba;
 	uint32_t len;
@@ -257,6 +256,8 @@ typedef enum {
 
 union ctl_io;
 
+typedef void (*ctl_ref)(void *arg, int diff);
+
 /*
  * SCSI passthrough I/O structure for the CAM Target Layer.  Note
  * that some of these fields are here for completeness, but they aren't
@@ -329,6 +330,8 @@ struct ctl_scsiio {
 	uint8_t	   cdb[CTL_MAX_CDBLEN];	/* CDB */
 	int	   (*be_move_done)(union ctl_io *io); /* called by fe */
 	int        (*io_cont)(union ctl_io *io); /* to continue processing */
+	ctl_ref	    kern_data_ref;	/* Method to reference/release data */
+	void	   *kern_data_arg;	/* Opaque argument for kern_data_ref() */
 };
 
 typedef enum {
@@ -370,7 +373,6 @@ struct ctl_taskio {
 	uint8_t			task_status; /* Complete, Succeeded, etc. */
 	uint8_t			task_resp[3];/* Response information */
 };
-
 
 /*
  * HA link messages.

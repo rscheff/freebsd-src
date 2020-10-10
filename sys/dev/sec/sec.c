@@ -266,7 +266,6 @@ sec_attach(device_t dev)
 	if (error)
 		goto fail2;
 
-
 	if (sc->sc_version == 3) {
 		sc->sc_sec_irid = 1;
 		error = sec_setup_intr(sc, &sc->sc_sec_ires, &sc->sc_sec_ihand,
@@ -842,14 +841,17 @@ sec_desc_map_dma(struct sec_softc *sc, struct sec_dma_mem *dma_mem,
 	if (dma_mem->dma_vaddr != NULL)
 		return (EBUSY);
 
-	switch (crp->crp_buf_type) {
+	switch (crp->crp_buf.cb_type) {
 	case CRYPTO_BUF_CONTIG:
 		break;
 	case CRYPTO_BUF_UIO:
 		size = SEC_FREE_LT_CNT(sc) * SEC_MAX_DMA_BLOCK_SIZE;
 		break;
 	case CRYPTO_BUF_MBUF:
-		size = m_length(crp->crp_mbuf, NULL);
+		size = m_length(crp->crp_buf.cb_mbuf, NULL);
+		break;
+	case CRYPTO_BUF_VMPAGE:
+		size = PAGE_SIZE - crp->crp_buf.cb_vm_page_offset;
 		break;
 	default:
 		return (EINVAL);
@@ -1245,7 +1247,7 @@ sec_process(device_t dev, struct cryptop *crp, int hint)
 	csp = crypto_get_params(crp->crp_session);
 
 	/* Check for input length */
-	if (crp->crp_ilen > SEC_MAX_DMA_BLOCK_SIZE) {
+	if (crypto_buffer_len(&crp->crp_buf) > SEC_MAX_DMA_BLOCK_SIZE) {
 		crp->crp_etype = E2BIG;
 		crypto_done(crp);
 		return (0);

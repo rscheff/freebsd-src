@@ -49,6 +49,8 @@ __FBSDID("$FreeBSD$");
 #include <machine/trap.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_bus.h>
+#include <dev/ofw/ofw_bus_subr.h>
 #include <machine/ofw_machdep.h>
 #include <powerpc/aim/mmu_oea64.h>
 
@@ -87,7 +89,7 @@ static platform_method_t powernv_methods[] = {
 	PLATFORMMETHOD(platform_mem_regions,	powernv_mem_regions),
 	PLATFORMMETHOD(platform_numa_mem_regions,	powernv_numa_mem_regions),
 	PLATFORMMETHOD(platform_timebase_freq,	powernv_timebase_freq),
-	
+
 	PLATFORMMETHOD(platform_smp_ap_init,	powernv_smp_ap_init),
 	PLATFORMMETHOD(platform_smp_first_cpu,	powernv_smp_first_cpu),
 	PLATFORMMETHOD(platform_smp_next_cpu,	powernv_smp_next_cpu),
@@ -100,7 +102,6 @@ static platform_method_t powernv_methods[] = {
 	PLATFORMMETHOD(platform_node_numa_domain,	powernv_node_numa_domain),
 
 	PLATFORMMETHOD(platform_reset,		powernv_reset),
-
 	{ 0, 0 }
 };
 
@@ -172,6 +173,10 @@ powernv_attach(platform_t plat)
 
 	if (cpu_features2 & PPC_FEATURE2_ARCH_3_00)
 		lpcr |= LPCR_HVICE;
+
+#if BYTE_ORDER == LITTLE_ENDIAN
+	lpcr |= LPCR_ILE;
+#endif
 
 	mtspr(SPR_LPCR, lpcr);
 	isync();
@@ -255,7 +260,6 @@ out:
 	return (0);
 }
 
-
 void
 powernv_mem_regions(platform_t plat, struct mem_region *phys, int *physsz,
     struct mem_region *avail, int *availsz)
@@ -332,6 +336,8 @@ powernv_cpuref_init(void)
 	for (cpu = OF_child(dev); cpu != 0; cpu = OF_peer(cpu)) {
 		res = OF_getprop(cpu, "device_type", buf, sizeof(buf));
 		if (res > 0 && strcmp(buf, "cpu") == 0) {
+			if (!ofw_bus_node_status_okay(cpu))
+				continue;
 			res = OF_getproplen(cpu, "ibm,ppc-interrupt-server#s");
 			if (res > 0) {
 				OF_getencprop(cpu, "ibm,ppc-interrupt-server#s",

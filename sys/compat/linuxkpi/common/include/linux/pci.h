@@ -496,7 +496,6 @@ static inline int pci_pcie_cap(struct pci_dev *dev)
 	return pci_find_capability(dev, PCI_CAP_ID_EXP);
 }
 
-
 static inline int
 pci_read_config_byte(struct pci_dev *pdev, int where, u8 *val)
 {
@@ -657,7 +656,7 @@ static inline int
 pci_channel_offline(struct pci_dev *pdev)
 {
 
-	return (pci_get_vendor(pdev->dev.bsddev) == PCIV_INVALID);
+	return (pci_read_config(pdev->dev.bsddev, PCIR_VENDOR, 2) == PCIV_INVALID);
 }
 
 static inline int pci_enable_sriov(struct pci_dev *dev, int nr_virtfn)
@@ -705,7 +704,6 @@ pci_iounmap(struct pci_dev *dev, void *res)
 
 #define DEFINE_PCI_DEVICE_TABLE(_table) \
 	const struct pci_device_id _table[] __devinitdata
-
 
 /* XXX This should not be necessary. */
 #define	pcix_set_mmrbc(d, v)	0
@@ -773,7 +771,6 @@ enum pci_ers_result {
 	PCI_ERS_RESULT_RECOVERED = 5,
 };
 
-
 /* PCI bus error event callbacks */
 struct pci_error_handlers {
 	pci_ers_result_t (*error_detected)(struct pci_dev *dev,
@@ -808,7 +805,6 @@ static inline u16 pcie_flags_reg(struct pci_dev *dev)
 
 	return reg16;
 }
-
 
 static inline int pci_pcie_type(struct pci_dev *dev)
 {
@@ -1049,5 +1045,17 @@ pcie_bandwidth_available(struct pci_dev *pdev,
 extern int linux_pci_attach_device(device_t, struct pci_driver *,
     const struct pci_device_id *, struct pci_dev *);
 extern int linux_pci_detach_device(struct pci_dev *);
+
+static inline int
+pci_dev_present(const struct pci_device_id *cur)
+{
+	while (cur != NULL && (cur->vendor || cur->device)) {
+		if (pci_find_device(cur->vendor, cur->device) != NULL) {
+			return (1);
+		}
+		cur++;
+	}
+	return (0);
+}
 
 #endif	/* _LINUX_PCI_H_ */

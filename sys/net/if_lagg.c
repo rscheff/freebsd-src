@@ -679,6 +679,9 @@ lagg_port_create(struct lagg_softc *sc, struct ifnet *ifp)
 		return (EINVAL);
 	}
 
+	if (sc->sc_destroying == 1)
+		return (ENXIO);
+
 	/* Limit the maximal number of lagg ports */
 	if (sc->sc_count >= LAGG_MAX_PORTS)
 		return (ENOSPC);
@@ -799,7 +802,6 @@ lagg_port_create(struct lagg_softc *sc, struct ifnet *ifp)
 	sc->sc_count++;
 
 	lagg_setmulti(lp);
-
 
 	if ((error = lagg_proto_addport(sc, lp)) != 0) {
 		/* Remove the port, without calling pr_delport. */
@@ -1043,7 +1045,6 @@ lagg_get_counter(struct ifnet *ifp, ift_counter cnt)
 	 */
 	vsum += sc->detached_counters.val[cnt];
 
-
 	return (vsum);
 }
 
@@ -1191,6 +1192,8 @@ lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	bzero(&rpbuf, sizeof(rpbuf));
 
+	/* XXX: This can race with lagg_clone_destroy. */
+
 	switch (cmd) {
 	case SIOCGLAGG:
 		LAGG_XLOCK(sc);
@@ -1246,7 +1249,7 @@ lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (lsc->lsc_strict_mode != 0)
 				ro->ro_opts |= LAGG_OPT_LACP_STRICT;
 			if (lsc->lsc_fast_timeout != 0)
-				ro->ro_opts |= LAGG_OPT_LACP_TIMEOUT;
+				ro->ro_opts |= LAGG_OPT_LACP_FAST_TIMO;
 
 			ro->ro_active = sc->sc_active;
 		} else {
@@ -1305,8 +1308,8 @@ lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		case -LAGG_OPT_LACP_RXTEST:
 		case LAGG_OPT_LACP_STRICT:
 		case -LAGG_OPT_LACP_STRICT:
-		case LAGG_OPT_LACP_TIMEOUT:
-		case -LAGG_OPT_LACP_TIMEOUT:
+		case LAGG_OPT_LACP_FAST_TIMO:
+		case -LAGG_OPT_LACP_FAST_TIMO:
 			valid = lacp = 1;
 			break;
 		default:
@@ -1366,14 +1369,14 @@ lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			case -LAGG_OPT_LACP_STRICT:
 				lsc->lsc_strict_mode = 0;
 				break;
-			case LAGG_OPT_LACP_TIMEOUT:
+			case LAGG_OPT_LACP_FAST_TIMO:
 				LACP_LOCK(lsc);
         			LIST_FOREACH(lp, &lsc->lsc_ports, lp_next)
                         		lp->lp_state |= LACP_STATE_TIMEOUT;
 				LACP_UNLOCK(lsc);
 				lsc->lsc_fast_timeout = 1;
 				break;
-			case -LAGG_OPT_LACP_TIMEOUT:
+			case -LAGG_OPT_LACP_FAST_TIMO:
 				LACP_LOCK(lsc);
         			LIST_FOREACH(lp, &lsc->lsc_ports, lp_next)
                         		lp->lp_state &= ~LACP_STATE_TIMEOUT;
@@ -1683,7 +1686,7 @@ lagg_snd_tag_alloc(struct ifnet *ifp,
 		return (error);
 	}
 
-	m_snd_tag_init(&lst->com, ifp);
+	m_snd_tag_init(&lst->com, ifp, lst->tag->type);
 
 	*ppmt = &lst->com;
 	return (0);
@@ -2420,4 +2423,3 @@ lagg_lacp_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
 	m->m_pkthdr.rcvif = ifp;
 	return (m);
 }
-

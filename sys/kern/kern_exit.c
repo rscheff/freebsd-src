@@ -104,7 +104,7 @@ proc_realparent(struct proc *child)
 	sx_assert(&proctree_lock, SX_LOCKED);
 	if ((child->p_treeflag & P_TREE_ORPHANED) == 0)
 		return (child->p_pptr->p_pid == child->p_oppid ?
-			    child->p_pptr : initproc);
+		    child->p_pptr : child->p_reaper);
 	for (p = child; (p->p_treeflag & P_TREE_FIRST_ORPHAN) == 0;) {
 		/* Cannot use LIST_PREV(), since the list head is not known. */
 		p = __containerof(p->p_orphan.le_prev, struct proc,
@@ -391,7 +391,6 @@ exit1(struct thread *td, int rval, int signo)
 	}
 
 	vmspace_exit(td);
-	killjobc();
 	(void)acct_process(td);
 
 #ifdef KTRACE
@@ -434,6 +433,12 @@ exit1(struct thread *td, int rval, int signo)
 	PROC_LOCK(p);
 	p->p_flag &= ~(P_TRACED | P_PPWAIT | P_PPTRACE);
 	PROC_UNLOCK(p);
+
+	/*
+	 * killjobc() might drop and re-acquire proctree_lock to
+	 * revoke control tty if exiting process was a session leader.
+	 */
+	killjobc();
 
 	/*
 	 * Reparent all children processes:
@@ -928,8 +933,7 @@ proc_reap(struct thread *td, struct proc *p, int *status, int options)
 	/*
 	 * Free credentials, arguments, and sigacts.
 	 */
-	crfree(p->p_ucred);
-	proc_set_cred(p, NULL);
+	proc_unset_cred(p);
 	pargs_drop(p->p_args);
 	p->p_args = NULL;
 	sigacts_free(p->p_sigacts);

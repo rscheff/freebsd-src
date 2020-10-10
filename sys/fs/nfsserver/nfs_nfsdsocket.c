@@ -425,7 +425,6 @@ SYSCTL_INT(_vfs_nfsd, OID_AUTO, server_max_minorversion4, CTLFLAG_RWTUN,
 static void nfsrvd_compound(struct nfsrv_descript *nd, int isdgram,
     u_char *tag, int taglen, u_int32_t minorvers);
 
-
 /*
  * This static array indicates which server procedures require the extra
  * arguments to return the current file handle for V2, 3.
@@ -1059,10 +1058,7 @@ nfsrvd_compound(struct nfsrv_descript *nd, int isdgram, u_char *tag,
 			if (!error && !nd->nd_repstat) {
 			    if (op == NFSV4OP_LOOKUP || op == NFSV4OP_LOOKUPP) {
 				new_mp = nvp->v_mount;
-				if (cur_fsid.val[0] !=
-				    new_mp->mnt_stat.f_fsid.val[0] ||
-				    cur_fsid.val[1] !=
-				    new_mp->mnt_stat.f_fsid.val[1]) {
+				if (fsidcmp(&cur_fsid, &new_mp->mnt_stat.f_fsid) != 0) {
 				    /* crossed a server mount point */
 				    nd->nd_repstat = nfsvno_checkexp(new_mp,
 					nd->nd_nam, &nes, &credanon);
@@ -1091,8 +1087,7 @@ nfsrvd_compound(struct nfsrv_descript *nd, int isdgram, u_char *tag,
 			if (vp == NULL || savevp == NULL) {
 				nd->nd_repstat = NFSERR_NOFILEHANDLE;
 				break;
-			} else if (cur_fsid.val[0] != save_fsid.val[0] ||
-			    cur_fsid.val[1] != save_fsid.val[1]) {
+			} else if (fsidcmp(&cur_fsid, &save_fsid) != 0) {
 				nd->nd_repstat = NFSERR_XDEV;
 				break;
 			}

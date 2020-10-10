@@ -52,7 +52,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 
 #include <sys/socket.h>
- 
+
 #include <net/if.h>
 #include <net/if_media.h>
 #include <net/if_arp.h>
@@ -136,7 +136,7 @@ ath_rate_findrate(struct ath_softc *sc, struct ath_node *an,
  */
 void
 ath_rate_getxtxrates(struct ath_softc *sc, struct ath_node *an,
-    uint8_t rix0, struct ath_rc_series *rc)
+    uint8_t rix0, int is_aggr, struct ath_rc_series *rc)
 {
 	struct onoe_node *on = ATH_NODE_ONOE(an);
 
@@ -197,7 +197,6 @@ ath_rate_update_rx_rssi(struct ath_softc *sc, struct ath_node *an, int rssi)
 {
 }
 
-
 static void
 ath_rate_update(struct ath_softc *sc, struct ieee80211_node *ni, int rate)
 {
@@ -227,7 +226,7 @@ ath_rate_update(struct ath_softc *sc, struct ieee80211_node *ni, int rate)
 	ni->ni_txrate = ni->ni_rates.rs_rates[rate] & IEEE80211_RATE_VAL;
 	on->on_tx_rix0 = sc->sc_rixmap[ni->ni_txrate];
 	on->on_tx_rate0 = rt->info[on->on_tx_rix0].rateCode;
-	
+
 	on->on_tx_rate0sp = on->on_tx_rate0 |
 		rt->info[on->on_tx_rix0].shortPreamble;
 	if (sc->sc_mrretry) {

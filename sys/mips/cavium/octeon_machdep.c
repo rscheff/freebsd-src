@@ -97,8 +97,6 @@ struct octeon_feature_description {
 };
 
 extern int	*end;
-extern char cpu_model[];
-extern char cpu_board[];
 static char octeon_kenv[0x2000];
 
 static const struct octeon_feature_description octeon_feature_descriptions[] = {
@@ -343,7 +341,6 @@ platform_start(__register_t a0, __register_t a1, __register_t a2 __unused,
 	printf("MAC address base: %6D (%u configured)\n",
 	       cvmx_sysinfo_get()->mac_addr_base, ":",
 	       cvmx_sysinfo_get()->mac_addr_count);
-
 
 	octeon_ciu_reset();
 	/*

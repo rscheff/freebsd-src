@@ -303,7 +303,6 @@ xctrl_suspend()
 	 * Warm up timecounter again and reset system clock.
 	 */
 	timecounter->tc_get_timecount(timecounter);
-	timecounter->tc_get_timecount(timecounter);
 	inittodr(time_second);
 
 #ifdef EARLY_AP_STARTUP
@@ -357,10 +356,10 @@ xctrl_on_watch_event(struct xs_watch *watch, const char **vec, unsigned int len)
 	char *result;
 	int   error;
 	int   result_len;
-	
+
 	error = xs_read(XST_NIL, "control", "shutdown",
 			&result_len, (void **)&result);
-	if (error != 0)
+	if (error != 0 || result_len == 0)
 		return;
 
 	/* Acknowledge the request by writing back an empty string. */
@@ -371,7 +370,6 @@ xctrl_on_watch_event(struct xs_watch *watch, const char **vec, unsigned int len)
 	reason = xctrl_shutdown_reasons;
 	last_reason = reason + nitems(xctrl_shutdown_reasons);
 	while (reason < last_reason) {
-
 		if (!strcmp(result, reason->name)) {
 			reason->handler();
 			break;
@@ -470,11 +468,11 @@ static device_method_t xctrl_methods[] = {
 	DEVMETHOD(device_probe,         xctrl_probe), 
 	DEVMETHOD(device_attach,        xctrl_attach), 
 	DEVMETHOD(device_detach,        xctrl_detach), 
- 
+
 	DEVMETHOD_END
 }; 
 
 DEFINE_CLASS_0(xctrl, xctrl_driver, xctrl_methods, sizeof(struct xctrl_softc));
 devclass_t xctrl_devclass; 
- 
+
 DRIVER_MODULE(xctrl, xenstore, xctrl_driver, xctrl_devclass, NULL, NULL);

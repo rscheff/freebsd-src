@@ -44,6 +44,7 @@
 #include <sys/endian.h>
 #include <assert.h>
 
+#undef ASSERT
 #define	ASSERT	assert
 #else
 #include <string.h>
@@ -52,9 +53,10 @@
 #include <netinet/in.h>
 #include <assert.h>
 
+#undef ASSERT
 #define	ASSERT	assert
 #endif
-#include <lz4.h>
+#include "lz4.h"
 
 static int real_LZ4_compress(const char *source, char *dest, int isize,
     int osize);
@@ -850,7 +852,7 @@ real_LZ4_compress(const char *source, char *dest, int isize, int osize)
 #if defined(_KERNEL) || defined(_FAKE_KERNEL)
 	void *ctx = kmem_cache_alloc(lz4_ctx_cache, KM_NOSLEEP);
 #else
-	void *ctx = malloc(sizeof(struct refTables));
+	void *ctx = calloc(1, sizeof(struct refTables));
 #endif
 	int result;
 

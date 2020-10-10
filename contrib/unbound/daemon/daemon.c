@@ -451,11 +451,9 @@ daemon_create_workers(struct daemon* daemon)
 		fatal_exit("out of memory during daemon init");
 	if(daemon->cfg->dnstap) {
 #ifdef USE_DNSTAP
-		daemon->dtenv = dt_create(daemon->cfg->dnstap_socket_path,
-			(unsigned int)daemon->num);
+		daemon->dtenv = dt_create(daemon->cfg);
 		if (!daemon->dtenv)
 			fatal_exit("dt_create failed");
-		dt_apply_cfg(daemon->dtenv, daemon->cfg);
 #else
 		fatal_exit("dnstap enabled in config but not built with dnstap support");
 #endif
@@ -617,7 +615,8 @@ daemon_fork(struct daemon* daemon)
 		have_view_respip_cfg;
 	
 	/* read auth zonefiles */
-	if(!auth_zones_apply_cfg(daemon->env->auth_zones, daemon->cfg, 1))
+	if(!auth_zones_apply_cfg(daemon->env->auth_zones, daemon->cfg, 1,
+		&daemon->use_rpz))
 		fatal_exit("auth_zones could not be setup");
 
 	/* setup modules */
@@ -629,6 +628,12 @@ daemon_fork(struct daemon* daemon)
 	if(daemon->use_response_ip &&
 		modstack_find(&daemon->mods, "respip") < 0)
 		fatal_exit("response-ip options require respip module");
+	/* RPZ response ip triggers don't work as expected without the respip
+	 * module.  To avoid run-time operational surprise we reject such
+	 * configuration. */
+	if(daemon->use_rpz &&
+		modstack_find(&daemon->mods, "respip") < 0)
+		fatal_exit("RPZ requires the respip module");
 
 	/* first create all the worker structures, so we can pass
 	 * them to the newly created threads. 
@@ -776,7 +781,7 @@ daemon_delete(struct daemon* daemon)
 #  endif
 #  ifdef HAVE_OPENSSL_CONFIG
 	EVP_cleanup();
-#  if (OPENSSL_VERSION_NUMBER < 0x10100000) && !defined(OPENSSL_NO_ENGINE)
+#  if (OPENSSL_VERSION_NUMBER < 0x10100000) && !defined(OPENSSL_NO_ENGINE) && defined(HAVE_ENGINE_CLEANUP)
 	ENGINE_cleanup();
 #  endif
 	CONF_modules_free();
