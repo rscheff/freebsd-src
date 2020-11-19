@@ -1,6 +1,7 @@
 # $FreeBSD$
 
 SUBDIR=	cc_cubic \
+	cc_cubic_8312bis \
 	cc_dctcp \
 	cc_htcp
 
