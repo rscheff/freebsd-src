@@ -146,7 +146,7 @@ cubic_8312bis_k(unsigned long wmax_pkts)
 	p = 0;
 
 	/* (wmax * beta)/C with CUBIC_SHIFT worth of precision. */
-	s = ((wmax_pkts * ONE_SUB_CUBIC_BETA) << CUBIC_SHIFT) / CUBIC_C_FACTOR;
+	s = wmax_pkts / CUBIC_C_FACTOR;
 
 	/* Rebase s to be between 1 and 1/8 with a shift of CUBIC_SHIFT. */
 	while (s >= 256) {
