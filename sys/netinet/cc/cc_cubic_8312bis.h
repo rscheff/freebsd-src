@@ -137,7 +137,7 @@ theoretical_tf_cwnd(int ticks_since_cong, int rtt_ticks, unsigned long wmax,
  * here is adapted from Apple Computer Technical Report #KT-32.
  */
 static __inline int64_t
-cubic_k(unsigned long wmax_pkts)
+cubic_8312bis_k(unsigned long wmax_pkts)
 {
 	int64_t s, K;
 	uint16_t p;
@@ -173,7 +173,7 @@ cubic_k(unsigned long wmax_pkts)
  * XXXLAS: Characterise bounds for overflow.
  */
 static __inline unsigned long
-cubic_8312bis_cwnd(int ticks_since_cong, unsigned long wmax, uint32_t smss, int64_t K)
+cubic_cwnd(int ticks_since_cong, unsigned long wmax, uint32_t smss, int64_t K)
 {
 	int64_t cwnd;
 

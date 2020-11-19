@@ -137,7 +137,7 @@ cubic_8312bis_ack_received(struct cc_var *ccv, uint16_t type)
 	int ticks_since_cong;
 
 	cubic_data = ccv->cc_data;
-	cubic_record_rtt(ccv);
+	cubic_8312bis_record_rtt(ccv);
 
 	/*
 	 * For a regular ACK and we're not in cong/fast recovery and
@@ -236,7 +236,7 @@ cubic_8312bis_ack_received(struct cc_var *ccv, uint16_t type)
 static void
 cubic_8312bis_after_idle(struct cc_var *ccv)
 {
-	struct cubic *cubic_data;
+	struct cubic_8312bis *cubic_data;
 
 	cubic_data = ccv->cc_data;
 
@@ -258,7 +258,7 @@ cubic_8312bis_cb_init(struct cc_var *ccv)
 {
 	struct cubic_8312bis *cubic_data;
 
-	cubic_data = malloc(sizeof(struct cubic), M_CUBIC, M_NOWAIT|M_ZERO);
+	cubic_data = malloc(sizeof(struct cubic_8312bis), M_CUBIC, M_NOWAIT|M_ZERO);
 
 	if (cubic_data == NULL)
 		return (ENOMEM);
@@ -279,7 +279,7 @@ cubic_8312bis_cb_init(struct cc_var *ccv)
 static void
 cubic_8312bis_cong_signal(struct cc_var *ccv, uint32_t type)
 {
-	struct cubic *cubic_data;
+	struct cubic_8312bis *cubic_data;
 	u_int mss;
 
 	cubic_data = ccv->cc_data;
@@ -289,7 +289,7 @@ cubic_8312bis_cong_signal(struct cc_var *ccv, uint32_t type)
 	case CC_NDUPACK:
 		if (!IN_FASTRECOVERY(CCV(ccv, t_flags))) {
 			if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
-				cubic_ssthresh_update(ccv, mss);
+				cubic_8312bis_ssthresh_update(ccv, mss);
 				cubic_data->flags |= CUBICFLAG_CONG_EVENT;
 				cubic_data->t_last_cong = ticks;
 				cubic_data->K = cubic_8312bis_k(cubic_data->max_cwnd / mss);
@@ -300,7 +300,7 @@ cubic_8312bis_cong_signal(struct cc_var *ccv, uint32_t type)
 
 	case CC_ECN:
 		if (!IN_CONGRECOVERY(CCV(ccv, t_flags))) {
-			cubic_ssthresh_update(ccv, mss);
+			cubic_8312bis_ssthresh_update(ccv, mss);
 			cubic_data->flags |= CUBICFLAG_CONG_EVENT;
 			cubic_data->t_last_cong = ticks;
 			cubic_data->K = cubic_8312bis_k(cubic_data->max_cwnd / mss);
