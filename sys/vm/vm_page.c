@@ -3545,7 +3545,8 @@ vm_pqbatch_process_page(struct vm_pagequeue *pq, vm_page_t m, uint8_t queue)
 			counter_u64_add(queue_nops, 1);
 			break;
 		}
-		KASSERT(old.queue != PQ_NONE || (old.flags & PGA_QUEUE_STATE_MASK) == 0,
+		KASSERT(old.queue != PQ_NONE ||
+		    (old.flags & PGA_QUEUE_STATE_MASK) == 0,
 		    ("%s: page %p has unexpected queue state", __func__, m));
 
 		new = old;
@@ -3598,8 +3599,6 @@ vm_page_pqbatch_submit(vm_page_t m, uint8_t queue)
 	KASSERT(queue < PQ_COUNT, ("invalid queue %d", queue));
 
 	domain = vm_page_domain(m);
-	pq = &vm_pagequeue_domain(m)->vmd_pagequeues[queue];
-
 	critical_enter();
 	bq = DPCPU_PTR(pqbatch[domain][queue]);
 	if (vm_batchqueue_insert(bq, m)) {
@@ -3607,6 +3606,8 @@ vm_page_pqbatch_submit(vm_page_t m, uint8_t queue)
 		return;
 	}
 	critical_exit();
+
+	pq = &VM_DOMAIN(domain)->vmd_pagequeues[queue];
 	vm_pagequeue_lock(pq);
 	critical_enter();
 	bq = DPCPU_PTR(pqbatch[domain][queue]);
