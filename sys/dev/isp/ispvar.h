@@ -447,22 +447,16 @@ struct ispsoftc {
 	 * may contain some volatile state (e.g., current loop state).
 	 */
 
-	void * 			isp_param;	/* type specific */
+	fcparam			*isp_param;	/* Per-channel storage. */
 	uint64_t		isp_fwattr;	/* firmware attributes */
 	uint16_t		isp_fwrev[3];	/* Loaded F/W revision */
 	uint16_t		isp_maxcmds;	/* max possible I/O cmds */
+	uint16_t		isp_nchan;	/* number of channels */
+	uint16_t		isp_dblev;	/* debug log mask */
 	uint8_t			isp_type;	/* HBA Chip Type */
 	uint8_t			isp_revision;	/* HBA Chip H/W Revision */
 	uint8_t			isp_nirq;	/* number of IRQs */
-	uint16_t		isp_nchan;	/* number of channels */
-
-	uint32_t		isp_clock	: 8,	/* input clock */
-						: 5,
-				isp_port	: 1,	/* 23XX/24XX only */
-				isp_loaded_fw	: 1,	/* loaded firmware */
-				isp_dblev	: 16;	/* debug log mask */
-
-
+	uint8_t			isp_port;	/* physical port on a card */
 	uint32_t		isp_confopts;	/* config options */
 
 	/*
@@ -470,7 +464,6 @@ struct ispsoftc {
 	 */
 	volatile u_int		isp_mboxbsy;	/* mailbox command active */
 	volatile u_int		isp_state;
-	volatile mbreg_t	isp_curmbx;	/* currently active mailbox command */
 	volatile uint32_t	isp_reqodx;	/* index of last ISP pickup */
 	volatile uint32_t	isp_reqidx;	/* index of next request */
 	volatile uint32_t	isp_resodx;	/* index of next result */
@@ -478,7 +471,6 @@ struct ispsoftc {
 	volatile uint32_t	isp_obits;	/* mailbox command output */
 	volatile uint32_t	isp_serno;	/* rolling serial number */
 	volatile uint16_t	isp_mboxtmp[MAX_MAILBOX];
-	volatile uint16_t	isp_lastmbxcmd;	/* last mbox command sent */
 	volatile uint16_t	isp_seqno;	/* running sequence number */
 	u_int			isp_rqovf;	/* request queue overflow */
 
@@ -508,7 +500,7 @@ struct ispsoftc {
 #endif
 };
 
-#define	FCPARAM(isp, chan)	(&((fcparam *)(isp)->isp_param)[(chan)])
+#define	FCPARAM(isp, chan)	(&(isp)->isp_param[(chan)])
 
 #define	ISP_SET_SENDMARKER(isp, chan, val)	\
     FCPARAM(isp, chan)->sendmarker = val	\
@@ -707,6 +699,8 @@ void isp_done(XS_T *);
  *        Send a LIP on this channel
  * ... ISPCTL_GET_NAMES, int channel, int np, uint64_t *wwnn, uint64_t *wwpn)
  *        Get a WWNN/WWPN for this N-port handle on this channel
+ * ... ISPCTL_RUN_MBOXCMD, mbreg_t *mbp)
+ *        Run this mailbox command
  * ... ISPCTL_GET_PDB, int channel, int nphandle, isp_pdb_t *pdb)
  *        Get PDB on this channel for this N-port handle
  * ... ISPCTL_PLOGX, isp_plcmd_t *)
@@ -732,6 +726,7 @@ typedef enum {
 	ISPCTL_PDB_SYNC,
 	ISPCTL_SEND_LIP,
 	ISPCTL_GET_NAMES,
+	ISPCTL_RUN_MBOXCMD,
 	ISPCTL_GET_PDB,
 	ISPCTL_PLOGX,
 	ISPCTL_CHANGE_ROLE
@@ -743,7 +738,6 @@ int isp_control(ispsoftc_t *, ispctl_t, ...);
  */
 
 typedef enum {
-	ISPASYNC_BUS_RESET,		/* All Bus Was Reset */
 	ISPASYNC_LOOP_DOWN,		/* FC Loop Down */
 	ISPASYNC_LOOP_UP,		/* FC Loop Up */
 	ISPASYNC_LIP,			/* FC LIP Received */
@@ -830,11 +824,6 @@ void isp_async(ispsoftc_t *, ispasync_t, ...);
  *		Function/Macro the provides memory synchronization on
  *		various objects so that the ISP's and the system's view
  *		of the same object is consistent.
- *
- *	MBOX_ACQUIRE(ispsoftc_t *)		acquire lock on mailbox regs
- *	MBOX_WAIT_COMPLETE(ispsoftc_t *, mbreg_t *) wait for cmd to be done
- *	MBOX_NOTIFY_COMPLETE(ispsoftc_t *)	notification of mbox cmd donee
- *	MBOX_RELEASE(ispsoftc_t *)		release lock on mailbox regs
  *
  *	FC_SCRATCH_ACQUIRE(ispsoftc_t *, chan)	acquire lock on FC scratch area
  *						return -1 if you cannot
@@ -950,11 +939,6 @@ int isp_notify_ack(ispsoftc_t *, void *);
  * This function externalized acknowledging (success/fail) an ABTS frame
  */
 int isp_acknak_abts(ispsoftc_t *, void *, int);
-
-/*
- * General request queue 'put' routine for target mode entries.
- */
-int isp_target_put_entry(ispsoftc_t *isp, void *);
 
 /*
  * General routine to send a final CTIO for a command- used mostly for
