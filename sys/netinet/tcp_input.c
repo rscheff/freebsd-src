@@ -2562,6 +2562,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					tp->t_dupacks = 0;
 				else if (++tp->t_dupacks > tcprexmtthresh ||
 				     IN_FASTRECOVERY(tp->t_flags)) {
+				        if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					    log(LOG_CRIT, ">dupthresh: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
 					cc_ack_received(tp, th, nsegs,
 					    CC_DUPACK);
 					if (V_tcp_do_prr &&
@@ -2638,6 +2640,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh) {
+					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					    log(LOG_CRIT, "==dupthresh: %d dupacks\n", tp->t_dupacks);
 					tcp_seq onxt = tp->snd_nxt;
 
 					/*
@@ -2770,6 +2774,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			    (to.to_flags & TOF_SACK) &&
 			    sack_changed)
 				tp->t_dupacks++;
+			if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+				log(LOG_CRIT, "full ack+sack: %d dupacks\n", tp->t_dupacks);
 		}
 
 		KASSERT(SEQ_GT(th->th_ack, tp->snd_una),
