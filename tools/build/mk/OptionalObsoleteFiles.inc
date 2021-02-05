@@ -3793,7 +3793,7 @@ OLD_LIBS+=${DEBUG_LIB32_LIBS}
 .  endif
 .endif
 
-.if ${MK_LIBCPLUSPLUS} == no
+.if ${MK_CXX} == no
 OLD_LIBS+=lib/libcxxrt.so.1
 OLD_FILES+=usr/lib/libc++.a
 OLD_FILES+=usr/lib/libc++_p.a
@@ -5936,14 +5936,6 @@ OLD_FILES+=usr/share/man/man8/makewhatis.local.8.gz
 OLD_FILES+=usr/share/man/man8/manctl.8.gz
 OLD_FILES+=usr/share/man/whatis
 OLD_FILES+=usr/share/openssl/man/whatis
-.endif
-
-.if ${MK_NDIS} == no
-OLD_FILES+=usr/sbin/ndiscvt
-OLD_FILES+=usr/sbin/ndisgen
-OLD_FILES+=usr/share/man/man8/ndiscvt.8.gz
-OLD_FILES+=usr/share/man/man8/ndisgen.8.gz
-OLD_FILES+=usr/share/misc/windrv_stub.c
 .endif
 
 .if ${MK_NETCAT} == no

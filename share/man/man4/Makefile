@@ -325,7 +325,6 @@ MAN=	aac.4 \
 	mx25l.4 \
 	mxge.4 \
 	my.4 \
-	${_ndis.4} \
 	net80211.4 \
 	netdump.4 \
 	netfpga10g_nf10bmac.4 \
@@ -394,6 +393,7 @@ MAN=	aac.4 \
 	ng_uni.4 \
 	ng_vjc.4 \
 	ng_vlan.4 \
+	ng_vlan_rotate.4 \
 	nmdm.4 \
 	${_ntb.4} \
 	${_ntb_hw_amd.4} \
@@ -584,6 +584,7 @@ MAN=	aac.4 \
 	vtnet.4 \
 	watchdog.4 \
 	${_wbwd.4} \
+	wg.4 \
 	witness.4 \
 	wlan.4 \
 	wlan_acl.4 \
@@ -715,7 +716,6 @@ MLINKS+=msk.4 if_msk.4
 MLINKS+=mwl.4 if_mwl.4
 MLINKS+=mxge.4 if_mxge.4
 MLINKS+=my.4 if_my.4
-MLINKS+=${_ndis.4} ${_if_ndis.4}
 MLINKS+=netfpga10g_nf10bmac.4 if_nf10bmac.4
 MLINKS+=netintro.4 net.4 \
 	netintro.4 networking.4
@@ -815,7 +815,6 @@ _hwpstate_intel.4=	hwpstate_intel.4
 _i8254.4=	i8254.4
 _ichwd.4=	ichwd.4
 _if_bxe.4=	if_bxe.4
-_if_ndis.4=	if_ndis.4
 _if_nfe.4=	if_nfe.4
 _if_urtw.4=	if_urtw.4
 _if_vmx.4=	if_vmx.4
@@ -826,7 +825,6 @@ _io.4=		io.4
 _itwd.4=	itwd.4
 _linux.4=	linux.4
 _nda.4=		nda.4
-_ndis.4=	ndis.4
 _nfe.4=		nfe.4
 _nfsmb.4=	nfsmb.4
 _if_ntb.4=	if_ntb.4
