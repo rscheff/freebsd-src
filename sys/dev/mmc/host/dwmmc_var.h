@@ -39,6 +39,8 @@
 #include <dev/extres/regulator/regulator.h>
 #endif
 
+#include "opt_mmccam.h"
+
 enum {
 	HWTYPE_NONE,
 	HWTYPE_ALTERA,
@@ -52,15 +54,22 @@ struct dwmmc_softc {
 	device_t		dev;
 	void			*intr_cookie;
 	struct mmc_host		host;
+	struct mmc_fdt_helper	mmc_helper;
 	struct mtx		sc_mtx;
+#ifdef MMCCAM
+	union ccb *		ccb;
+	struct cam_devq *	devq;
+	struct cam_sim * 	sim;
+	struct mtx		sim_mtx;
+#else
 	struct mmc_request	*req;
+#endif
 	struct mmc_command	*curcmd;
 	uint32_t		flags;
 	uint32_t		hwtype;
 	uint32_t		use_auto_stop;
 	uint32_t		use_pio;
 	uint32_t		pwren_inverted;
-	u_int			desc_count;
 	device_t		child;
 	struct task		card_task;	/* Card presence check task */
 	struct timeout_task	card_delayed_task;/* Card insert delayed task */

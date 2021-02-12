@@ -52,6 +52,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/sysproto.h>
+#include <sys/abi_compat.h>
 #include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
@@ -186,13 +187,13 @@ struct sem_undo {
 #define	SEM_ALIGN(bytes) roundup2(bytes, sizeof(long))
 
 /* actual size of an undo structure */
-#define SEMUSZ	SEM_ALIGN(offsetof(struct sem_undo, un_ent[SEMUME]))
+#define SEMUSZ(x)	SEM_ALIGN(offsetof(struct sem_undo, un_ent[(x)]))
 
 /*
  * Macro to find a particular sem_undo vector
  */
 #define SEMU(ix) \
-	((struct sem_undo *)(((intptr_t)semu)+ix * seminfo.semusz))
+	((struct sem_undo *)(((intptr_t)semu) + (ix) * seminfo.semusz))
 
 /*
  * semaphore info struct
@@ -204,7 +205,7 @@ struct seminfo seminfo = {
 	.semmsl =	SEMMSL,	/* max # of semaphores per id */
 	.semopm =	SEMOPM,	/* max # of operations per semop call */
 	.semume =	SEMUME,	/* max # of undo entries per process */
-	.semusz =	SEMUSZ,	/* size in bytes of undo structure */
+	.semusz =	SEMUSZ(SEMUME),	/* size in bytes of undo structure */
 	.semvmx =	SEMVMX,	/* semaphore maximum value */
 	.semaem =	SEMAEM,	/* adjust on exit max value */
 };
@@ -221,7 +222,7 @@ SYSCTL_INT(_kern_ipc, OID_AUTO, semopm, CTLFLAG_RDTUN, &seminfo.semopm, 0,
     "Max operations per semop call");
 SYSCTL_INT(_kern_ipc, OID_AUTO, semume, CTLFLAG_RDTUN, &seminfo.semume, 0,
     "Max undo entries per process");
-SYSCTL_INT(_kern_ipc, OID_AUTO, semusz, CTLFLAG_RDTUN, &seminfo.semusz, 0,
+SYSCTL_INT(_kern_ipc, OID_AUTO, semusz, CTLFLAG_RD, &seminfo.semusz, 0,
     "Size in bytes of undo structure");
 SYSCTL_INT(_kern_ipc, OID_AUTO, semvmx, CTLFLAG_RWTUN, &seminfo.semvmx, 0,
     "Semaphore maximum value");
@@ -283,6 +284,7 @@ seminit(void)
 	    M_WAITOK | M_ZERO);
 	sema_mtx = malloc(sizeof(struct mtx) * seminfo.semmni, M_SEM,
 	    M_WAITOK | M_ZERO);
+	seminfo.semusz = SEMUSZ(seminfo.semume);
 	semu = malloc(seminfo.semmnu * seminfo.semusz, M_SEM, M_WAITOK);
 
 	for (i = 0; i < seminfo.semmni; i++) {
@@ -319,7 +321,7 @@ seminit(void)
 		if (rsv == NULL)
 			rsv = osd_reserve(sem_prison_slot);
 		prison_lock(pr);
-		if ((pr->pr_allow & PR_ALLOW_SYSVIPC) && pr->pr_ref > 0) {
+		if (prison_isvalid(pr) && (pr->pr_allow & PR_ALLOW_SYSVIPC)) {
 			(void)osd_jail_set_reserved(pr, sem_prison_slot, rsv,
 			    &prison0);
 			rsv = NULL;
@@ -380,8 +382,6 @@ sysvsem_modload(struct module *module, int cmd, void *arg)
 	switch (cmd) {
 	case MOD_LOAD:
 		error = seminit();
-		if (error != 0)
-			semunload();
 		break;
 	case MOD_UNLOAD:
 		error = semunload();
@@ -797,6 +797,13 @@ kern_semctl(struct thread *td, int semid, int semnum, int cmd,
 		bcopy(&semakptr->u, arg->buf, sizeof(struct semid_ds));
 		if (cred->cr_prison != semakptr->cred->cr_prison)
 			arg->buf->sem_perm.key = IPC_PRIVATE;
+
+		/*
+		 * Try to hide the fact that the structure layout is shared by
+		 * both the kernel and userland.  This pointer is not useful to
+		 * userspace.
+		 */
+		arg->buf->__sem_base = NULL;
 		break;
 
 	case GETNCNT:
@@ -1751,10 +1758,6 @@ sys_semsys(td, uap)
 	error = (*semcalls[uap->which])(td, &uap->a2);
 	return (error);
 }
-
-#ifndef CP
-#define CP(src, dst, fld)	do { (dst).fld = (src).fld; } while (0)
-#endif
 
 #ifndef _SYS_SYSPROTO_H_
 struct freebsd7___semctl_args {

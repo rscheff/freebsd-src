@@ -380,7 +380,6 @@ vr_miibus_statchg(device_t dev)
 	}
 }
 
-
 static void
 vr_cam_mask(struct vr_softc *sc, uint32_t mask, int type)
 {
@@ -626,8 +625,8 @@ vr_attach(device_t dev)
 	callout_init_mtx(&sc->vr_stat_callout, &sc->vr_mtx, 0);
 	SYSCTL_ADD_PROC(device_get_sysctl_ctx(dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)),
-	    OID_AUTO, "stats", CTLTYPE_INT | CTLFLAG_RW, sc, 0,
-	    vr_sysctl_stats, "I", "Statistics");
+	    OID_AUTO, "stats", CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+	    sc, 0, vr_sysctl_stats, "I", "Statistics");
 
 	error = 0;
 

@@ -191,7 +191,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_var.h>
 #include <netinet/tcp_fastopen.h>
 
-
 #define	TCP_FASTOPEN_KEY_LEN	SIPHASH_KEY_LENGTH
 
 #if TCP_FASTOPEN_PSK_LEN != TCP_FASTOPEN_KEY_LEN
@@ -255,7 +254,8 @@ static void tcp_fastopen_ccache_bucket_trim(struct tcp_fastopen_ccache_bucket *,
 static void tcp_fastopen_ccache_entry_drop(struct tcp_fastopen_ccache_entry *,
     struct tcp_fastopen_ccache_bucket *);
 
-SYSCTL_NODE(_net_inet_tcp, OID_AUTO, fastopen, CTLFLAG_RW, 0, "TCP Fast Open");
+SYSCTL_NODE(_net_inet_tcp, OID_AUTO, fastopen, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "TCP Fast Open");
 
 VNET_DEFINE_STATIC(int, tcp_fastopen_acceptany) = 0;
 #define	V_tcp_fastopen_acceptany	VNET(tcp_fastopen_acceptany)
@@ -267,14 +267,14 @@ VNET_DEFINE_STATIC(unsigned int, tcp_fastopen_autokey) = 120;
 #define	V_tcp_fastopen_autokey	VNET(tcp_fastopen_autokey)
 static int sysctl_net_inet_tcp_fastopen_autokey(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, autokey,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_autokey, "IU",
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_autokey, "IU",
     "Number of seconds between auto-generation of a new key; zero disables");
 
 static int sysctl_net_inet_tcp_fastopen_ccache_bucket_limit(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, ccache_bucket_limit,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RWTUN, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_ccache_bucket_limit, "IU",
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RWTUN | CTLFLAG_NEEDGIANT,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_ccache_bucket_limit, "IU",
     "Max entries per bucket in client cookie cache");
 
 VNET_DEFINE_STATIC(unsigned int, tcp_fastopen_ccache_buckets) =
@@ -287,8 +287,8 @@ SYSCTL_UINT(_net_inet_tcp_fastopen, OID_AUTO, ccache_buckets,
 VNET_DEFINE(unsigned int, tcp_fastopen_client_enable) = 1;
 static int sysctl_net_inet_tcp_fastopen_client_enable(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, client_enable,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_client_enable, "IU",
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_client_enable, "IU",
     "Enable/disable TCP Fast Open client functionality");
 
 SYSCTL_INT(_net_inet_tcp_fastopen, OID_AUTO, keylen,
@@ -326,33 +326,33 @@ VNET_DEFINE_STATIC(unsigned int, tcp_fastopen_psk_enable) = 0;
 #define	V_tcp_fastopen_psk_enable	VNET(tcp_fastopen_psk_enable)
 static int sysctl_net_inet_tcp_fastopen_psk_enable(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, psk_enable,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_psk_enable, "IU",
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_psk_enable, "IU",
     "Enable/disable TCP Fast Open server pre-shared key mode");
 
 VNET_DEFINE(unsigned int, tcp_fastopen_server_enable) = 0;
 static int sysctl_net_inet_tcp_fastopen_server_enable(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, server_enable,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_server_enable, "IU",
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_server_enable, "IU",
     "Enable/disable TCP Fast Open server functionality");
 
 static int sysctl_net_inet_tcp_fastopen_setkey(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, setkey,
-    CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_WR, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_setkey, "",
+    CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_WR | CTLFLAG_MPSAFE,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_setkey, "",
     "Install a new key");
 
 static int sysctl_net_inet_tcp_fastopen_setpsk(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, setpsk,
-    CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_WR, NULL, 0,
-    &sysctl_net_inet_tcp_fastopen_setpsk, "",
+    CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_WR | CTLFLAG_MPSAFE,
+    NULL, 0, &sysctl_net_inet_tcp_fastopen_setpsk, "",
     "Install a new pre-shared key");
 
 static int sysctl_net_inet_tcp_fastopen_ccache_list(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, ccache_list,
-    CTLFLAG_VNET | CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_SKIP, NULL, 0,
-    sysctl_net_inet_tcp_fastopen_ccache_list, "A",
+    CTLFLAG_VNET | CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_SKIP | CTLFLAG_MPSAFE,
+    NULL, 0, sysctl_net_inet_tcp_fastopen_ccache_list, "A",
     "List of all client cookie cache entries");
 
 VNET_DEFINE_STATIC(struct rmlock, tcp_fastopen_keylock);
@@ -380,7 +380,6 @@ VNET_DEFINE_STATIC(struct tcp_fastopen_ccache, tcp_fastopen_ccache);
 #define	CCB_LOCK(ccb)		mtx_lock(&(ccb)->ccb_mtx)
 #define	CCB_UNLOCK(ccb)		mtx_unlock(&(ccb)->ccb_mtx)
 #define	CCB_LOCK_ASSERT(ccb)	mtx_assert(&(ccb)->ccb_mtx, MA_OWNED)
-
 
 void
 tcp_fastopen_init(void)
@@ -531,7 +530,6 @@ tcp_fastopen_autokey_callout(void *arg)
 		      tcp_fastopen_autokey_callout, ctx);
 	CURVNET_RESTORE();
 }
-
 
 static uint64_t
 tcp_fastopen_make_cookie(uint8_t key[SIPHASH_KEY_LENGTH], struct in_conninfo *inc)
@@ -823,7 +821,6 @@ sysctl_net_inet_tcp_fastopen_ccache_bucket_limit(SYSCTL_HANDLER_ARGS)
 			}
 			V_tcp_fastopen_ccache.bucket_limit = new;
 		}
-
 	}
 	return (error);
 }
@@ -1222,4 +1219,3 @@ sysctl_net_inet_tcp_fastopen_ccache_list(SYSCTL_HANDLER_ARGS)
 	sbuf_delete(&sb);
 	return (error);
 }
-

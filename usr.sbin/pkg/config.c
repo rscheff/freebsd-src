@@ -32,20 +32,20 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/queue.h>
-#include <sys/sbuf.h>
 #include <sys/utsname.h>
+#include <sys/sbuf.h>
 #include <sys/sysctl.h>
 
 #include <dirent.h>
 #include <ucl.h>
 #include <err.h>
 #include <errno.h>
+#include <libutil.h>
+#include <paths.h>
 #include <stdbool.h>
 #include <unistd.h>
 
 #include "config.h"
-
-#define roundup2(x, y)	(((x)+((y)-1))&(~((y)-1))) /* if y is powers of two */
 
 struct config_value {
        char *value;
@@ -168,7 +168,7 @@ pkg_get_myabi(char *dest, size_t sz)
 static void
 subst_packagesite(const char *abi)
 {
-	struct sbuf *newval;
+	char *newval;
 	const char *variable_string;
 	const char *oldval;
 
@@ -180,14 +180,14 @@ subst_packagesite(const char *abi)
 	if ((variable_string = strstr(oldval, "${ABI}")) == NULL)
 		return;
 
-	newval = sbuf_new_auto();
-	sbuf_bcat(newval, oldval, variable_string - oldval);
-	sbuf_cat(newval, abi);
-	sbuf_cat(newval, variable_string + strlen("${ABI}"));
-	sbuf_finish(newval);
+	asprintf(&newval, "%.*s%s%s",
+	    (int)(variable_string - oldval), oldval, abi,
+	    variable_string + strlen("${ABI}"));
+	if (newval == NULL)
+		errx(EXIT_FAILURE, "asprintf");
 
 	free(c[PACKAGESITE].value);
-	c[PACKAGESITE].value = strdup(sbuf_data(newval));
+	c[PACKAGESITE].value = newval;
 }
 
 static int
@@ -322,7 +322,7 @@ cleanup:
  * etc...
  */
 static void
-parse_repo_file(ucl_object_t *obj)
+parse_repo_file(ucl_object_t *obj, const char *requested_repo)
 {
 	ucl_object_iter_t it = NULL;
 	const ucl_object_t *cur;
@@ -337,13 +337,17 @@ parse_repo_file(ucl_object_t *obj)
 		if (cur->type != UCL_OBJECT)
 			continue;
 
+		if (requested_repo != NULL && strcmp(requested_repo, key) != 0)
+			continue;
+
 		config_parse(cur, CONFFILE_REPO);
 	}
 }
 
 
 static int
-read_conf_file(const char *confpath, pkg_conf_file_t conftype)
+read_conf_file(const char *confpath, const char *requested_repo,
+    pkg_conf_file_t conftype)
 {
 	struct ucl_parser *p;
 	ucl_object_t *obj = NULL;
@@ -367,7 +371,7 @@ read_conf_file(const char *confpath, pkg_conf_file_t conftype)
 		if (conftype == CONFFILE_PKG)
 			config_parse(obj, conftype);
 		else if (conftype == CONFFILE_REPO)
-			parse_repo_file(obj);
+			parse_repo_file(obj, requested_repo);
 	}
 
 	ucl_object_unref(obj);
@@ -377,7 +381,7 @@ read_conf_file(const char *confpath, pkg_conf_file_t conftype)
 }
 
 static int
-load_repositories(const char *repodir)
+load_repositories(const char *repodir, const char *requested_repo)
 {
 	struct dirent *ent;
 	DIR *d;
@@ -401,8 +405,10 @@ load_repositories(const char *repodir)
 			    repodir,
 			    repodir[strlen(repodir) - 1] == '/' ? "" : "/",
 			    ent->d_name);
-			if (access(path, F_OK) == 0 &&
-			    read_conf_file(path, CONFFILE_REPO)) {
+			if (access(path, F_OK) != 0)
+				continue;
+			if (read_conf_file(path, requested_repo,
+			    CONFFILE_REPO)) {
 				ret = 1;
 				goto cleanup;
 			}
@@ -416,7 +422,7 @@ cleanup:
 }
 
 int
-config_init(void)
+config_init(const char *requested_repo)
 {
 	char *val;
 	int i;
@@ -454,11 +460,10 @@ config_init(void)
 	}
 
 	/* Read LOCALBASE/etc/pkg.conf first. */
-	localbase = getenv("LOCALBASE") ? getenv("LOCALBASE") : _LOCALBASE;
-	snprintf(confpath, sizeof(confpath), "%s/etc/pkg.conf",
-	    localbase);
+	localbase = getlocalbase();
+	snprintf(confpath, sizeof(confpath), "%s/etc/pkg.conf", localbase);
 
-	if (access(confpath, F_OK) == 0 && read_conf_file(confpath,
+	if (access(confpath, F_OK) == 0 && read_conf_file(confpath, NULL,
 	    CONFFILE_PKG))
 		goto finalize;
 
@@ -476,7 +481,7 @@ config_init(void)
 	}
 
 	STAILQ_FOREACH(cv, c[REPOS_DIR].list, next)
-		if (load_repositories(cv->value))
+		if (load_repositories(cv->value, requested_repo))
 			goto finalize;
 
 finalize:

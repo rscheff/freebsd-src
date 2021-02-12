@@ -117,8 +117,6 @@ __FBSDID("$FreeBSD$");
 #include <ddb/ddb.h>
 #endif
 
-#include <machine/physmem.h>
-
 #include <vm/vm.h>
 #include <vm/uma.h>
 #include <vm/pmap.h>
@@ -1463,7 +1461,6 @@ pmap_kenter_temporary(vm_paddr_t pa, int i)
 	return ((void *)crashdumpmap);
 }
 
-
 /*************************************
  *
  *  TLB & cache maintenance routines.
@@ -1550,7 +1547,8 @@ pmap_pte2list_init(vm_offset_t *head, void *base, int npages)
  *
  *****************************************************************************/
 
-SYSCTL_NODE(_vm, OID_AUTO, pmap, CTLFLAG_RD, 0, "VM/pmap parameters");
+SYSCTL_NODE(_vm, OID_AUTO, pmap, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "VM/pmap parameters");
 
 SYSCTL_INT(_vm_pmap, OID_AUTO, pv_entry_max, CTLFLAG_RD, &pv_entry_max, 0,
     "Max number of PV entries");
@@ -1572,7 +1570,7 @@ pmap_ps_enabled(pmap_t pmap __unused)
 	return (sp_enabled != 0);
 }
 
-static SYSCTL_NODE(_vm_pmap, OID_AUTO, pte1, CTLFLAG_RD, 0,
+static SYSCTL_NODE(_vm_pmap, OID_AUTO, pte1, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "1MB page mapping counters");
 
 static u_long pmap_pte1_demotions;
@@ -2108,8 +2106,9 @@ kvm_size(SYSCTL_HANDLER_ARGS)
 
 	return (sysctl_handle_long(oidp, &ksize, 0, req));
 }
-SYSCTL_PROC(_vm, OID_AUTO, kvm_size, CTLTYPE_LONG|CTLFLAG_RD,
-    0, 0, kvm_size, "IU", "Size of KVM");
+SYSCTL_PROC(_vm, OID_AUTO, kvm_size,
+    CTLTYPE_LONG | CTLFLAG_RD | CTLFLAG_NEEDGIANT, 0, 0, kvm_size, "IU",
+    "Size of KVM");
 
 static int
 kvm_free(SYSCTL_HANDLER_ARGS)
@@ -2118,8 +2117,9 @@ kvm_free(SYSCTL_HANDLER_ARGS)
 
 	return (sysctl_handle_long(oidp, &kfree, 0, req));
 }
-SYSCTL_PROC(_vm, OID_AUTO, kvm_free, CTLTYPE_LONG|CTLFLAG_RD,
-    0, 0, kvm_free, "IU", "Amount of KVM free");
+SYSCTL_PROC(_vm, OID_AUTO, kvm_free,
+    CTLTYPE_LONG | CTLFLAG_RD | CTLFLAG_NEEDGIANT, 0, 0, kvm_free, "IU",
+    "Amount of KVM free");
 
 /***********************************************
  *
@@ -5736,7 +5736,6 @@ small_mappings:
 	rw_wunlock(&pvh_global_lock);
 }
 
-
 /*
  *  Sets the memory attribute for the specified page.
  */
@@ -6236,7 +6235,7 @@ pmap_mincore(pmap_t pmap, vm_offset_t addr, vm_paddr_t *pap)
 	if (pte1_is_section(pte1)) {
 		pa = trunc_page(pte1_pa(pte1) | (addr & PTE1_OFFSET));
 		managed = pte1_is_managed(pte1);
-		val = MINCORE_SUPER | MINCORE_INCORE;
+		val = MINCORE_PSIND(1) | MINCORE_INCORE;
 		if (pte1_is_dirty(pte1))
 			val |= MINCORE_MODIFIED | MINCORE_MODIFIED_OTHER;
 		if (pte1 & PTE1_A)
@@ -6307,7 +6306,6 @@ pmap_set_pcb_pagedir(pmap_t pmap, struct pcb *pcb)
 
 	pcb->pcb_pagedir = pmap_ttb_get(pmap);
 }
-
 
 /*
  *  Clean L1 data cache range by physical address.

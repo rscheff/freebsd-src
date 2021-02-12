@@ -221,6 +221,7 @@ kvm_proclist(kvm_t *kd, int what, int arg, struct proc *p,
 		kp->ki_tracep = proc.p_tracevp;
 		kp->ki_textvp = proc.p_textvp;
 		kp->ki_fd = proc.p_fd;
+		kp->ki_pd = proc.p_pd;
 		kp->ki_vmspace = proc.p_vmspace;
 		if (proc.p_sigacts != NULL) {
 			if (KREAD(kd, (u_long)proc.p_sigacts, &sigacts)) {
@@ -272,7 +273,7 @@ kvm_proclist(kvm_t *kd, int what, int arg, struct proc *p,
 			return (-1);
 		}
 		kp->ki_pgid = pgrp.pg_id;
-		kp->ki_jobc = pgrp.pg_jobc;
+		kp->ki_jobc = -1;	/* Or calculate?  Arguably not. */
 		if (KREAD(kd, (u_long)pgrp.pg_session, &sess)) {
 			_kvm_err(kd, kd->program, "can't read session at %p",
 				pgrp.pg_session);

@@ -63,6 +63,7 @@ __FBSDID("$FreeBSD$");
 #include <net/if_dl.h>
 #include <net/pfil.h>
 #include <net/route.h>
+#include <net/route/nhop.h>
 #include <net/netisr.h>
 #include <net/rss_config.h>
 #include <net/vnet.h>
@@ -72,6 +73,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in_systm.h>
 #include <netinet/in_var.h>
 #include <netinet/ip.h>
+#include <netinet/in_fib.h>
 #include <netinet/in_pcb.h>
 #include <netinet/ip_var.h>
 #include <netinet/ip_fw.h>
@@ -109,8 +111,11 @@ SYSCTL_INT(_net_inet_ip, IPCTL_FORWARDING, forwarding, CTLFLAG_VNET | CTLFLAG_RW
     &VNET_NAME(ipforwarding), 0,
     "Enable IP forwarding between interfaces");
 
-VNET_DEFINE_STATIC(int, ipsendredirects) = 1;	/* XXX */
-#define	V_ipsendredirects	VNET(ipsendredirects)
+/*
+ * Respond with an ICMP host redirect when we forward a packet out of
+ * the same interface on which it was received.  See RFC 792.
+ */
+VNET_DEFINE(int, ipsendredirects) = 1;
 SYSCTL_INT(_net_inet_ip, IPCTL_SENDREDIRECTS, redirect, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(ipsendredirects), 0,
     "Enable sending IP redirects");
@@ -230,7 +235,8 @@ sysctl_netinet_intr_queue_maxlen(SYSCTL_HANDLER_ARGS)
 	return (netisr_setqlimit(&ip_nh, qlimit));
 }
 SYSCTL_PROC(_net_inet_ip, IPCTL_INTRQMAXLEN, intr_queue_maxlen,
-    CTLTYPE_INT|CTLFLAG_RW, 0, 0, sysctl_netinet_intr_queue_maxlen, "I",
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE, 0, 0,
+    sysctl_netinet_intr_queue_maxlen, "I",
     "Maximum size of the IP input queue");
 
 static int
@@ -251,7 +257,8 @@ sysctl_netinet_intr_queue_drops(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_ip, IPCTL_INTRQDROPS, intr_queue_drops,
-    CTLTYPE_INT|CTLFLAG_RD, 0, 0, sysctl_netinet_intr_queue_drops, "I",
+    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
+    0, 0, sysctl_netinet_intr_queue_drops, "I",
     "Number of packets dropped from the IP input queue");
 
 #ifdef	RSS
@@ -269,7 +276,8 @@ sysctl_netinet_intr_direct_queue_maxlen(SYSCTL_HANDLER_ARGS)
 	return (netisr_setqlimit(&ip_direct_nh, qlimit));
 }
 SYSCTL_PROC(_net_inet_ip, IPCTL_INTRDQMAXLEN, intr_direct_queue_maxlen,
-    CTLTYPE_INT|CTLFLAG_RW, 0, 0, sysctl_netinet_intr_direct_queue_maxlen,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    0, 0, sysctl_netinet_intr_direct_queue_maxlen,
     "I", "Maximum size of the IP direct input queue");
 
 static int
@@ -290,7 +298,8 @@ sysctl_netinet_intr_direct_queue_drops(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_ip, IPCTL_INTRDQDROPS, intr_direct_queue_drops,
-    CTLTYPE_INT|CTLFLAG_RD, 0, 0, sysctl_netinet_intr_direct_queue_drops, "I",
+    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE, 0, 0,
+    sysctl_netinet_intr_direct_queue_drops, "I",
     "Number of packets dropped from the IP direct input queue");
 #endif	/* RSS */
 
@@ -565,7 +574,7 @@ tooshort:
 	 * case skip another inbound firewall processing and update
 	 * ip pointer.
 	 */
-	if (V_ipforwarding != 0 && V_ipsendredirects == 0
+	if (V_ipforwarding != 0
 #if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	    && (!IPSEC_ENABLED(ipv4) ||
 	    IPSEC_CAPS(ipv4, m, IPSEC_CAP_OPERABLE) == 0)
@@ -948,6 +957,7 @@ ip_forward(struct mbuf *m, int srcrt)
 	struct sockaddr_in *sin;
 	struct in_addr dest;
 	struct route ro;
+	uint32_t flowid;
 	int error, type = 0, code = 0, mtu = 0;
 
 	NET_EPOCH_ASSERT();
@@ -971,15 +981,10 @@ ip_forward(struct mbuf *m, int srcrt)
 	sin->sin_family = AF_INET;
 	sin->sin_len = sizeof(*sin);
 	sin->sin_addr = ip->ip_dst;
-#ifdef RADIX_MPATH
-	rtalloc_mpath_fib(&ro,
-	    ntohl(ip->ip_src.s_addr ^ ip->ip_dst.s_addr),
-	    M_GETFIB(m));
-#else
-	in_rtalloc_ign(&ro, 0, M_GETFIB(m));
-#endif
-	if (ro.ro_rt != NULL) {
-		ia = ifatoia(ro.ro_rt->rt_ifa);
+	flowid = m->m_pkthdr.flowid;
+	ro.ro_nh = fib4_lookup(M_GETFIB(m), ip->ip_dst, 0, NHR_REF, flowid);
+	if (ro.ro_nh != NULL) {
+		ia = ifatoia(ro.ro_nh->nh_ifa);
 	} else
 		ia = NULL;
 	/*
@@ -1022,6 +1027,7 @@ ip_forward(struct mbuf *m, int srcrt)
 	if (IPSEC_ENABLED(ipv4)) {
 		if ((error = IPSEC_FORWARD(ipv4, m)) != 0) {
 			/* mbuf consumed by IPsec */
+			RO_NHFREE(&ro);
 			m_freem(mcopy);
 			if (error != EINPROGRESS)
 				IPSTAT_INC(ips_cantforward);
@@ -1041,19 +1047,18 @@ ip_forward(struct mbuf *m, int srcrt)
 	dest.s_addr = 0;
 	if (!srcrt && V_ipsendredirects &&
 	    ia != NULL && ia->ia_ifp == m->m_pkthdr.rcvif) {
-		struct rtentry *rt;
+		struct nhop_object *nh;
 
-		rt = ro.ro_rt;
+		nh = ro.ro_nh;
 
-		if (rt && (rt->rt_flags & (RTF_DYNAMIC|RTF_MODIFIED)) == 0 &&
-		    satosin(rt_key(rt))->sin_addr.s_addr != 0) {
-#define	RTA(rt)	((struct in_ifaddr *)(rt->rt_ifa))
+		if (nh != NULL && ((nh->nh_flags & (NHF_REDIRECT|NHF_DEFAULT)) == 0)) {
+			struct in_ifaddr *nh_ia = (struct in_ifaddr *)(nh->nh_ifa);
 			u_long src = ntohl(ip->ip_src.s_addr);
 
-			if (RTA(rt) &&
-			    (src & RTA(rt)->ia_subnetmask) == RTA(rt)->ia_subnet) {
-				if (rt->rt_flags & RTF_GATEWAY)
-					dest.s_addr = satosin(rt->rt_gateway)->sin_addr.s_addr;
+			if (nh_ia != NULL &&
+			    (src & nh_ia->ia_subnetmask) == nh_ia->ia_subnet) {
+				if (nh->nh_flags & NHF_GATEWAY)
+					dest.s_addr = nh->gw4_sa.sin_addr.s_addr;
 				else
 					dest.s_addr = ip->ip_dst.s_addr;
 				/* Router requirements says to only send host redirects */
@@ -1065,9 +1070,9 @@ ip_forward(struct mbuf *m, int srcrt)
 
 	error = ip_output(m, NULL, &ro, IP_FORWARDING, NULL, NULL);
 
-	if (error == EMSGSIZE && ro.ro_rt)
-		mtu = ro.ro_rt->rt_mtu;
-	RO_RTFREE(&ro);
+	if (error == EMSGSIZE && ro.ro_nh)
+		mtu = ro.ro_nh->nh_mtu;
+	RO_NHFREE(&ro);
 
 	if (error)
 		IPSTAT_INC(ips_cantforward);
@@ -1084,9 +1089,7 @@ ip_forward(struct mbuf *m, int srcrt)
 	if (mcopy == NULL)
 		return;
 
-
 	switch (error) {
-
 	case 0:				/* forwarded, but need redirect */
 		/* type, code set above */
 		break;
@@ -1163,7 +1166,7 @@ ip_savecontrol(struct inpcb *inp, struct mbuf **mp, struct ip *ip,
 	}
 	if (CHECK_SO_CT(inp->inp_socket, SO_TS_REALTIME_MICRO)) {
 		struct bintime boottimebin, bt1;
-		struct timespec ts1;;
+		struct timespec ts1;
 		struct timeval tv;
 
 		if ((m->m_flags & (M_PKTHDR | M_TSTMP)) == (M_PKTHDR |

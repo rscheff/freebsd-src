@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -177,13 +177,12 @@
 #define ACPI_SIG_TCPA           "TCPA"      /* Trusted Computing Platform Alliance table */
 #define ACPI_SIG_TPM2           "TPM2"      /* Trusted Platform Module 2.0 H/W interface table */
 #define ACPI_SIG_UEFI           "UEFI"      /* Uefi Boot Optimization Table */
-#define ACPI_SIG_VRTC           "VRTC"      /* Virtual Real Time Clock Table */
 #define ACPI_SIG_WAET           "WAET"      /* Windows ACPI Emulated devices Table */
 #define ACPI_SIG_WDAT           "WDAT"      /* Watchdog Action Table */
 #define ACPI_SIG_WDDT           "WDDT"      /* Watchdog Timer Description Table */
 #define ACPI_SIG_WDRT           "WDRT"      /* Watchdog Resource Table */
 #define ACPI_SIG_WPBT           "WPBT"      /* Windows Platform Binary Table */
-#define ACPI_SIG_WSMT           "WSMT"      /* Windows SMM Security Migrations Table */
+#define ACPI_SIG_WSMT           "WSMT"      /* Windows SMM Security Mitigations Table */
 #define ACPI_SIG_XENV           "XENV"      /* Xen Environment table */
 #define ACPI_SIG_XXXX           "XXXX"      /* Intermediate AML header for ASL/ASL+ converter */
 
@@ -685,33 +684,6 @@ typedef struct acpi_table_uefi
 
 /*******************************************************************************
  *
- * VRTC - Virtual Real Time Clock Table
- *        Version 1
- *
- * Conforms to "Simple Firmware Interface Specification",
- * Draft 0.8.2, Oct 19, 2010
- * NOTE: The ACPI VRTC is equivalent to The SFI MRTC table.
- *
- ******************************************************************************/
-
-typedef struct acpi_table_vrtc
-{
-    ACPI_TABLE_HEADER       Header;             /* Common ACPI table header */
-
-} ACPI_TABLE_VRTC;
-
-/* VRTC entry */
-
-typedef struct acpi_vrtc_entry
-{
-    ACPI_GENERIC_ADDRESS    PhysicalAddress;
-    UINT32                  Irq;
-
-} ACPI_VRTC_ENTRY;
-
-
-/*******************************************************************************
- *
  * WAET - Windows ACPI Emulated devices Table
  *        Version 1
  *
@@ -904,10 +876,10 @@ typedef struct acpi_table_wpbt
 
 /*******************************************************************************
  *
- * WSMT - Windows SMM Security Migrations Table
+ * WSMT - Windows SMM Security Mitigations Table
  *        Version 1
  *
- * Conforms to "Windows SMM Security Migrations Table",
+ * Conforms to "Windows SMM Security Mitigations Table",
  * Version 1.0, April 18, 2016
  *
  ******************************************************************************/

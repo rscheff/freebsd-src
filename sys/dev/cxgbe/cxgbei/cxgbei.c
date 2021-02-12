@@ -223,8 +223,8 @@ cxgbei_init(struct adapter *sc, struct cxgbei_data *ci)
 	oid = device_get_sysctl_tree(sc->dev);	/* dev.t5nex.X */
 	children = SYSCTL_CHILDREN(oid);
 
-	oid = SYSCTL_ADD_NODE(&ci->ctx, children, OID_AUTO, "iscsi", CTLFLAG_RD,
-	    NULL, "iSCSI ULP statistics");
+	oid = SYSCTL_ADD_NODE(&ci->ctx, children, OID_AUTO, "iscsi",
+	    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, "iSCSI ULP statistics");
 	children = SYSCTL_CHILDREN(oid);
 
 	SYSCTL_ADD_COUNTER_U64(&ci->ctx, children, OID_AUTO, "ddp_setup_ok",
@@ -715,6 +715,8 @@ stop_worker_threads(void)
 			cv_wait(&cwt->cwt_cv, &cwt->cwt_lock);
 		} while (cwt->cwt_state != CWT_STOPPED);
 		mtx_unlock(&cwt->cwt_lock);
+		mtx_destroy(&cwt->cwt_lock);
+		cv_destroy(&cwt->cwt_cv);
 	}
 	free(cwt_softc, M_CXGBE);
 }

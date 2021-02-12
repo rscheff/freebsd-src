@@ -88,18 +88,9 @@ EXTRA_PACKAGES+= ports.txz
 .if !defined(NOSRC)
 EXTRA_PACKAGES+= src.txz
 .endif
-.if !defined(NODOC)
-EXTRA_PACKAGES+= reldoc
-. if !defined(SVN) || empty(SVN)
-.  for S in svn svnlite
-.   for D in /usr/local/bin /usr/bin
-.    if(exists(${D}/${S}))
-SVN?=	${D}/${S}
-.    endif
-.   endfor
-.  endfor
-. endif
-.endif
+#.if !defined(NODOC)
+#EXTRA_PACKAGES+= reldoc
+#.endif
 
 RELEASE_TARGETS= ftp
 IMAGES=
@@ -128,9 +119,9 @@ CLEANFILES+=	${I}.xz
 CLEANFILES+=	pkg-stage
 .endif
 CLEANDIRS=	dist ftp disc1 bootonly dvd
-.if !defined(NODOC)
-CLEANDIRS+=    reldoc rdoc
-.endif
+#.if !defined(NODOC)
+#CLEANDIRS+=    reldoc rdoc
+#.endif
 beforeclean:
 	chflags -R noschg .
 .include <bsd.obj.mk>
@@ -170,29 +161,28 @@ ports.txz:
 	    --exclude 'usr/ports/INDEX*' --exclude work usr/ports | \
 	    ${XZ_CMD} > ${.OBJDIR}/ports.txz
 
-reldoc:
-	cd ${DOCDIR}/en_US.ISO8859-1/htdocs/releases/${REVISION}R && \
-	    env MAN4DIR=${WORLDDIR}/share/man/man4 \
-	    SVN=${SVN} \
-	    _BRANCH=${BRANCH} \
-	    ${MAKE} all install clean "FORMATS=html txt" \
-	    INSTALL_COMPRESSED='' URLS_ABSOLUTE=YES DOCDIR=${.OBJDIR}/rdoc \
-	    WEBDIR=${DOCDIR} DESTDIR=${.OBJDIR}/rdoc
-	mkdir -p reldoc
-.for i in hardware readme relnotes errata
-	ln -f ${.OBJDIR}/rdoc/${i:tl}.txt \
-		reldoc/${i:tu}.TXT
-	ln -f ${.OBJDIR}/rdoc/${i:tl}.html \
-		reldoc/${i:tu}.HTML
-.endfor
-	cp ${.OBJDIR}/rdoc/docbook.css \
-		reldoc/
+#reldoc:
+#	cd ${DOCDIR}/en_US.ISO8859-1/htdocs/releases/${REVISION}R && \
+#	    env MAN4DIR=${WORLDDIR}/share/man/man4 \
+#	    _BRANCH=${BRANCH} \
+#	    ${MAKE} all install clean "FORMATS=html txt" \
+#	    INSTALL_COMPRESSED='' URLS_ABSOLUTE=YES DOCDIR=${.OBJDIR}/rdoc \
+#	    WEBDIR=${DOCDIR} DESTDIR=${.OBJDIR}/rdoc
+#	mkdir -p reldoc
+#.for i in hardware readme relnotes errata
+#	ln -f ${.OBJDIR}/rdoc/${i:tl}.txt \
+#		reldoc/${i:tu}.TXT
+#	ln -f ${.OBJDIR}/rdoc/${i:tl}.html \
+#		reldoc/${i:tu}.HTML
+#.endfor
+#	cp ${.OBJDIR}/rdoc/docbook.css \
+#		reldoc/
 
 disc1: packagesystem
 # Install system
 	mkdir -p ${.TARGET}
 	cd ${WORLDDIR} && ${IMAKE} installkernel installworld distribution \
-	    DESTDIR=${.OBJDIR}/${.TARGET} MK_AMD=no MK_AT=no \
+	    DESTDIR=${.OBJDIR}/${.TARGET} MK_AT=no \
 	    MK_INSTALLLIB=no MK_LIB32=no MK_MAIL=no \
 	    MK_TOOLCHAIN=no MK_PROFILE=no \
 	    MK_RESCUE=no MK_DICT=no \
@@ -204,9 +194,9 @@ disc1: packagesystem
 	    do cp $${dist} ${.TARGET}/usr/freebsd-dist; \
 	done
 # Copy documentation, if generated
-.if !defined(NODOC)
-	cp reldoc/* ${.TARGET}
-.endif
+#.if !defined(NODOC)
+#	cp reldoc/* ${.TARGET}
+#.endif
 # Set up installation environment
 	ln -fs /tmp/bsdinstall_etc/resolv.conf ${.TARGET}/etc/resolv.conf
 	echo sendmail_enable=\"NONE\" > ${.TARGET}/etc/rc.conf
@@ -221,7 +211,7 @@ bootonly: packagesystem
 # Install system
 	mkdir -p ${.TARGET}
 	cd ${WORLDDIR} && ${IMAKE} installkernel installworld distribution \
-	    DESTDIR=${.OBJDIR}/${.TARGET} MK_AMD=no MK_AT=no \
+	    DESTDIR=${.OBJDIR}/${.TARGET} MK_AT=no \
 	    MK_GAMES=no \
 	    MK_INSTALLLIB=no MK_LIB32=no MK_MAIL=no \
 	    MK_TOOLCHAIN=no MK_PROFILE=no \
@@ -232,9 +222,9 @@ bootonly: packagesystem
 	mkdir -p ${.TARGET}/usr/freebsd-dist
 	cp MANIFEST ${.TARGET}/usr/freebsd-dist
 # Copy documentation, if generated
-.if !defined(NODOC)
-	cp reldoc/* ${.TARGET}
-.endif
+#.if !defined(NODOC)
+#	cp reldoc/* ${.TARGET}
+#.endif
 # Set up installation environment
 	ln -fs /tmp/bsdinstall_etc/resolv.conf ${.TARGET}/etc/resolv.conf
 	echo sendmail_enable=\"NONE\" > ${.TARGET}/etc/rc.conf
@@ -257,9 +247,9 @@ dvd: packagesystem
 	    do cp $${dist} ${.TARGET}/usr/freebsd-dist; \
 	done
 # Copy documentation, if generated
-.if !defined(NODOC)
-	cp reldoc/* ${.TARGET}
-.endif
+#.if !defined(NODOC)
+#	cp reldoc/* ${.TARGET}
+#.endif
 # Set up installation environment
 	ln -fs /tmp/bsdinstall_etc/resolv.conf ${.TARGET}/etc/resolv.conf
 	echo sendmail_enable=\"NONE\" > ${.TARGET}/etc/rc.conf
@@ -327,6 +317,7 @@ release-install:
 	mkdir -p ${DESTDIR}
 .endif
 	cp -a ftp ${DESTDIR}/
+.if !empty(IMAGES)
 .for I in ${IMAGES}
 	cp -p ${I} ${DESTDIR}/${OSRELEASE}-${I}
 . if defined(WITH_COMPRESSED_IMAGES) && !empty(WITH_COMPRESSED_IMAGES)
@@ -335,5 +326,7 @@ release-install:
 .endfor
 	cd ${DESTDIR} && sha512 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA512
 	cd ${DESTDIR} && sha256 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA256
+.endif
 
+.include "${.CURDIR}/Makefile.inc1"
 .include "${.CURDIR}/Makefile.vm"

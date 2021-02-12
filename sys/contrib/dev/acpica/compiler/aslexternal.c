@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -200,6 +200,14 @@ ExDoExternal (
 
 
     ExternType = AnMapObjTypeToBtype (ExternTypeOp);
+    if (ExternType != ACPI_BTYPE_METHOD)
+    {
+        /*
+         * If this is not a method, it has zero parameters this local variable
+         * is used only for methods
+         */
+        ParamCount = 0;
+    }
 
     /*
      * The parser allows optional parameter return types regardless of the

@@ -1,6 +1,5 @@
 /*-
  * Copyright (c) 2014 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Edward Tomasz Napierala under sponsorship
  * from the FreeBSD Foundation.
@@ -468,8 +467,9 @@ autofs_trigger_one(struct autofs_node *anp,
 
 	request_error = ar->ar_error;
 	if (request_error != 0) {
-		AUTOFS_WARN("request for %s completed with error %d",
-		    ar->ar_path, request_error);
+		AUTOFS_WARN("request for %s completed with error %d, "
+		    "pid %d (%s)", ar->ar_path, request_error,
+		    curproc->p_pid, curproc->p_comm);
 	}
 
 	wildcards = ar->ar_wildcards;
@@ -534,7 +534,6 @@ autofs_trigger(struct autofs_node *anp,
 			    "error %d", anp->an_retries, error);
 			anp->an_retries = 0;
 			return (error);
-
 		}
 		AUTOFS_DEBUG("trigger failed with error %d; will retry in "
 		    "%d seconds, %d attempts left", error, autofs_retry_delay,

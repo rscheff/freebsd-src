@@ -61,19 +61,14 @@ main() {
 			pkgdeps="runtime"
 			_descr="$(make -C ${srctree}/release/packages -f Makefile.package -V ${outname}_DESCR)"
 			;;
-		*_lib32_development)
-			outname="${outname%%_lib32_development}"
+		*_lib32_dev)
+			outname="${outname%%_lib32_dev}"
 			_descr="32-bit Libraries, Development Files"
 			pkgdeps="${outname}"
 			;;
-		*_lib32_debug)
-			outname="${outname%%_lib32_debug}"
+		*_lib32_dbg)
+			outname="${outname%%_lib32_dbg}"
 			_descr="32-bit Libraries, Debugging Symbols"
-			pkgdeps="${outname}"
-			;;
-		*_lib32_profile)
-			outname="${outname%%_lib32_profile}"
-			_descr="32-bit Libraries, Profiling"
 			pkgdeps="${outname}"
 			;;
 		*_lib32)
@@ -81,18 +76,13 @@ main() {
 			_descr="32-bit Libraries"
 			pkgdeps="${outname}"
 			;;
-		*_development)
-			outname="${outname%%_development}"
+		*_dev)
+			outname="${outname%%_dev}"
 			_descr="Development Files"
 			pkgdeps="${outname}"
 			;;
-		*_profile)
-			outname="${outname%%_profile}"
-			_descr="Profiling Libraries"
-			pkgdeps="${outname}"
-			;;
-		*_debug)
-			outname="${outname%%_debug}"
+		*_dbg)
+			outname="${outname%%_dbg}"
 			_descr="Debugging Symbols"
 			pkgdeps="${outname}"
 			;;
@@ -106,6 +96,8 @@ main() {
 	esac
 
 	outname="${outname%%_*}"
+
+	pkgdeps="$(echo ${pkgdeps} | tr '_' '-')"
 
 	desc="$(make -C ${srctree}/release/packages -f Makefile.package -V ${outname}_DESC)"
 	comment="$(make -C ${srctree}/release/packages -f Makefile.package -V ${outname}_COMMENT)"
@@ -154,6 +146,9 @@ EOF
 		-e "s/%COMMENT%/${comment}/" \
 		-e "s/%DESC%/${desc}/" \
 		-e "s/%CAP_MKDB_ENDIAN%/${cap_arg}/g" \
+		-e "s/%PKG_NAME_PREFIX%/${PKG_NAME_PREFIX}/" \
+		-e "s|%PKG_WWW%|${PKG_WWW}|" \
+		-e "s/%PKG_MAINTAINER%/${PKG_MAINTAINER}/" \
 		${uclfile}
 	return 0
 }

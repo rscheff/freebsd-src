@@ -893,7 +893,7 @@ ncl_write(struct vop_write_args *ap)
 	struct nfsmount *nmp = VFSTONFS(vp->v_mount);
 	daddr_t lbn;
 	int bcount, noncontig_write, obcount;
-	int bp_cached, n, on, error = 0, error1, wouldcommit;
+	int bp_cached, n, on, error = 0, error1, save2, wouldcommit;
 	size_t orig_resid, local_resid;
 	off_t orig_size, tmp_off;
 
@@ -985,6 +985,7 @@ ncl_write(struct vop_write_args *ap)
 	if (vn_rlimit_fsize(vp, uio, td))
 		return (EFBIG);
 
+	save2 = curthread_pflags2_set(TDP2_SBPAGES);
 	biosize = vp->v_bufobj.bo_bsize;
 	/*
 	 * Find all of this file's B_NEEDCOMMIT buffers.  If our writes
@@ -1023,7 +1024,7 @@ ncl_write(struct vop_write_args *ap)
 				error = ncl_vinvalbuf(vp, V_SAVE | ((ioflag &
 				    IO_VMIO) != 0 ? V_VMIO : 0), td, 1);
 				if (error != 0)
-					return (error);
+					goto out;
 				wouldcommit = biosize;
 			}
 		}
@@ -1063,6 +1064,7 @@ again:
 				NFSLOCKNODE(np);
 				np->n_size = uio->uio_offset + n;
 				np->n_flag |= NMODIFIED;
+				np->n_flag &= ~NVNSETSZSKIP;
 				vnode_pager_setsize(vp, np->n_size);
 				NFSUNLOCKNODE(np);
 
@@ -1092,6 +1094,7 @@ again:
 			if (uio->uio_offset + n > np->n_size) {
 				np->n_size = uio->uio_offset + n;
 				np->n_flag |= NMODIFIED;
+				np->n_flag &= ~NVNSETSZSKIP;
 				vnode_pager_setsize(vp, np->n_size);
 			}
 			NFSUNLOCKNODE(np);
@@ -1281,6 +1284,8 @@ again:
 		}
 	}
 
+out:
+	curthread_pflags2_restore(save2);
 	return (error);
 }
 
@@ -1572,7 +1577,7 @@ ncl_doio_directwrite(struct buf *bp)
 	if ((bp->b_flags & B_DIRECT) && bp->b_iocmd == BIO_WRITE) {
 		struct nfsnode *np = VTONFS(bp->b_vp);
 		NFSLOCKNODE(np);
-		if (NFSHASPNFS(VFSTONFS(vnode_mount(bp->b_vp)))) {
+		if (NFSHASPNFS(VFSTONFS(bp->b_vp->v_mount))) {
 			/*
 			 * Invalidate the attribute cache, since writes to a DS
 			 * won't update the size attribute.
@@ -1890,4 +1895,3 @@ ncl_meta_setsize(struct vnode *vp, struct thread *td, u_quad_t nsize)
 	}
 	return(error);
 }
-

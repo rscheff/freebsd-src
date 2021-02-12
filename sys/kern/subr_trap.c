@@ -59,7 +59,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/pmckern.h>
 #include <sys/proc.h>
 #include <sys/ktr.h>
-#include <sys/pioctl.h>
 #include <sys/ptrace.h>
 #include <sys/racct.h>
 #include <sys/resourcevar.h>
@@ -131,19 +130,6 @@ userret(struct thread *td, struct trapframe *frame)
 		PROC_UNLOCK(p);
 	}
 #endif
-#ifdef KTRACE
-	KTRUSERRET(td);
-#endif
-
-	td_softdep_cleanup(td);
-	MPASS(td->td_su == NULL);
-
-	/*
-	 * If this thread tickled GEOM, we need to wait for the giggling to
-	 * stop before we return to userland
-	 */
-	if (__predict_false(td->td_pflags & TDP_GEOM))
-		g_waitidle();
 
 	/*
 	 * Charge system time if profiling.
@@ -188,7 +174,7 @@ userret(struct thread *td, struct trapframe *frame)
 #ifdef EPOCH_TRACE
 		epoch_trace_list(curthread);
 #endif
-		KASSERT(1, ("userret: Returning with sleep disabled"));
+		KASSERT(0, ("userret: Returning with sleep disabled"));
 	}
 	KASSERT(td->td_pinned == 0 || (td->td_pflags & TDP_CALLCHAIN) != 0,
 	    ("userret: Returning with with pinned thread"));
@@ -196,8 +182,6 @@ userret(struct thread *td, struct trapframe *frame)
 	    ("userret: Returning with preallocated vnode"));
 	KASSERT((td->td_flags & (TDF_SBDRY | TDF_SEINTR | TDF_SERESTART)) == 0,
 	    ("userret: Returning with stop signals deferred"));
-	KASSERT(td->td_su == NULL,
-	    ("userret: Returning with SU cleanup request not handled"));
 	KASSERT(td->td_vslock_sz == 0,
 	    ("userret: Returning with vslock-wired space"));
 #ifdef VIMAGE
@@ -206,10 +190,6 @@ userret(struct thread *td, struct trapframe *frame)
 	    ("%s: Returning on td %p (pid %d, %s) with vnet %p set in %s",
 	    __func__, td, p->p_pid, td->td_name, curvnet,
 	    (td->td_vnet_lpush != NULL) ? td->td_vnet_lpush : "N/A"));
-#endif
-#ifdef RACCT
-	if (__predict_false(racct_enable && p->p_throttled != 0))
-		racct_proc_throttled(p);
 #endif
 }
 
@@ -224,6 +204,7 @@ ast(struct trapframe *framep)
 	struct thread *td;
 	struct proc *p;
 	int flags, sig;
+	bool resched_sigs;
 
 	td = curthread;
 	p = td->td_proc;
@@ -291,6 +272,16 @@ ast(struct trapframe *framep)
 #endif
 	}
 
+	td_softdep_cleanup(td);
+	MPASS(td->td_su == NULL);
+
+	/*
+	 * If this thread tickled GEOM, we need to wait for the giggling to
+	 * stop before we return to userland
+	 */
+	if (__predict_false(td->td_pflags & TDP_GEOM))
+		g_waitidle();
+
 #ifdef DIAGNOSTIC
 	if (p->p_numthreads == 1 && (flags & TDF_NEEDSIGCHK) == 0) {
 		PROC_LOCK(p);
@@ -326,31 +317,28 @@ ast(struct trapframe *framep)
 	if (flags & TDF_NEEDSIGCHK || p->p_pendingcnt > 0 ||
 	    !SIGISEMPTY(p->p_siglist)) {
 		sigfastblock_fetch(td);
-		if ((td->td_pflags & TDP_SIGFASTBLOCK) != 0 &&
-		    td->td_sigblock_val != 0) {
-			sigfastblock_setpend(td);
-			PROC_LOCK(p);
-			reschedule_signals(p, fastblock_mask,
-			    SIGPROCMASK_FASTBLK);
-			PROC_UNLOCK(p);
-		} else {
-			PROC_LOCK(p);
-			mtx_lock(&p->p_sigacts->ps_mtx);
-			while ((sig = cursig(td)) != 0) {
-				KASSERT(sig >= 0, ("sig %d", sig));
-				postsig(sig);
-			}
-			mtx_unlock(&p->p_sigacts->ps_mtx);
-			PROC_UNLOCK(p);
+		PROC_LOCK(p);
+		mtx_lock(&p->p_sigacts->ps_mtx);
+		while ((sig = cursig(td)) != 0) {
+			KASSERT(sig >= 0, ("sig %d", sig));
+			postsig(sig);
 		}
+		mtx_unlock(&p->p_sigacts->ps_mtx);
+		PROC_UNLOCK(p);
+		resched_sigs = true;
+	} else {
+		resched_sigs = false;
 	}
 
 	/*
 	 * Handle deferred update of the fast sigblock value, after
 	 * the postsig() loop was performed.
 	 */
-	if (td->td_pflags & TDP_SIGFASTPENDING)
-		sigfastblock_setpend(td);
+	sigfastblock_setpend(td, resched_sigs);
+
+#ifdef KTRACE
+	KTRUSERRET(td);
+#endif
 
 	/*
 	 * We need to check to see if we have to exit or wait due to a
@@ -366,6 +354,11 @@ ast(struct trapframe *framep)
 		td->td_pflags &= ~TDP_OLDMASK;
 		kern_sigprocmask(td, SIG_SETMASK, &td->td_oldsigmask, NULL, 0);
 	}
+
+#ifdef RACCT
+	if (__predict_false(racct_enable && p->p_throttled != 0))
+		racct_proc_throttled(p);
+#endif
 
 	userret(td, framep);
 }

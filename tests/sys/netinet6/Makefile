@@ -10,7 +10,12 @@ ATF_TESTS_SH=			\
 				mld \
 				scapyi386 \
 				redirect \
-				divert
+				divert \
+				forward6 \
+				output6 \
+				lpm6 \
+				fibs6
+TEST_METADATA.output6+=	required_programs="python"
 
 ${PACKAGE}FILES+=		exthdr.py
 ${PACKAGE}FILES+=		mld.py

@@ -139,6 +139,7 @@ static void ixgbe_if_update_admin_status(if_ctx_t ctx);
 static void ixgbe_if_vlan_register(if_ctx_t ctx, u16 vtag);
 static void ixgbe_if_vlan_unregister(if_ctx_t ctx, u16 vtag);
 static int  ixgbe_if_i2c_req(if_ctx_t ctx, struct ifi2creq *req);
+static bool ixgbe_if_needs_restart(if_ctx_t ctx, enum iflib_restart_event event);
 int ixgbe_intr(void *arg);
 
 /************************************************************************
@@ -273,6 +274,7 @@ static device_method_t ixgbe_if_methods[] = {
 	DEVMETHOD(ifdi_vlan_unregister, ixgbe_if_vlan_unregister),
 	DEVMETHOD(ifdi_get_counter, ixgbe_if_get_counter),
 	DEVMETHOD(ifdi_i2c_req, ixgbe_if_i2c_req),
+	DEVMETHOD(ifdi_needs_restart, ixgbe_if_needs_restart),
 #ifdef PCI_IOV
 	DEVMETHOD(ifdi_iov_init, ixgbe_if_iov_init),
 	DEVMETHOD(ifdi_iov_uninit, ixgbe_if_iov_uninit),
@@ -1235,6 +1237,25 @@ ixgbe_if_i2c_req(if_ctx_t ctx, struct ifi2creq *req)
 	return (0);
 } /* ixgbe_if_i2c_req */
 
+/* ixgbe_if_needs_restart - Tell iflib when the driver needs to be reinitialized
+ * @ctx: iflib context
+ * @event: event code to check
+ *
+ * Defaults to returning true for unknown events.
+ *
+ * @returns true if iflib needs to reinit the interface
+ */
+static bool
+ixgbe_if_needs_restart(if_ctx_t ctx __unused, enum iflib_restart_event event)
+{
+	switch (event) {
+	case IFLIB_RESTART_VLAN_CONFIG:
+		return (false);
+	default:
+		return (true);
+	}
+}
+
 /************************************************************************
  * ixgbe_add_media_types
  ************************************************************************/
@@ -2005,7 +2026,7 @@ ixgbe_if_msix_intr_assign(if_ctx_t ctx, int msix)
 
 		snprintf(buf, sizeof(buf), "rxq%d", i);
 		error = iflib_irq_alloc_generic(ctx, &rx_que->que_irq, rid,
-		    IFLIB_INTR_RX, ixgbe_msix_que, rx_que, rx_que->rxr.me, buf);
+		    IFLIB_INTR_RXTX, ixgbe_msix_que, rx_que, rx_que->rxr.me, buf);
 
 		if (error) {
 			device_printf(iflib_get_dev(ctx),

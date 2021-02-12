@@ -82,6 +82,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sdt.h>
 #include <sys/sx.h>
 #include <sys/sysctl.h>
+#include <sys/vnode.h>
 
 #include <security/mac/mac_framework.h>
 #include <security/mac/mac_internal.h>
@@ -103,7 +104,7 @@ SDT_PROBE_DEFINE1(mac, , policy, unregister,
 /*
  * Root sysctl node for all MAC and MAC policy controls.
  */
-SYSCTL_NODE(_security, OID_AUTO, mac, CTLFLAG_RW, 0,
+SYSCTL_NODE(_security, OID_AUTO, mac, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "TrustedBSD MAC policy controls");
 
 /*
@@ -118,10 +119,17 @@ SYSCTL_UINT(_security_mac, OID_AUTO, version, CTLFLAG_RD, &mac_version, 0,
     "");
 
 /*
- * Flags for inlined checks.
+ * Flags for inlined checks. Note this would be best hotpatched at runtime.
+ * The following is a band-aid.
+ *
+ * Use FPFLAG for hooks running in commonly executed paths and FPFLAG_RARE
+ * for the rest.
  */
 #define FPFLAG(f)	\
 bool __read_frequently mac_##f##_fp_flag
+
+#define FPFLAG_RARE(f)	\
+bool __read_mostly mac_##f##_fp_flag
 
 FPFLAG(priv_check);
 FPFLAG(priv_grant);
@@ -131,8 +139,15 @@ FPFLAG(vnode_check_stat);
 FPFLAG(vnode_check_read);
 FPFLAG(vnode_check_write);
 FPFLAG(vnode_check_mmap);
+FPFLAG_RARE(vnode_check_poll);
+FPFLAG_RARE(vnode_check_rename_from);
+FPFLAG_RARE(vnode_check_access);
+FPFLAG_RARE(vnode_check_readlink);
+FPFLAG_RARE(pipe_check_stat);
+FPFLAG_RARE(pipe_check_poll);
 
 #undef FPFLAG
+#undef FPFLAG_RARE
 
 /*
  * Labels consist of a indexed set of "slots", which are allocated policies
@@ -184,7 +199,7 @@ MALLOC_DEFINE(M_MACTEMP, "mactemp", "MAC temporary label storage");
  * The dynamic policy list is protected by two locks: modifying the list
  * requires both locks to be held exclusively.  One of the locks,
  * mac_policy_rm, is acquired over policy entry points that will never sleep;
- * the other, mac_policy_sx, is acquire over policy entry points that may
+ * the other, mac_policy_rms, is acquired over policy entry points that may
  * sleep.  The former category will be used when kernel locks may be held
  * over calls to the MAC Framework, during network processing in ithreads,
  * etc.  The latter will tend to involve potentially blocking memory
@@ -192,8 +207,7 @@ MALLOC_DEFINE(M_MACTEMP, "mactemp", "MAC temporary label storage");
  */
 #ifndef MAC_STATIC
 static struct rmlock mac_policy_rm;	/* Non-sleeping entry points. */
-static struct sx mac_policy_sx;		/* Sleeping entry points. */
-static struct rmslock mac_policy_rms;
+static struct rmslock mac_policy_rms;	/* Sleeping entry points. */
 #endif
 
 struct mac_policy_list_head mac_policy_list;
@@ -266,7 +280,6 @@ mac_policy_xlock(void)
 	if (!mac_late)
 		return;
 
-	sx_xlock(&mac_policy_sx);
 	rms_wlock(&mac_policy_rms);
 	rm_wlock(&mac_policy_rm);
 #endif
@@ -282,7 +295,6 @@ mac_policy_xunlock(void)
 
 	rm_wunlock(&mac_policy_rm);
 	rms_wunlock(&mac_policy_rms);
-	sx_xunlock(&mac_policy_sx);
 #endif
 }
 
@@ -294,8 +306,7 @@ mac_policy_xlock_assert(void)
 	if (!mac_late)
 		return;
 
-	/* XXXRW: rm_assert(&mac_policy_rm, RA_WLOCKED); */
-	sx_assert(&mac_policy_sx, SA_XLOCKED);
+	rm_assert(&mac_policy_rm, RA_WLOCKED);
 #endif
 }
 
@@ -313,7 +324,6 @@ mac_init(void)
 #ifndef MAC_STATIC
 	rm_init_flags(&mac_policy_rm, "mac_policy_rm", RM_NOWITNESS |
 	    RM_RECURSE);
-	sx_init_flags(&mac_policy_sx, "mac_policy_sx", SX_NOWITNESS);
 	rms_init(&mac_policy_rms, "mac_policy_rms");
 #endif
 }
@@ -391,6 +401,8 @@ mac_policy_update(void)
 		mac_labeled |= mac_policy_getlabeled(mpc);
 		mac_policy_count++;
 	}
+
+	cache_fast_lookup_enabled_recalc();
 }
 
 /*
@@ -411,6 +423,8 @@ struct mac_policy_fastpath_elem mac_policy_fastpath_array[] = {
 	{ .offset = FPO(priv_grant), .flag = &mac_priv_grant_fp_flag },
 	{ .offset = FPO(vnode_check_lookup),
 		.flag = &mac_vnode_check_lookup_fp_flag },
+	{ .offset = FPO(vnode_check_readlink),
+		.flag = &mac_vnode_check_readlink_fp_flag },
 	{ .offset = FPO(vnode_check_open),
 		.flag = &mac_vnode_check_open_fp_flag },
 	{ .offset = FPO(vnode_check_stat),
@@ -421,6 +435,16 @@ struct mac_policy_fastpath_elem mac_policy_fastpath_array[] = {
 		.flag = &mac_vnode_check_write_fp_flag },
 	{ .offset = FPO(vnode_check_mmap),
 		.flag = &mac_vnode_check_mmap_fp_flag },
+	{ .offset = FPO(vnode_check_poll),
+		.flag = &mac_vnode_check_poll_fp_flag },
+	{ .offset = FPO(vnode_check_rename_from),
+		.flag = &mac_vnode_check_rename_from_fp_flag },
+	{ .offset = FPO(vnode_check_access),
+		.flag = &mac_vnode_check_access_fp_flag },
+	{ .offset = FPO(pipe_check_stat),
+		.flag = &mac_pipe_check_stat_fp_flag },
+	{ .offset = FPO(pipe_check_poll),
+		.flag = &mac_pipe_check_poll_fp_flag },
 };
 
 static void

@@ -2,9 +2,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Copyright (c) 2018-2019
+ * Copyright (c) 2018-2020
  *	Netflix Inc.
- *      All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -88,6 +87,9 @@ CK_LIST_HEAD(head_tcp_rate_set, tcp_rate_set);
 #define RS_PACING_SUB_OK	0x0010	/* If a rate can't be found get the
 					 * next best rate (highest or lowest). */
 #ifdef _KERNEL
+#ifndef ETHERNET_SEGMENT_SIZE
+#define ETHERNET_SEGMENT_SIZE 1514
+#endif
 #ifdef RATELIMIT
 #define DETAILED_RATELIMIT_SYSCTL 1	/*
 					 * Undefine this if you don't want
@@ -97,22 +99,30 @@ CK_LIST_HEAD(head_tcp_rate_set, tcp_rate_set);
 					 * shows up in your sysctl tree
 					 * this can be big.
 					 */
+uint64_t inline
+tcp_hw_highest_rate(const struct tcp_hwrate_limit_table *rle)
+{
+	return (rle->ptbl->rs_rlt[rle->ptbl->rs_highest_valid].rate);
+}
+
+uint64_t
+tcp_hw_highest_rate_ifp(struct ifnet *ifp, struct inpcb *inp);
 
 const struct tcp_hwrate_limit_table *
 tcp_set_pacing_rate(struct tcpcb *tp, struct ifnet *ifp,
-    uint64_t bytes_per_sec, int flags, int *error);
+    uint64_t bytes_per_sec, int flags, int *error, uint64_t *lower_rate);
 
 const struct tcp_hwrate_limit_table *
 tcp_chg_pacing_rate(const struct tcp_hwrate_limit_table *crte,
     struct tcpcb *tp, struct ifnet *ifp,
-    uint64_t bytes_per_sec, int flags, int *error);
+    uint64_t bytes_per_sec, int flags, int *error, uint64_t *lower_rate);
 void
 tcp_rel_pacing_rate(const struct tcp_hwrate_limit_table *crte,
     struct tcpcb *tp);
 #else
 static inline const struct tcp_hwrate_limit_table *
 tcp_set_pacing_rate(struct tcpcb *tp, struct ifnet *ifp,
-    uint64_t bytes_per_sec, int flags, int *error)
+    uint64_t bytes_per_sec, int flags, int *error, uint64_t *lower_rate)
 {
 	if (error)
 		*error = EOPNOTSUPP;
@@ -122,7 +132,7 @@ tcp_set_pacing_rate(struct tcpcb *tp, struct ifnet *ifp,
 static inline const struct tcp_hwrate_limit_table *
 tcp_chg_pacing_rate(const struct tcp_hwrate_limit_table *crte,
     struct tcpcb *tp, struct ifnet *ifp,
-    uint64_t bytes_per_sec, int flags, int *error)
+    uint64_t bytes_per_sec, int flags, int *error, uint64_t *lower_rate)
 {
 	if (error)
 		*error = EOPNOTSUPP;
@@ -135,7 +145,22 @@ tcp_rel_pacing_rate(const struct tcp_hwrate_limit_table *crte,
 {
 	return;
 }
-
 #endif
+/*
+ * Given a b/w and a segsiz, and optional hardware
+ * rate limit, return the ideal size to burst
+ * out at once. Note the parameter can_use_1mss
+ * dictates if the transport will tolerate a 1mss
+ * limit, if not it will bottom out at 2mss (think
+ * delayed ack).
+ */
+uint32_t
+tcp_get_pacing_burst_size(struct tcpcb *tp, uint64_t bw, uint32_t segsiz, int can_use_1mss,
+   const struct tcp_hwrate_limit_table *te, int *err);
+
+
+void
+tcp_rl_log_enobuf(const struct tcp_hwrate_limit_table *rte);
+
 #endif
 #endif

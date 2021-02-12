@@ -98,12 +98,13 @@ __FBSDID("$FreeBSD$");
 #define TCP_R_LOG_DUMP		10
 #define TCP_R_LOG_TRIM		11
 
-static SYSCTL_NODE(_net_inet_tcp, OID_AUTO, reass, CTLFLAG_RW, 0,
+static SYSCTL_NODE(_net_inet_tcp, OID_AUTO, reass,
+    CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "TCP Segment Reassembly Queue");
 
-static SYSCTL_NODE(_net_inet_tcp_reass, OID_AUTO, stats, CTLFLAG_RW, 0,
+static SYSCTL_NODE(_net_inet_tcp_reass, OID_AUTO, stats,
+    CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "TCP Segment Reassembly stats");
-
 
 static int tcp_reass_maxseg = 0;
 SYSCTL_INT(_net_inet_tcp_reass, OID_AUTO, maxsegments, CTLFLAG_RDTUN,
@@ -509,7 +510,6 @@ tcp_reass_overhead_of_chain(struct mbuf *m, struct mbuf **mlast)
 	*mlast = m;
 	return (len);
 }
-
 
 /*
  * NOTE!!! the new tcp-reassembly code *must not* use
@@ -959,7 +959,8 @@ new_entry:
 		} else {
 			sbappendstream_locked(&so->so_rcv, m, 0);
 		}
-		sorwakeup_locked(so);
+		SOCKBUF_UNLOCK(&so->so_rcv);
+		tp->t_flags |= TF_WAKESOR;
 		return (flags);
 	}
 	if (tcp_new_limits) {
@@ -1107,6 +1108,7 @@ present:
 #ifdef TCP_REASS_LOGGING
 	tcp_reass_log_dump(tp);
 #endif
-	sorwakeup_locked(so);
+	SOCKBUF_UNLOCK(&so->so_rcv);
+	tp->t_flags |= TF_WAKESOR;
 	return (flags);
 }

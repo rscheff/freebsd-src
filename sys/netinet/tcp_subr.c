@@ -76,6 +76,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/uma.h>
 
 #include <net/route.h>
+#include <net/route/nhop.h>
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/vnet.h>
@@ -140,7 +141,8 @@ VNET_DEFINE(int, tcp_v6mssdflt) = TCP6_MSS;
 
 #ifdef NETFLIX_EXP_DETECTION
 /*  Sack attack detection thresholds and such */
-SYSCTL_NODE(_net_inet_tcp, OID_AUTO, sack_attack, CTLFLAG_RW, 0,
+SYSCTL_NODE(_net_inet_tcp, OID_AUTO, sack_attack,
+    CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Sack Attack detection thresholds");
 int32_t tcp_force_detection = 0;
 SYSCTL_INT(_net_inet_tcp_sack_attack, OID_AUTO, force_detection,
@@ -209,8 +211,8 @@ sysctl_net_inet_tcp_mss_check(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, TCPCTL_MSSDFLT, mssdflt,
-    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW, &VNET_NAME(tcp_mssdflt), 0,
-    &sysctl_net_inet_tcp_mss_check, "I",
+    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    &VNET_NAME(tcp_mssdflt), 0, &sysctl_net_inet_tcp_mss_check, "I",
     "Default TCP Maximum Segment Size");
 
 #ifdef INET6
@@ -231,8 +233,8 @@ sysctl_net_inet_tcp_mss_v6_check(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, TCPCTL_V6MSSDFLT, v6mssdflt,
-    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW, &VNET_NAME(tcp_v6mssdflt), 0,
-    &sysctl_net_inet_tcp_mss_v6_check, "I",
+    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    &VNET_NAME(tcp_v6mssdflt), 0, &sysctl_net_inet_tcp_mss_v6_check, "I",
    "Default TCP Maximum Segment Size for IPv6");
 #endif /* INET6 */
 
@@ -253,6 +255,11 @@ VNET_DEFINE(int, tcp_do_rfc1323) = 1;
 SYSCTL_INT(_net_inet_tcp, TCPCTL_DO_RFC1323, rfc1323, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_rfc1323), 0,
     "Enable rfc1323 (high performance TCP) extensions");
+
+VNET_DEFINE(int, tcp_tolerate_missing_ts) = 0;
+SYSCTL_INT(_net_inet_tcp, OID_AUTO, tolerate_missing_ts, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(tcp_tolerate_missing_ts), 0,
+    "Tolerate missing TCP timestamps");
 
 VNET_DEFINE(int, tcp_ts_offset_per_conn) = 1;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, ts_offset_per_conn, CTLFLAG_VNET | CTLFLAG_RW,
@@ -311,7 +318,7 @@ sysctl_net_inet_tcp_map_limit_check(SYSCTL_HANDLER_ARGS)
 	return (error);
 }
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, map_limit,
-    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW,
+    CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
     &VNET_NAME(tcp_map_entries_limit), 0,
     &sysctl_net_inet_tcp_map_limit_check, "IU",
     "Total sendmap entries limit");
@@ -337,7 +344,6 @@ static struct inpcb *tcp_mtudisc_notify(struct inpcb *, int);
 static void tcp_mtudisc(struct inpcb *, int);
 static char *	tcp_log_addr(struct in_conninfo *inc, struct tcphdr *th,
 		    void *ip4hdr, const void *ip6hdr);
-
 
 static struct tcp_function_block tcp_def_funcblk = {
 	.tfb_tcp_block_name = "freebsd",
@@ -532,9 +538,9 @@ done:
 }
 
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, functions_default,
-	    CTLTYPE_STRING | CTLFLAG_RW,
-	    NULL, 0, sysctl_net_inet_default_tcp_functions, "A",
-	    "Set/get the default TCP functions");
+    CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    NULL, 0, sysctl_net_inet_default_tcp_functions, "A",
+    "Set/get the default TCP functions");
 
 static int
 sysctl_net_inet_list_available(SYSCTL_HANDLER_ARGS)
@@ -588,9 +594,9 @@ sysctl_net_inet_list_available(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, functions_available,
-	    CTLTYPE_STRING|CTLFLAG_RD,
-	    NULL, 0, sysctl_net_inet_list_available, "A",
-	    "list available TCP Function sets");
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
+    NULL, 0, sysctl_net_inet_list_available, "A",
+    "list available TCP Function sets");
 
 /*
  * Exports one (struct tcp_function_info) for each alias/name.
@@ -735,6 +741,16 @@ tcp_default_fb_init(struct tcpcb *tp)
 		tcp_timer_activate(tp, TT_KEEP,
 		    TCPS_HAVEESTABLISHED(tp->t_state) ? TP_KEEPIDLE(tp) :
 		    TP_KEEPINIT(tp));
+
+	/*
+	 * Make sure critical variables are initialized
+	 * if transitioning while in Recovery.
+	 */
+	if IN_FASTRECOVERY(tp->t_flags) {
+		if (tp->sackhint.recover_fs == 0)
+			tp->sackhint.recover_fs = max(1,
+			    tp->snd_nxt - tp->snd_una);
+	}
 
 	return (0);
 }
@@ -1700,11 +1716,18 @@ tcp_newtcpcb(struct inpcb *inp)
 	KASSERT(!STAILQ_EMPTY(&cc_list), ("cc_list is empty!"));
 	CC_ALGO(tp) = CC_DEFAULT();
 	CC_LIST_RUNLOCK();
+	/*
+	 * The tcpcb will hold a reference on its inpcb until tcp_discardcb()
+	 * is called.
+	 */
+	in_pcbref(inp);	/* Reference for tcpcb */
+	tp->t_inpcb = inp;
 
 	if (CC_ALGO(tp)->cb_init != NULL)
 		if (CC_ALGO(tp)->cb_init(tp->ccv) > 0) {
 			if (tp->t_fb->tfb_tcp_fb_fini)
 				(*tp->t_fb->tfb_tcp_fb_fini)(tp, 1);
+			in_pcbrele_wlocked(inp);
 			refcount_release(&tp->t_fb->tfb_refcnt);
 			uma_zfree(V_tcpcb_zone, tm);
 			return (NULL);
@@ -1715,6 +1738,7 @@ tcp_newtcpcb(struct inpcb *inp)
 	if (khelp_init_osd(HELPER_CLASS_TCP, tp->osd)) {
 		if (tp->t_fb->tfb_tcp_fb_fini)
 			(*tp->t_fb->tfb_tcp_fb_fini)(tp, 1);
+		in_pcbrele_wlocked(inp);
 		refcount_release(&tp->t_fb->tfb_refcnt);
 		uma_zfree(V_tcpcb_zone, tm);
 		return (NULL);
@@ -1744,12 +1768,6 @@ tcp_newtcpcb(struct inpcb *inp)
 	if (V_tcp_do_sack)
 		tp->t_flags |= TF_SACK_PERMIT;
 	TAILQ_INIT(&tp->snd_holes);
-	/*
-	 * The tcpcb will hold a reference on its inpcb until tcp_discardcb()
-	 * is called.
-	 */
-	in_pcbref(inp);	/* Reference for tcpcb */
-	tp->t_inpcb = inp;
 
 	/*
 	 * Init srtt to TCPTV_SRTTBASE (0), so we can tell that we have no
@@ -1780,8 +1798,14 @@ tcp_newtcpcb(struct inpcb *inp)
 	/* Initialize the per-TCPCB log data. */
 	tcp_log_tcpcbinit(tp);
 #endif
+	tp->t_pacing_rate = -1;
 	if (tp->t_fb->tfb_tcp_fb_init) {
-		(*tp->t_fb->tfb_tcp_fb_init)(tp);
+		if ((*tp->t_fb->tfb_tcp_fb_init)(tp)) {
+			refcount_release(&tp->t_fb->tfb_refcnt);
+			in_pcbrele_wlocked(inp);
+			uma_zfree(V_tcpcb_zone, tm);
+			return (NULL);
+		}
 	}
 #ifdef STATS
 	if (V_tcp_perconn_stats_enable == 1)
@@ -2198,9 +2222,9 @@ tcp_notify(struct inpcb *inp, int error)
 	if (tp->t_state == TCPS_ESTABLISHED &&
 	    (error == EHOSTUNREACH || error == ENETUNREACH ||
 	     error == EHOSTDOWN)) {
-		if (inp->inp_route.ro_rt) {
-			RTFREE(inp->inp_route.ro_rt);
-			inp->inp_route.ro_rt = (struct rtentry *)NULL;
+		if (inp->inp_route.ro_nh) {
+			NH_FREE(inp->inp_route.ro_nh);
+			inp->inp_route.ro_nh = (struct nhop_object *)NULL;
 		}
 		return (inp);
 	} else if (tp->t_state < TCPS_ESTABLISHED && tp->t_rxtshift > 3 &&
@@ -2315,8 +2339,9 @@ tcp_pcblist(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, TCPCTL_PCBLIST, pcblist,
-    CTLTYPE_OPAQUE | CTLFLAG_RD, NULL, 0,
-    tcp_pcblist, "S,xtcpcb", "List of active TCP connections");
+    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
+    NULL, 0, tcp_pcblist, "S,xtcpcb",
+    "List of active TCP connections");
 
 #ifdef INET
 static int
@@ -2354,8 +2379,9 @@ tcp_getcred(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, getcred,
-    CTLTYPE_OPAQUE|CTLFLAG_RW|CTLFLAG_PRISON, 0, 0,
-    tcp_getcred, "S,xucred", "Get the xucred of a TCP connection");
+    CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_PRISON | CTLFLAG_NEEDGIANT,
+    0, 0, tcp_getcred, "S,xucred",
+    "Get the xucred of a TCP connection");
 #endif /* INET */
 
 #ifdef INET6
@@ -2421,10 +2447,10 @@ tcp6_getcred(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet6_tcp6, OID_AUTO, getcred,
-    CTLTYPE_OPAQUE|CTLFLAG_RW|CTLFLAG_PRISON, 0, 0,
-    tcp6_getcred, "S,xucred", "Get the xucred of a TCP6 connection");
+    CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_PRISON | CTLFLAG_NEEDGIANT,
+    0, 0, tcp6_getcred, "S,xucred",
+    "Get the xucred of a TCP6 connection");
 #endif /* INET6 */
-
 
 #ifdef INET
 void
@@ -2915,20 +2941,19 @@ tcp_mtudisc(struct inpcb *inp, int mtuoffer)
 uint32_t
 tcp_maxmtu(struct in_conninfo *inc, struct tcp_ifcap *cap)
 {
-	struct nhop4_extended nh4;
+	struct nhop_object *nh;
 	struct ifnet *ifp;
 	uint32_t maxmtu = 0;
 
 	KASSERT(inc != NULL, ("tcp_maxmtu with NULL in_conninfo pointer"));
 
 	if (inc->inc_faddr.s_addr != INADDR_ANY) {
-
-		if (fib4_lookup_nh_ext(inc->inc_fibnum, inc->inc_faddr,
-		    NHR_REF, 0, &nh4) != 0)
+		nh = fib4_lookup(inc->inc_fibnum, inc->inc_faddr, 0, NHR_NONE, 0);
+		if (nh == NULL)
 			return (0);
 
-		ifp = nh4.nh_ifp;
-		maxmtu = nh4.nh_mtu;
+		ifp = nh->nh_ifp;
+		maxmtu = nh->nh_mtu;
 
 		/* Report additional interface capabilities. */
 		if (cap != NULL) {
@@ -2940,7 +2965,6 @@ tcp_maxmtu(struct in_conninfo *inc, struct tcp_ifcap *cap)
 				cap->tsomaxsegsize = ifp->if_hw_tsomaxsegsize;
 			}
 		}
-		fib4_free_nh_ext(inc->inc_fibnum, &nh4);
 	}
 	return (maxmtu);
 }
@@ -2950,7 +2974,7 @@ tcp_maxmtu(struct in_conninfo *inc, struct tcp_ifcap *cap)
 uint32_t
 tcp_maxmtu6(struct in_conninfo *inc, struct tcp_ifcap *cap)
 {
-	struct nhop6_extended nh6;
+	struct nhop_object *nh;
 	struct in6_addr dst6;
 	uint32_t scopeid;
 	struct ifnet *ifp;
@@ -2963,12 +2987,12 @@ tcp_maxmtu6(struct in_conninfo *inc, struct tcp_ifcap *cap)
 
 	if (!IN6_IS_ADDR_UNSPECIFIED(&inc->inc6_faddr)) {
 		in6_splitscope(&inc->inc6_faddr, &dst6, &scopeid);
-		if (fib6_lookup_nh_ext(inc->inc_fibnum, &dst6, scopeid, 0,
-		    0, &nh6) != 0)
+		nh = fib6_lookup(inc->inc_fibnum, &dst6, scopeid, NHR_NONE, 0);
+		if (nh == NULL)
 			return (0);
 
-		ifp = nh6.nh_ifp;
-		maxmtu = nh6.nh_mtu;
+		ifp = nh->nh_ifp;
+		maxmtu = nh->nh_mtu;
 
 		/* Report additional interface capabilities. */
 		if (cap != NULL) {
@@ -2980,7 +3004,6 @@ tcp_maxmtu6(struct in_conninfo *inc, struct tcp_ifcap *cap)
 				cap->tsomaxsegsize = ifp->if_hw_tsomaxsegsize;
 			}
 		}
-		fib6_free_nh_ext(inc->inc_fibnum, &nh6);
 	}
 
 	return (maxmtu);
@@ -3006,7 +3029,6 @@ tcp_maxseg(const struct tcpcb *tp)
 	 * but this is harmless, since result of tcp_maxseg() is used
 	 * only in cwnd and ssthresh estimations.
 	 */
-#define	PAD(len)	((((len) / 4) + !!((len) % 4)) * 4)
 	if (TCPS_HAVEESTABLISHED(tp->t_state)) {
 		if (tp->t_flags & TF_RCVD_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
@@ -3014,26 +3036,26 @@ tcp_maxseg(const struct tcpcb *tp)
 			optlen = 0;
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 		if ((tp->t_flags & TF_SACK_PERMIT) && tp->rcv_numsacks > 0) {
 			optlen += TCPOLEN_SACKHDR;
 			optlen += tp->rcv_numsacks * TCPOLEN_SACK;
-			optlen = PAD(optlen);
+			optlen = PADTCPOLEN(optlen);
 		}
 	} else {
 		if (tp->t_flags & TF_REQ_TSTMP)
 			optlen = TCPOLEN_TSTAMP_APPA;
 		else
-			optlen = PAD(TCPOLEN_MAXSEG);
+			optlen = PADTCPOLEN(TCPOLEN_MAXSEG);
 		if (tp->t_flags & TF_REQ_SCALE)
-			optlen += PAD(TCPOLEN_WINDOW);
+			optlen += PADTCPOLEN(TCPOLEN_WINDOW);
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 		if (tp->t_flags & TF_SIGNATURE)
-			optlen += PAD(TCPOLEN_SIGNATURE);
+			optlen += PADTCPOLEN(TCPOLEN_SIGNATURE);
 #endif
 		if (tp->t_flags & TF_SACK_PERMIT)
-			optlen += PAD(TCPOLEN_SACK_PERMITTED);
+			optlen += PADTCPOLEN(TCPOLEN_SACK_PERMITTED);
 	}
 #undef PAD
 	optlen = min(optlen, TCP_MAXOLEN);
@@ -3153,8 +3175,9 @@ sysctl_drop(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, TCPCTL_DROP, drop,
-    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP, NULL,
-    0, sysctl_drop, "", "Drop TCP connection");
+    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP |
+    CTLFLAG_NEEDGIANT, NULL, 0, sysctl_drop, "",
+    "Drop TCP connection");
 
 #ifdef KERN_TLS
 static int
@@ -3263,11 +3286,13 @@ sysctl_switch_tls(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, switch_to_sw_tls,
-    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP, NULL,
-    0, sysctl_switch_tls, "", "Switch TCP connection to SW TLS");
+    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP |
+    CTLFLAG_NEEDGIANT, NULL, 0, sysctl_switch_tls, "",
+    "Switch TCP connection to SW TLS");
 SYSCTL_PROC(_net_inet_tcp, OID_AUTO, switch_to_ifnet_tls,
-    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP, NULL,
-    1, sysctl_switch_tls, "", "Switch TCP connection to ifnet TLS");
+    CTLFLAG_VNET | CTLTYPE_STRUCT | CTLFLAG_WR | CTLFLAG_SKIP |
+    CTLFLAG_NEEDGIANT, NULL, 1, sysctl_switch_tls, "",
+    "Switch TCP connection to ifnet TLS");
 #endif
 
 /*
@@ -3428,6 +3453,13 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 		xt->t_sndzerowin = tp->t_sndzerowin;
 		xt->t_sndrexmitpack = tp->t_sndrexmitpack;
 		xt->t_rcvoopack = tp->t_rcvoopack;
+		xt->t_rcv_wnd = tp->rcv_wnd;
+		xt->t_snd_wnd = tp->snd_wnd;
+		xt->t_snd_cwnd = tp->snd_cwnd;
+		xt->t_snd_ssthresh = tp->snd_ssthresh;
+		xt->t_maxseg = tp->t_maxseg;
+		xt->xt_ecn = (tp->t_flags2 & TF2_ECN_PERMIT) ? 1 : 0 +
+			     (tp->t_flags2 & TF2_ACE_PERMIT) ? 2 : 0;
 
 		now = getsbinuptime();
 #define	COPYTIMER(ttt)	do {						\
@@ -3447,6 +3479,8 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 
 		bcopy(tp->t_fb->tfb_tcp_block_name, xt->xt_stack,
 		    TCP_FUNCTION_NAME_LEN_MAX);
+		bcopy(CC_ALGO(tp)->name, xt->xt_cc,
+		    TCP_CA_NAME_MAX);
 #ifdef TCP_BLACKBOX
 		(void)tcp_log_get_id(tp, xt->xt_logid);
 #endif
@@ -3456,4 +3490,33 @@ tcp_inptoxtp(const struct inpcb *inp, struct xtcpcb *xt)
 	in_pcbtoxinpcb(inp, &xt->xt_inp);
 	if (inp->inp_socket == NULL)
 		xt->xt_inp.xi_socket.xso_protocol = IPPROTO_TCP;
+}
+
+void
+tcp_log_end_status(struct tcpcb *tp, uint8_t status)
+{
+	uint32_t bit, i;
+
+	if ((tp == NULL) ||
+	    (status > TCP_EI_STATUS_MAX_VALUE) ||
+	    (status == 0)) {
+		/* Invalid */
+		return;
+	}
+	if (status > (sizeof(uint32_t) * 8)) {
+		/* Should this be a KASSERT? */
+		return;
+	}
+	bit = 1U << (status - 1);
+	if (bit & tp->t_end_info_status) {
+		/* already logged */
+		return;
+	}
+	for (i = 0; i < TCP_END_BYTE_INFO; i++) {
+		if (tp->t_end_info_bytes[i] == TCP_EI_EMPTY_SLOT) {
+			tp->t_end_info_bytes[i] = status;
+			tp->t_end_info_status |= bit;
+			break;
+		}
+	}
 }

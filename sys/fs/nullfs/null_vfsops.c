@@ -104,7 +104,9 @@ nullfs_mount(struct mount *mp)
 	/*
 	 * Get argument
 	 */
-	error = vfs_getopt(mp->mnt_optnew, "target", (void **)&target, &len);
+	error = vfs_getopt(mp->mnt_optnew, "from", (void **)&target, &len);
+	if (error != 0)
+		error = vfs_getopt(mp->mnt_optnew, "target", (void **)&target, &len);
 	if (error || target[len - 1] != '\0')
 		return (EINVAL);
 
@@ -281,13 +283,10 @@ nullfs_root(mp, flags, vpp)
 	NULLFSDEBUG("nullfs_root(mp = %p, vp = %p)\n", mp,
 	    mntdata->nullm_lowerrootvp);
 
-	error = vget(mntdata->nullm_lowerrootvp, (flags & ~LK_TYPE_MASK) |
-	    LK_EXCLUSIVE, curthread);
+	error = vget(mntdata->nullm_lowerrootvp, flags);
 	if (error == 0) {
 		error = null_nodeget(mp, mntdata->nullm_lowerrootvp, &vp);
 		if (error == 0) {
-			if ((flags & LK_TYPE_MASK) == LK_SHARED)
-				vn_lock(vp, LK_DOWNGRADE | LK_RETRY);
 			*vpp = vp;
 		}
 	}

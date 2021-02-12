@@ -94,6 +94,9 @@
 #define	BUILD_BUG_ON_NOT_POWER_OF_2(x)	BUILD_BUG_ON(!powerof2(x))
 #define	BUILD_BUG_ON_INVALID(expr)	while (0) { (void)(expr); }
 
+extern const volatile int lkpi_build_bug_on_zero;
+#define	BUILD_BUG_ON_ZERO(x)	((x) ? lkpi_build_bug_on_zero : 0)
+
 #define	BUG()			panic("BUG at %s:%d", __FILE__, __LINE__)
 #define	BUG_ON(cond)		do {				\
 	if (cond) {						\
@@ -107,6 +110,7 @@
       if (__ret) {						\
 		printf("WARNING %s failed at %s:%d\n",		\
 		    __stringify(cond), __FILE__, __LINE__);	\
+		linux_dump_stack();				\
       }								\
       unlikely(__ret);						\
 })
@@ -120,6 +124,7 @@
 		__warn_on_once = 1;				\
 		printf("WARNING %s failed at %s:%d\n",		\
 		    __stringify(cond), __FILE__, __LINE__);	\
+		linux_dump_stack();				\
       }								\
       unlikely(__ret);						\
 })
@@ -130,10 +135,7 @@
 #define	ALIGN(x, y)		roundup2((x), (y))
 #undef PTR_ALIGN
 #define	PTR_ALIGN(p, a)		((__typeof(p))ALIGN((uintptr_t)(p), (a)))
-#if defined(LINUXKPI_VERSION) && LINUXKPI_VERSION >= 50000
-/* Moved from linuxkpi_gplv2 */
 #define	IS_ALIGNED(x, a)	(((x) & ((__typeof(x))(a) - 1)) == 0)
-#endif
 #define	DIV_ROUND_UP(x, n)	howmany(x, n)
 #define	__KERNEL_DIV_ROUND_UP(x, n)	howmany(x, n)
 #define	DIV_ROUND_UP_ULL(x, n)	DIV_ROUND_UP((unsigned long long)(x), (n))
@@ -372,6 +374,24 @@ kstrtouint(const char *cp, unsigned int base, unsigned int *res)
 }
 
 static inline int
+kstrtou16(const char *cp, unsigned int base, u16 *res)
+{
+	char *end;
+	unsigned long temp;
+
+	*res = temp = strtoul(cp, &end, base);
+
+	/* skip newline character, if any */
+	if (*end == '\n')
+		end++;
+	if (*cp == 0 || *end != 0)
+		return (-EINVAL);
+	if (temp != (u16)temp)
+		return (-ERANGE);
+	return (0);
+}
+
+static inline int
 kstrtou32(const char *cp, unsigned int base, u32 *res)
 {
 	char *end;
@@ -387,6 +407,21 @@ kstrtou32(const char *cp, unsigned int base, u32 *res)
 	if (temp != (u32)temp)
 		return (-ERANGE);
 	return (0);
+}
+
+static inline int
+kstrtou64(const char *cp, unsigned int base, u64 *res)
+{
+       char *end;
+
+       *res = strtouq(cp, &end, base);
+
+       /* skip newline character, if any */
+       if (*end == '\n')
+               end++;
+       if (*cp == 0 || *end != 0)
+               return (-EINVAL);
+       return (0);
 }
 
 static inline int
@@ -444,6 +479,9 @@ kstrtobool_from_user(const char __user *s, size_t count, bool *res)
 	type __max1 = (x);			\
 	type __max2 = (y);			\
 	__max1 > __max2 ? __max1 : __max2; })
+
+#define offsetofend(t, m)	\
+        (offsetof(t, m) + sizeof((((t *)0)->m)))
 
 #define clamp_t(type, _x, min, max)	min_t(type, max_t(type, _x, min), max)
 #define clamp(x, lo, hi)		min( max(x,lo), hi)
@@ -513,5 +551,88 @@ linux_ratelimited(linux_ratelimit_t *rl)
 {
 	return (ppsratecheck(&rl->lasttime, &rl->counter, 1));
 }
+
+#define	struct_size(ptr, field, num) ({ \
+	const size_t __size = offsetof(__typeof(*(ptr)), field); \
+	const size_t __max = (SIZE_MAX - __size) / sizeof((ptr)->field[0]); \
+	((num) > __max) ? SIZE_MAX : (__size + sizeof((ptr)->field[0]) * (num)); \
+})
+
+#define	__is_constexpr(x) \
+	__builtin_constant_p(x)
+
+/*
+ * The is_signed() macro below returns true if the passed data type is
+ * signed. Else false is returned.
+ */
+#define	is_signed(datatype) (((datatype)-1 / (datatype)2) == (datatype)0)
+
+/*
+ * The type_max() macro below returns the maxium positive value the
+ * passed data type can hold.
+ */
+#define	type_max(datatype) ( \
+  (sizeof(datatype) >= 8) ? (is_signed(datatype) ? INT64_MAX : UINT64_MAX) : \
+  (sizeof(datatype) >= 4) ? (is_signed(datatype) ? INT32_MAX : UINT32_MAX) : \
+  (sizeof(datatype) >= 2) ? (is_signed(datatype) ? INT16_MAX : UINT16_MAX) : \
+			    (is_signed(datatype) ? INT8_MAX : UINT8_MAX) \
+)
+
+/*
+ * The type_min() macro below returns the minimum value the passed
+ * data type can hold. For unsigned types the minimum value is always
+ * zero. For signed types it may vary.
+ */
+#define	type_min(datatype) ( \
+  (sizeof(datatype) >= 8) ? (is_signed(datatype) ? INT64_MIN : 0) : \
+  (sizeof(datatype) >= 4) ? (is_signed(datatype) ? INT32_MIN : 0) : \
+  (sizeof(datatype) >= 2) ? (is_signed(datatype) ? INT16_MIN : 0) : \
+			    (is_signed(datatype) ? INT8_MIN : 0) \
+)
+
+#define	TAINT_WARN	0
+#define	test_taint(x)	(0)
+
+/*
+ * Checking if an option is defined would be easy if we could do CPP inside CPP.
+ * The defined case whether -Dxxx or -Dxxx=1 are easy to deal with.  In either
+ * case the defined value is "1". A more general -Dxxx=<c> case will require
+ * more effort to deal with all possible "true" values. Hope we do not have
+ * to do this as well.
+ * The real problem is the undefined case.  To avoid this problem we do the
+ * concat/varargs trick: "yyy" ## xxx can make two arguments if xxx is "1"
+ * by having a #define for yyy_1 which is "ignore,".
+ * Otherwise we will just get "yyy".
+ * Need to be careful about variable substitutions in macros though.
+ * This way we make a (true, false) problem a (don't care, true, false) or a
+ * (don't care true, false).  Then we can use a variadic macro to only select
+ * the always well known and defined argument #2.  And that seems to be
+ * exactly what we need.  Use 1 for true and 0 for false to also allow
+ * #if IS_*() checks pre-compiler checks which do not like #if true.
+ */
+#define ___XAB_1		dontcare,
+#define ___IS_XAB(_ignore, _x, ...)	(_x)
+#define	__IS_XAB(_x)		___IS_XAB(_x 1, 0)
+#define	_IS_XAB(_x)		__IS_XAB(__CONCAT(___XAB_, _x))
+
+/* This is if CONFIG_ccc=y. */
+#define	IS_BUILTIN(_x)		_IS_XAB(_x)
+/* This is if CONFIG_ccc=m. */
+#define	IS_MODULE(_x)		_IS_XAB(_x ## _MODULE)
+/* This is if CONFIG_ccc is compiled in(=y) or a module(=m). */
+#define	IS_ENABLED(_x)		(IS_BUILTIN(_x) || IS_MODULE(_x))
+/*
+ * This is weird case.  If the CONFIG_ccc is builtin (=y) this returns true;
+ * or if the CONFIG_ccc is a module (=m) and the caller is built as a module
+ * (-DMODULE defined) this returns true, but if the callers is not a module
+ * (-DMODULE not defined, which means caller is BUILTIN) then it returns
+ * false.  In other words, a module can reach the kernel, a module can reach
+ * a module, but the kernel cannot reach a module, and code never compiled
+ * cannot be reached either.
+ * XXX -- I'd hope the module-to-module case would be handled by a proper
+ * module dependency definition (MODULE_DEPEND() in FreeBSD).
+ */
+#define	IS_REACHABLE(_x)	(IS_BUILTIN(_x) || \
+				    (IS_MODULE(_x) && IS_BUILTIN(MODULE)))
 
 #endif	/* _LINUX_KERNEL_H_ */

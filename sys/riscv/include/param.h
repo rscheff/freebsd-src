@@ -42,15 +42,22 @@
 #define	STACKALIGNBYTES	(16 - 1)
 #define	STACKALIGN(p)	((uint64_t)(p) & ~STACKALIGNBYTES)
 
+#define __PCI_REROUTE_INTERRUPT
+
 #ifndef MACHINE
 #define	MACHINE		"riscv"
 #endif
 #ifndef MACHINE_ARCH
-#ifdef __riscv_float_abi_soft
+
+/* Always use the hard-float arch for the kernel. */
+#if !defined(_KERNEL) && defined(__riscv_float_abi_soft)
 #define	MACHINE_ARCH	"riscv64sf"
 #else
 #define	MACHINE_ARCH	"riscv64"
 #endif
+#endif
+#ifdef _KERNEL
+#define	MACHINE_ARCHES	"riscv64 riscv64sf"
 #endif
 
 #ifdef SMP

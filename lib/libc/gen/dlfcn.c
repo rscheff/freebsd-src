@@ -34,7 +34,9 @@ __FBSDID("$FreeBSD$");
 /*
  * Linkage to services provided by the dynamic linker.
  */
+#include <sys/types.h>
 #include <sys/mman.h>
+#include <machine/atomic.h>
 #include <dlfcn.h>
 #include <link.h>
 #include <stddef.h>
@@ -42,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <pthread.h>
 #include "un-namespace.h"
 #include "libc_private.h"
+#include "reentrant.h"
 
 static char sorry[] = "Service unavailable";
 
@@ -164,6 +167,7 @@ _rtld_thread_init(void *li __unused)
 #ifndef IN_LIBDL
 static pthread_once_t dl_phdr_info_once = PTHREAD_ONCE_INIT;
 static struct dl_phdr_info phdr_info;
+static mutex_t dl_phdr_info_lock = MUTEX_INITIALIZER;
 
 static void
 dl_init_phdr_info(void)
@@ -204,13 +208,17 @@ int
 dl_iterate_phdr(int (*callback)(struct dl_phdr_info *, size_t, void *) __unused,
     void *data __unused)
 {
-
 #ifndef IN_LIBDL
+	int ret;
+
 	__init_elf_aux_vector();
 	if (__elf_aux_vector == NULL)
 		return (1);
 	_once(&dl_phdr_info_once, dl_init_phdr_info);
-	return (callback(&phdr_info, sizeof(phdr_info), data));
+	mutex_lock(&dl_phdr_info_lock);
+	ret = callback(&phdr_info, sizeof(phdr_info), data);
+	mutex_unlock(&dl_phdr_info_lock);
+	return (ret);
 #else
 	return (0);
 #endif
@@ -250,8 +258,30 @@ _rtld_addr_phdr(const void *addr __unused,
 int
 _rtld_get_stack_prot(void)
 {
+#ifndef IN_LIBDL
+	unsigned i;
+	int r;
+	static int ret;
 
-	return (PROT_EXEC | PROT_READ | PROT_WRITE);
+	r = atomic_load_int(&ret);
+	if (r != 0)
+		return (r);
+
+	_once(&dl_phdr_info_once, dl_init_phdr_info);
+	r = PROT_EXEC | PROT_READ | PROT_WRITE;
+	for (i = 0; i < phdr_info.dlpi_phnum; i++) {
+		if (phdr_info.dlpi_phdr[i].p_type != PT_GNU_STACK)
+			continue;
+		r = PROT_READ | PROT_WRITE;
+		if ((phdr_info.dlpi_phdr[i].p_flags & PF_X) != 0)
+			r |= PROT_EXEC;
+		break;
+	}
+	atomic_store_int(&ret, r);
+	return (r);
+#else
+	return (0);
+#endif
 }
 
 #pragma weak _rtld_is_dlopened

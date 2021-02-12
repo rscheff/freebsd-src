@@ -5,8 +5,8 @@
 .include <bsd.compiler.mk>
 
 LIBC_SRCTOP=${SRCTOP}/lib/libc
-.if exists(${LIBC_SRCTOP}/${MACHINE_ARCH})
-LIBC_ARCH=${MACHINE_ARCH}
+.if exists(${LIBC_SRCTOP}/${MACHINE_ARCH:S/powerpc64le/powerpc64/})
+LIBC_ARCH=${MACHINE_ARCH:S/powerpc64le/powerpc64/}
 .else
 LIBC_ARCH=${MACHINE_CPUARCH}
 .endif
@@ -46,7 +46,7 @@ _libc_string_objects=	bcmp bcopy bzero memset memchr memcmp memcpy memmove \
 # Also use all the syscall .o files from libc_nossp_pic:
 _libc_other_objects= sigsetjmp lstat stat fstat fstatat fstatfs syscall \
     cerror geteuid getegid sigfastblock munmap mprotect \
-    sysarch __sysctl issetugid __getcwd utrace \
+    sysarch __sysctl issetugid __getcwd utrace getpid \
     thr_self thr_kill pread mmap lseek _exit _fstat _fstatat _fstatfs \
     getdirentries _getdirentries _close _fcntl _open _openat _read \
     _sigprocmask _write readlink __realpathat _setjmp setjmp setjmperr
@@ -57,28 +57,14 @@ _libc_other_objects= sigsetjmp lstat stat fstat fstatat fstatfs syscall \
 # ARM needs aeabi_unwind_cpp for _setjmp
 _libc_other_objects+=aeabi_unwind_cpp
 .elif ${LIBC_ARCH} == "i386"
-# __udivdi3 is needed by kvprintf() in rtld_printf.c
-# i386 also needs i386_set_gsbase for allocate_initial_tls()
-_libc_other_objects+=umoddi3 udivdi3 qdivrem i386_set_gsbase
+# i386 needs i386_set_gsbase for allocate_initial_tls()
+_libc_other_objects+=i386_set_gsbase
 .elif ${LIBC_ARCH} == "powerpc" || ${LIBC_ARCH} == "powerpcspe"
-# ppc needs __syncicache for reloc.c and __umoddi3+__udivdi3 for rtld_printf.c
-_libc_other_objects+=syncicache umoddi3 udivdi3 qdivrem
-# for some reason there is also a reference to abs()
-_libc_other_objects+=abs
+# ppc needs __syncicache and abs for reloc.c
+_libc_other_objects+=syncicache abs
 .elif ${LIBC_ARCH} == "powerpc64"
 # ppc64 needs __syncicache for reloc.c
 _libc_other_objects+=syncicache
-.elif ${LIBC_ARCH} == "mips"
-# 32-bit MIPS needs __umoddi3+__udivdi3 for rtld_printf.c
-.if ${MACHINE_ARCH:Mmipsn32*} == "" && ${MACHINE_ARCH:Mmips64*} == ""
-_libc_other_objects+=umoddi3 udivdi3 qdivrem
-.endif
-.elif ${LIBC_ARCH} == "sparc64"
-# reloc.c uses __sparc_utrap which needs a lot of other object files
-_libc_other_objects+=__sparc_utrap __sparc_utrap_fp_disabled __sparc_utrap_gen \
-    __sparc_utrap_setup __sparc_utrap_align __sparc_utrap_emul kill getpid \
-    fpu fpu_explode fpu_div fpu_reg fpu_sqrt fpu_implode fpu_subr fpu_add \
-    fpu_compare fpu_mul
 .endif
 
 # Extract all the .o files from libc_nossp_pic.a. This ensures that
@@ -95,8 +81,9 @@ CLEANFILES+=${_obj}.nossppico
 # We insert all the .o files from libc_nossp_pic.a into a new rtld_libc.a file
 # to ensure that only .o files that are actually used end up being included.
 rtld_libc.a: ${LIBC_NOSSP_PIC} ${SRCTOP}/libexec/rtld-elf/rtld-libc/Makefile.inc
+	@rm -f ${.TARGET}
 	${AR} x ${LIBC_NOSSP_PIC} ${_rtld_libc_objs}
-	${AR} cr ${.OBJDIR}/${.TARGET} ${_rtld_libc_objs}
+	${AR} cr ${.TARGET} ${_rtld_libc_objs}
 CLEANFILES+=rtld_libc.a
 LDADD+=${.OBJDIR}/rtld_libc.a
 beforelinking: rtld_libc.a

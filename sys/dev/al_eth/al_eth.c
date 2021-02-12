@@ -1639,10 +1639,8 @@ al_eth_rx_recv_work(void *arg, int pending)
 			al_eth_rx_checksum(rx_ring->adapter, hal_pkt, mbuf);
 		}
 
-#if __FreeBSD_version >= 800000
 		mbuf->m_pkthdr.flowid = qid;
 		M_HASHTYPE_SET(mbuf, M_HASHTYPE_OPAQUE);
-#endif
 
 		/*
 		 * LRO is only for IP/TCP packets and TCP checksum of the packet
@@ -2170,7 +2168,6 @@ __al_eth_free_irq(struct al_eth_adapter *adapter)
 			if (rc != 0)
 				device_printf(adapter->dev, "failed to tear "
 				    "down irq: %d\n", irq->vector);
-
 		}
 		irq->requested = 0;
 	}

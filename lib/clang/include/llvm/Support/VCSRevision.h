@@ -1,3 +1,3 @@
 /* $FreeBSD$ */
-#define LLVM_REVISION "c1a0a213378a458fbea1a5c77b315c7dce08fd05"
+#define LLVM_REVISION "llvmorg-11.0.1-0-g43ff75f2c3fe"
 #define LLVM_REPOSITORY "git@github.com:llvm/llvm-project.git"

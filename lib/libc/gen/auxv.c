@@ -70,8 +70,9 @@ static pthread_once_t aux_once = PTHREAD_ONCE_INIT;
 static int pagesize, osreldate, canary_len, ncpus, pagesizes_len, bsdflags;
 static int hwcap_present, hwcap2_present;
 static char *canary, *pagesizes, *execpath;
-static void *timekeep;
+static void *ps_strings, *timekeep;
 static u_long hwcap, hwcap2;
+static void *fxrng_seed_version;
 
 #ifdef __powerpc__
 static int powerpc_new_auxv_format = 0;
@@ -134,6 +135,14 @@ init_aux(void)
 
 		case AT_TIMEKEEP:
 			timekeep = aux->a_un.a_ptr;
+			break;
+
+		case AT_PS_STRINGS:
+			ps_strings = aux->a_un.a_ptr;
+			break;
+
+		case AT_FXRNG:
+			fxrng_seed_version = aux->a_un.a_ptr;
 			break;
 #ifdef __powerpc__
 		/*
@@ -247,6 +256,9 @@ _elf_aux_info(int aux, void *buf, int buflen)
 		return (ENOSYS);
 	_once(&aux_once, init_aux);
 
+	if (buflen < 0)
+		return (EINVAL);
+
 	switch (aux) {
 	case AT_CANARY:
 		if (canary != NULL && canary_len >= buflen) {
@@ -263,7 +275,8 @@ _elf_aux_info(int aux, void *buf, int buflen)
 		else if (buf == NULL)
 			res = EINVAL;
 		else {
-			if (strlcpy(buf, execpath, buflen) >= buflen)
+			if (strlcpy(buf, execpath, buflen) >=
+			    (unsigned int)buflen)
 				res = EINVAL;
 			else
 				res = 0;
@@ -334,6 +347,26 @@ _elf_aux_info(int aux, void *buf, int buflen)
 		if (buflen == sizeof(int)) {
 			*(int *)buf = bsdflags;
 			res = 0;
+		} else
+			res = EINVAL;
+		break;
+	case AT_PS_STRINGS:
+		if (buflen == sizeof(void *)) {
+			if (ps_strings != NULL) {
+				*(void **)buf = ps_strings;
+				res = 0;
+			} else
+				res = ENOENT;
+		} else
+			res = EINVAL;
+		break;
+	case AT_FXRNG:
+		if (buflen == sizeof(void *)) {
+			if (fxrng_seed_version != NULL) {
+				*(void **)buf = fxrng_seed_version;
+				res = 0;
+			} else
+				res = ENOENT;
 		} else
 			res = EINVAL;
 		break;

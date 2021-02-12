@@ -206,7 +206,7 @@ static char an_conf_cache[256];
 
 /* sysctl vars */
 
-static SYSCTL_NODE(_hw, OID_AUTO, an, CTLFLAG_RD, 0,
+static SYSCTL_NODE(_hw, OID_AUTO, an, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "Wireless driver parameters");
 
 /* XXX violate ethernet/netgraph callback hooks */
@@ -266,8 +266,10 @@ sysctl_an_dump(SYSCTL_HANDLER_ARGS)
 	return error;
 }
 
-SYSCTL_PROC(_hw_an, OID_AUTO, an_dump, CTLTYPE_STRING | CTLFLAG_RW,
-	    0, sizeof(an_conf), sysctl_an_dump, "A", "");
+SYSCTL_PROC(_hw_an, OID_AUTO, an_dump,
+    CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_NEEDGIANT, 0, sizeof(an_conf),
+    sysctl_an_dump, "A",
+    "");
 
 static int
 sysctl_an_cache_mode(SYSCTL_HANDLER_ARGS)
@@ -302,8 +304,10 @@ sysctl_an_cache_mode(SYSCTL_HANDLER_ARGS)
 	return error;
 }
 
-SYSCTL_PROC(_hw_an, OID_AUTO, an_cache_mode, CTLTYPE_STRING | CTLFLAG_RW,
-	    0, sizeof(an_conf_cache), sysctl_an_cache_mode, "A", "");
+SYSCTL_PROC(_hw_an, OID_AUTO, an_cache_mode,
+    CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_NEEDGIANT, 0, sizeof(an_conf_cache),
+    sysctl_an_cache_mode, "A",
+    "");
 
 /*
  * We probe for an Aironet 4500/4800 card by attempting to
@@ -1255,7 +1259,6 @@ an_intr(void *xsc)
 	return;
 }
 
-
 static int
 an_cmd_struct(struct an_softc *sc, struct an_command *cmd,
     struct an_reply *reply)
@@ -1568,7 +1571,6 @@ an_write_record(struct an_softc *sc, struct an_ltv_gen *ltv)
 			return(EIO);
 		}
 
-
 		if (reply.an_status & AN_CMD_QUAL_MASK) {
 			if_printf(sc->an_ifp,
 			    "failed to write RID 2 %x %x %x %x %x, %d\n",
@@ -1837,7 +1839,6 @@ an_setdef(struct an_softc *sc, struct an_req *areq)
 		if_printf(ifp, "unknown RID: %x\n", areq->an_type);
 		return;
 	}
-
 
 	/* Reinitialize the card. */
 	if (ifp->if_flags)
@@ -2320,7 +2321,7 @@ an_ioctl(struct ifnet *ifp, u_long command, caddr_t data)
 		}
 		break;
 	case SIOCS80211:
-		if ((error = priv_check(td, PRIV_NET80211_MANAGE)))
+		if ((error = priv_check(td, PRIV_NET80211_VAP_MANAGE)))
 			goto out;
 		AN_LOCK(sc);
 		sc->areq.an_len = sizeof(sc->areq);
@@ -2863,7 +2864,6 @@ an_start_locked(struct ifnet *ifp)
 			bcopy((caddr_t)&sc->an_txbuf, &buf[0x44],
 			      tx_frame_802_3.an_tx_802_3_payload_len);
 
-
 			bzero(&an_tx_desc, sizeof(an_tx_desc));
 			an_tx_desc.an_offset = 0;
 			an_tx_desc.an_eoc = 1;
@@ -3040,7 +3040,6 @@ int an_sigitems;				/* number of cached entries */
 struct an_sigcache an_sigcache[MAXANCACHE];	/* array of cache entries */
 int an_nextitem;				/* index/# of entries */
 
-
 #endif
 
 /* control variables for cache filtering.  Basic idea is
@@ -3138,7 +3137,6 @@ an_cache_store(struct an_softc *sc, struct ether_header *eh, struct mbuf *m,
 	 * if table full, then we need to replace LRU entry
 	 */
 	else    {
-
 		/* check for space in cache table
 		 * note: an_nextitem also holds number of entries
 		 * added in the cache table
@@ -3178,7 +3176,6 @@ an_cache_store(struct an_softc *sc, struct ether_header *eh, struct mbuf *m,
 		sc->an_sigcache[cache_slot].ipsrc = ip->ip_src.s_addr;
 	}
 	bcopy( eh->ether_shost, sc->an_sigcache[cache_slot].macsrc,  6);
-
 
 	switch (an_cache_mode) {
 	case DBM:
@@ -3549,7 +3546,6 @@ cmdreset(struct ifnet *ifp)
 
 	FLASH_DELAY(sc, 1000);	/* WAS 600 12/7/00 */
 
-
 	if (!(status = WaitBusy(ifp, 100))) {
 		if_printf(ifp, "Waitbusy hang AFTER RESET =%d\n", status);
 		AN_UNLOCK(sc);
@@ -3598,7 +3594,6 @@ flashgchar(struct ifnet *ifp, int matchbyte, int dwelltime)
 	unsigned char	rbyte = 0;
 	int		success = -1;
 	struct an_softc	*sc = ifp->if_softc;
-
 
 	do {
 		rchar = CSR_READ_2(sc, AN_SW1(sc->mpi350));
@@ -3671,7 +3666,6 @@ flashpchar(struct ifnet *ifp, int byte, int dwelltime)
 		dwelltime -= 50;
 		echo = CSR_READ_2(sc, AN_SW1(sc->mpi350));
 	} while (dwelltime >= 0 && echo != byte);
-
 
 	CSR_WRITE_2(sc, AN_SW1(sc->mpi350), 0);
 

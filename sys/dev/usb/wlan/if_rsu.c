@@ -659,7 +659,7 @@ rsu_do_request(struct rsu_softc *sc, struct usb_device_request *req,
 {
 	usb_error_t err;
 	int ntries = 10;
-	
+
 	RSU_ASSERT_LOCKED(sc);
 
 	while (ntries--) {
@@ -779,7 +779,8 @@ rsu_getradiocaps(struct ieee80211com *ic,
 	if (sc->sc_ht)
 		setbit(bands, IEEE80211_MODE_11NG);
 	ieee80211_add_channels_default_2ghz(chans, maxchans, nchans,
-	    bands, (ic->ic_htcaps & IEEE80211_HTCAP_CHWIDTH40) != 0);
+	    bands, (ic->ic_htcaps & IEEE80211_HTCAP_CHWIDTH40) ?
+		NET80211_CBW_FLAG_HT40 : 0);
 }
 
 static void
@@ -1893,7 +1894,7 @@ rsu_site_survey(struct rsu_softc *sc, struct ieee80211_scan_ssid *ssid)
 	if (sc->sc_active_scan)
 		cmd.active = htole32(1);
 	cmd.limit = htole32(48);
-	
+
 	if (ssid != NULL) {
 		sc->sc_extra_scan = 1;
 		cmd.ssidlen = htole32(ssid->len);
@@ -1982,7 +1983,7 @@ rsu_join_bss(struct rsu_softc *sc, struct ieee80211_node *ni)
 	frm = ieee80211_add_qos(frm, ni);
 	if ((ic->ic_flags & IEEE80211_F_WME) &&
 	    (ni->ni_ies.wme_ie != NULL))
-		frm = ieee80211_add_wme_info(frm, &ic->ic_wme);
+		frm = ieee80211_add_wme_info(frm, &ic->ic_wme, ni);
 	if (ni->ni_flags & IEEE80211_NODE_HT) {
 		frm = ieee80211_add_htcap(frm, ni);
 		frm = ieee80211_add_htinfo(frm, ni);
@@ -2329,7 +2330,7 @@ rsu_rx_copy_to_mbuf(struct rsu_softc *sc, struct r92s_rx_stat *stat,
 	/* Finalize mbuf. */
 	memcpy(mtod(m, uint8_t *), (uint8_t *)stat, totlen);
 	m->m_pkthdr.len = m->m_len = totlen;
- 
+
 	return (m);
 fail:
 	counter_u64_add(ic->ic_ierrors, 1);
@@ -3342,7 +3343,7 @@ static int
 rsu_load_firmware(struct rsu_softc *sc)
 {
 	const struct r92s_fw_hdr *hdr;
-	struct r92s_fw_priv *dmem;
+	struct r92s_fw_priv dmem;
 	struct ieee80211com *ic = &sc->sc_ic;
 	const uint8_t *imem, *emem;
 	uint32_t imemsz, ememsz;
@@ -3388,7 +3389,7 @@ rsu_load_firmware(struct rsu_softc *sc)
 	    hdr->minute);
 
 	/* Make sure that driver and firmware are in sync. */
-	if (hdr->privsz != htole32(sizeof(*dmem))) {
+	if (hdr->privsz != htole32(sizeof(dmem))) {
 		device_printf(sc->sc_dev, "unsupported firmware image\n");
 		error = EINVAL;
 		goto fail;
@@ -3474,24 +3475,23 @@ rsu_load_firmware(struct rsu_softc *sc)
 	}
 
 	/* Update DMEM section before loading. */
-	dmem = __DECONST(struct r92s_fw_priv *, &hdr->priv);
-	memset(dmem, 0, sizeof(*dmem));
-	dmem->hci_sel = R92S_HCI_SEL_USB | R92S_HCI_SEL_8172;
-	dmem->nendpoints = sc->sc_nendpoints;
-	dmem->chip_version = sc->cut;
-	dmem->rf_config = sc->sc_rftype;
-	dmem->vcs_type = R92S_VCS_TYPE_AUTO;
-	dmem->vcs_mode = R92S_VCS_MODE_RTS_CTS;
-	dmem->turbo_mode = 0;
-	dmem->bw40_en = !! (ic->ic_htcaps & IEEE80211_HTCAP_CHWIDTH40);
-	dmem->amsdu2ampdu_en = !! (sc->sc_ht);
-	dmem->ampdu_en = !! (sc->sc_ht);
-	dmem->agg_offload = !! (sc->sc_ht);
-	dmem->qos_en = 1;
-	dmem->ps_offload = 1;
-	dmem->lowpower_mode = 1;	/* XXX TODO: configurable? */
+	memset(&dmem, 0, sizeof(dmem));
+	dmem.hci_sel = R92S_HCI_SEL_USB | R92S_HCI_SEL_8172;
+	dmem.nendpoints = sc->sc_nendpoints;
+	dmem.chip_version = sc->cut;
+	dmem.rf_config = sc->sc_rftype;
+	dmem.vcs_type = R92S_VCS_TYPE_AUTO;
+	dmem.vcs_mode = R92S_VCS_MODE_RTS_CTS;
+	dmem.turbo_mode = 0;
+	dmem.bw40_en = !! (ic->ic_htcaps & IEEE80211_HTCAP_CHWIDTH40);
+	dmem.amsdu2ampdu_en = !! (sc->sc_ht);
+	dmem.ampdu_en = !! (sc->sc_ht);
+	dmem.agg_offload = !! (sc->sc_ht);
+	dmem.qos_en = 1;
+	dmem.ps_offload = 1;
+	dmem.lowpower_mode = 1;	/* XXX TODO: configurable? */
 	/* Load DMEM section. */
-	error = rsu_fw_loadsection(sc, (uint8_t *)dmem, sizeof(*dmem));
+	error = rsu_fw_loadsection(sc, (uint8_t *)&dmem, sizeof(dmem));
 	if (error != 0) {
 		device_printf(sc->sc_dev,
 		    "could not load firmware section %s\n", "DMEM");
@@ -3525,7 +3525,6 @@ rsu_load_firmware(struct rsu_softc *sc)
 	firmware_put(fw, FIRMWARE_UNLOAD);
 	return (error);
 }
-
 
 static int	
 rsu_raw_xmit(struct ieee80211_node *ni, struct mbuf *m, 

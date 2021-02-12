@@ -315,7 +315,6 @@ static void	pfsync_update_net_tdb(struct pfsync_tdb *);
 static struct pfsync_bucket	*pfsync_get_bucket(struct pfsync_softc *,
 		    struct pf_state *);
 
-
 #define PFSYNC_MAX_BULKTRIES	12
 
 VNET_DEFINE(struct if_clone *, pfsync_cloner);
@@ -454,7 +453,6 @@ pfsync_alloc_scrub_memory(struct pfsync_state_peer *s,
 	return (0);
 }
 
-
 static int
 pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 {
@@ -465,8 +463,8 @@ pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 	struct pfsync_state_key *kw, *ks;
 	struct pf_state	*st = NULL;
 	struct pf_state_key *skw = NULL, *sks = NULL;
-	struct pf_rule *r = NULL;
-	struct pfi_kif	*kif;
+	struct pf_krule *r = NULL;
+	struct pfi_kkif	*kif;
 	int error;
 
 	PF_RULES_RASSERT();
@@ -478,7 +476,7 @@ pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 		return (EINVAL);
 	}
 
-	if ((kif = pfi_kif_find(sp->ifname)) == NULL) {
+	if ((kif = pfi_kkif_find(sp->ifname)) == NULL) {
 		if (V_pf_status.debug >= PF_DEBUG_MISC)
 			printf("%s: unknown interface: %s\n", __func__,
 			    sp->ifname);
@@ -508,6 +506,13 @@ pfsync_state_import(struct pfsync_state *sp, u_int8_t flags)
 	 */
 	if ((st = uma_zalloc(V_pf_state_z, M_NOWAIT | M_ZERO)) == NULL)
 		goto cleanup;
+
+	for (int i = 0; i < 2; i++) {
+		st->packets[i] = counter_u64_alloc(M_NOWAIT);
+		st->bytes[i] = counter_u64_alloc(M_NOWAIT);
+		if (st->packets[i] == NULL || st->bytes[i] == NULL)
+			goto cleanup;
+	}
 
 	if ((skw = uma_zalloc(V_pf_state_key_z, M_NOWAIT)) == NULL)
 		goto cleanup;
@@ -618,6 +623,12 @@ cleanup:
 
 cleanup_state:	/* pf_state_insert() frees the state keys. */
 	if (st) {
+		for (int i = 0; i < 2; i++) {
+			if (st->packets[i] != NULL)
+				counter_u64_free(st->packets[i]);
+			if (st->bytes[i] != NULL)
+				counter_u64_free(st->bytes[i]);
+		}
 		if (st->dst.scrub)
 			uma_zfree(V_pf_state_scrub_z, st->dst.scrub);
 		if (st->src.scrub)
@@ -753,7 +764,7 @@ pfsync_in_clr(struct pfsync_pkt *pkt, struct mbuf *m, int offset, int count)
 		creatorid = clr[i].creatorid;
 
 		if (clr[i].ifname[0] != '\0' &&
-		    pfi_kif_find(clr[i].ifname) == NULL)
+		    pfi_kkif_find(clr[i].ifname) == NULL)
 			continue;
 
 		for (int i = 0; i <= pf_hashmask; i++) {
@@ -1287,7 +1298,6 @@ bad:
 	return;
 }
 #endif
-
 
 static int
 pfsync_in_eof(struct pfsync_pkt *pkt, struct mbuf *m, int offset, int count)
@@ -2332,7 +2342,6 @@ pfsyncintr(void *arg)
 		PFSYNC_BUCKET_UNLOCK(b);
 
 		for (; m != NULL; m = n) {
-
 			n = m->m_nextpkt;
 			m->m_nextpkt = NULL;
 

@@ -97,8 +97,8 @@
  * safely only from their associated CPU, while the Zones backed by the same
  * Keg all share a common Keg lock (to coalesce contention on the backing
  * slabs).  The backing Keg typically only serves one Zone but in the case of
- * multiple Zones, one of the Zones is considered the Master Zone and all
- * Zone-related stats from the Keg are done in the Master Zone.  For an
+ * multiple Zones, one of the Zones is considered the Primary Zone and all
+ * Zone-related stats from the Keg are done in the Primary Zone.  For an
  * example of a Multi-Zone setup, refer to the Mbuf allocation code.
  */
 
@@ -188,7 +188,6 @@
     "\20PCPU"				\
     "\17NODUMP"				\
     "\16CACHESPREAD"			\
-    "\15MINBUCKET"			\
     "\14MAXBUCKET"			\
     "\13NOBUCKET"			\
     "\12SECONDARY"			\
@@ -307,14 +306,14 @@ cache_uz_flags(uma_cache_t cache)
 
 	return (cache->uc_freebucket.ucb_spare);
 }
- 
+
 static inline uint32_t
 cache_uz_size(uma_cache_t cache)
 {
 
 	return (cache->uc_allocbucket.ucb_spare);
 }
- 
+
 /*
  * Per-domain slab lists.  Embedded in the kegs.
  */
@@ -368,11 +367,6 @@ struct uma_keg {
 };
 typedef struct uma_keg	* uma_keg_t;
 
-#ifdef _KERNEL
-#define	KEG_ASSERT_COLD(k)						\
-	KASSERT(uma_keg_get_allocs((k)) == 0,				\
-	    ("keg %s initialization after use.", (k)->uk_name))
-
 /*
  * Free bits per-slab.
  */
@@ -391,28 +385,12 @@ struct uma_slab {
 	uint8_t		us_domain;		/* Backing NUMA domain. */
 	struct noslabbits us_free;		/* Free bitmask, flexible. */
 };
-_Static_assert(sizeof(struct uma_slab) == offsetof(struct uma_slab, us_free),
+_Static_assert(sizeof(struct uma_slab) == __offsetof(struct uma_slab, us_free),
     "us_free field must be last");
-#if MAXMEMDOM >= 255
-#error "Slab domain type insufficient"
-#endif
+_Static_assert(MAXMEMDOM < 255,
+    "us_domain field is not wide enough");
 
 typedef struct uma_slab * uma_slab_t;
-
-/*
- * On INVARIANTS builds, the slab contains a second bitset of the same size,
- * "dbg_bits", which is laid out immediately after us_free.
- */
-#ifdef INVARIANTS
-#define	SLAB_BITSETS	2
-#else
-#define	SLAB_BITSETS	1
-#endif
-
-/* These three functions are for embedded (!OFFPAGE) use only. */
-size_t slab_sizeof(int nitems);
-size_t slab_space(int nitems);
-int slab_ipers(size_t size, int align);
 
 /*
  * Slab structure with a full sized bitset and hash link for both
@@ -460,7 +438,6 @@ slab_item_index(uma_slab_t slab, uma_keg_t keg, void *item)
 	data = (uintptr_t)slab_data(slab, keg);
 	return (((uintptr_t)item - data) / keg->uk_rsize);
 }
-#endif /* _KERNEL */
 
 STAILQ_HEAD(uma_bucketlist, uma_bucket);
 
@@ -548,6 +525,10 @@ struct uma_zone {
 	KASSERT(uma_zone_get_allocs((z)) == 0,				\
 	    ("zone %s initialization after use.", (z)->uz_name))
 
+/* Domains are contiguous after the last CPU */
+#define	ZDOM_GET(z, n)							\
+	(&((uma_zone_domain_t)&(z)->uz_cpu[mp_maxid + 1])[n])
+
 #undef	UMA_ALIGN
 
 #ifdef _KERNEL
@@ -579,9 +560,9 @@ static __inline uma_slab_t hash_sfind(struct uma_hash *hash, uint8_t *data);
 	    ("%s: Invalid zone %p type", __func__, (zone)));	\
 	} while (0)
 
-/* Domains are contiguous after the last CPU */
-#define	ZDOM_GET(z, n)							\
-    (&((uma_zone_domain_t)&(z)->uz_cpu[mp_maxid + 1])[n])
+#define	KEG_ASSERT_COLD(k)						\
+	KASSERT(uma_keg_get_allocs((k)) == 0,				\
+	    ("keg %s initialization after use.", (k)->uk_name))
 
 #define	ZDOM_LOCK_INIT(z, zdom, lc)					\
 	do {								\

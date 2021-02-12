@@ -30,7 +30,6 @@
  *
  */
 
-
 #include <sys/param.h>
 #include <sys/eventhandler.h>
 #include <sys/stdint.h>
@@ -134,7 +133,6 @@ static void u3g_stop_write(struct ucom_softc *ucom);
 static void u3g_poll(struct ucom_softc *ucom);
 static void u3g_free(struct ucom_softc *ucom);
 
-
 static void u3g_test_autoinst(void *, struct usb_device *,
 		struct usb_attach_arg *);
 static int u3g_driver_loaded(struct module *mod, int what, void *arg);
@@ -142,7 +140,6 @@ static int u3g_driver_loaded(struct module *mod, int what, void *arg);
 static eventhandler_tag u3g_etag;
 
 static const struct usb_config u3g_config[U3G_N_TRANSFER] = {
-
 	[U3G_BULK_WR] = {
 		.type = UE_BULK,
 		.endpoint = UE_ADDR_ANY,
@@ -239,6 +236,8 @@ static const STRUCT_USB_HOST_ID u3g_devs[] = {
 	U3G_DEV(DLINK, DWR510, 0),
 	U3G_DEV(DLINK, DWM157_CD, U3GINIT_SCSIEJECT),
 	U3G_DEV(DLINK, DWM157, 0),
+	U3G_DEV(DLINK, DWM157_CD_2, U3GINIT_SCSIEJECT),
+	U3G_DEV(DLINK, DWM157_2, 0),
 	U3G_DEV(DLINK, DWM222_CD, U3GINIT_SCSIEJECT),
 	U3G_DEV(DLINK, DWM222, 0),
 	U3G_DEV(DLINK3, DWM652, 0),
@@ -722,7 +721,6 @@ u3g_sael_m460_init(struct usb_device *udev)
 	}
 
 	for (n = 0; n != nitems(setup); n++) {
-
 		memcpy(&req, setup[n], sizeof(req));
 
 		len = UGETW(req.wLength);

@@ -109,7 +109,8 @@ efi_status_to_errno(efi_status status)
 }
 
 static struct mtx efi_lock;
-static SYSCTL_NODE(_hw, OID_AUTO, efi, CTLFLAG_RWTUN, NULL, "EFI");
+static SYSCTL_NODE(_hw, OID_AUTO, efi, CTLFLAG_RWTUN | CTLFLAG_MPSAFE, NULL,
+    "EFI");
 static bool efi_poweroff = true;
 SYSCTL_BOOL(_hw_efi, OID_AUTO, poweroff, CTLFLAG_RWTUN, &efi_poweroff, 0,
     "If true, use EFI runtime services to power off in preference to ACPI");
@@ -313,18 +314,25 @@ efi_get_table(struct uuid *uuid, void **ptr)
 {
 	struct efi_cfgtbl *ct;
 	u_long count;
+	int error;
 
 	if (efi_cfgtbl == NULL || efi_systbl == NULL)
 		return (ENXIO);
+	error = efi_enter();
+	if (error != 0)
+		return (error);
 	count = efi_systbl->st_entries;
 	ct = efi_cfgtbl;
 	while (count--) {
 		if (!bcmp(&ct->ct_uuid, uuid, sizeof(*uuid))) {
-			*ptr = (void *)efi_phys_to_kva(ct->ct_data);
+			*ptr = ct->ct_data;
+			efi_leave();
 			return (0);
 		}
 		ct++;
 	}
+
+	efi_leave();
 	return (ENOENT);
 }
 

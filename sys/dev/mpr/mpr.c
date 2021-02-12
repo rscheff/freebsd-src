@@ -112,7 +112,8 @@ static int mpr_debug_sysctl(SYSCTL_HANDLER_ARGS);
 static int mpr_dump_reqs(SYSCTL_HANDLER_ARGS);
 static void mpr_parse_debug(struct mpr_softc *sc, char *list);
 
-SYSCTL_NODE(_hw, OID_AUTO, mpr, CTLFLAG_RD, 0, "MPR Driver Parameters");
+SYSCTL_NODE(_hw, OID_AUTO, mpr, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "MPR Driver Parameters");
 
 MALLOC_DEFINE(M_MPR, "mpr", "mpr driver memory");
 
@@ -128,13 +129,13 @@ static char mpt2_reset_magic[] = { 0x00, 0x0f, 0x04, 0x0b, 0x02, 0x07, 0x0d };
  * Otherwise it will throw this error:
  * "aggregate value used where an integer was expected"
  */
-typedef union _reply_descriptor {
+typedef union {
         u64 word;
         struct {
                 u32 low;
                 u32 high;
         } u;
-} reply_descriptor, request_descriptor;
+} request_descriptor_t;
 
 /* Rate limit chain-fail messages to 1 per minute */
 static struct timeval mpr_chainfail_interval = { 60, 0 };
@@ -164,11 +165,7 @@ mpr_diag_reset(struct mpr_softc *sc,int sleep_flag)
 	 * Force NO_SLEEP for threads prohibited to sleep
  	 * e.a Thread from interrupt handler are prohibited to sleep.
  	 */
-#if __FreeBSD_version >= 1000029
 	if (curthread->td_no_sleeping)
-#else //__FreeBSD_version < 1000029
-	if (curthread->td_pflags & TDP_NOSLEEPING)
-#endif //__FreeBSD_version >= 1000029
 		sleep_flag = NO_SLEEP;
 
 	mpr_dprint(sc, MPR_INIT, "sequence start, sleep_flag=%d\n", sleep_flag);
@@ -342,7 +339,7 @@ mpr_transition_ready(struct mpr_softc *sc)
 			error = EINVAL;
 			break;
 		}
-	
+
 		/* Wait 50ms for things to settle down. */
 		DELAY(50000);
 	}
@@ -439,14 +436,14 @@ mpr_resize_queues(struct mpr_softc *sc)
 
 	/*
 	 * If I/O size limitation requested then use it and pass up to CAM.
-	 * If not, use MAXPHYS as an optimization hint, but report HW limit.
+	 * If not, use maxphys as an optimization hint, but report HW limit.
 	 */
 	if (sc->max_io_pages > 0) {
 		maxio = min(maxio, sc->max_io_pages * PAGE_SIZE);
 		sc->maxio = maxio;
 	} else {
 		sc->maxio = maxio;
-		maxio = min(maxio, MAXPHYS);
+		maxio = min(maxio, maxphys);
 	}
 
 	sc->num_chains = (maxio / PAGE_SIZE + sges_per_frame - 2) /
@@ -1003,12 +1000,8 @@ mpr_request_sync(struct mpr_softc *sc, void *req, MPI2_DEFAULT_REPLY *reply,
 	uint16_t *data16;
 	int i, count, ioc_sz, residual;
 	int sleep_flags = CAN_SLEEP;
-	
-#if __FreeBSD_version >= 1000029
+
 	if (curthread->td_no_sleeping)
-#else //__FreeBSD_version < 1000029
-	if (curthread->td_pflags & TDP_NOSLEEPING)
-#endif //__FreeBSD_version >= 1000029
 		sleep_flags = NO_SLEEP;
 
 	/* Step 1 */
@@ -1128,7 +1121,7 @@ mpr_request_sync(struct mpr_softc *sc, void *req, MPI2_DEFAULT_REPLY *reply,
 static void
 mpr_enqueue_request(struct mpr_softc *sc, struct mpr_command *cm)
 {
-	request_descriptor rd;
+	request_descriptor_t rd;
 
 	MPR_FUNCTRACE(sc);
 	mpr_dprint(sc, MPR_TRACE, "SMID %u cm %p ccb %p\n",
@@ -1317,7 +1310,7 @@ mpr_alloc_queues(struct mpr_softc *sc)
 static int
 mpr_alloc_hw_queues(struct mpr_softc *sc)
 {
-	bus_dma_tag_template_t t;
+	bus_dma_template_t t;
 	bus_addr_t queues_busaddr;
 	uint8_t *queues;
 	int qsize, fqsize, pqsize;
@@ -1340,10 +1333,9 @@ mpr_alloc_hw_queues(struct mpr_softc *sc)
 	qsize = fqsize + pqsize;
 
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.alignment = 16;
-	t.lowaddr = BUS_SPACE_MAXADDR_32BIT;
-	t.maxsize = t.maxsegsize = qsize;
-	t.nsegments = 1;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(16), BD_MAXSIZE(qsize),
+	    BD_MAXSEGSIZE(qsize), BD_NSEGMENTS(1),
+	    BD_LOWADDR(BUS_SPACE_MAXADDR_32BIT));
 	if (bus_dma_template_tag(&t, &sc->queues_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate queues DMA tag\n");
 		return (ENOMEM);
@@ -1372,7 +1364,7 @@ mpr_alloc_hw_queues(struct mpr_softc *sc)
 static int
 mpr_alloc_replies(struct mpr_softc *sc)
 {
-	bus_dma_tag_template_t t;
+	bus_dma_template_t t;
 	int rsize, num_replies;
 
 	/* Store the reply frame size in bytes rather than as 32bit words */
@@ -1387,10 +1379,9 @@ mpr_alloc_replies(struct mpr_softc *sc)
 
 	rsize = sc->replyframesz * num_replies; 
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.alignment = 4;
-	t.lowaddr = BUS_SPACE_MAXADDR_32BIT;
-	t.maxsize = t.maxsegsize = rsize;
-	t.nsegments = 1;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(4), BD_MAXSIZE(rsize),
+	    BD_MAXSEGSIZE(rsize), BD_NSEGMENTS(1),
+	    BD_LOWADDR(BUS_SPACE_MAXADDR_32BIT));
 	if (bus_dma_template_tag(&t, &sc->reply_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate replies DMA tag\n");
 		return (ENOMEM);
@@ -1438,16 +1429,15 @@ mpr_load_chains_cb(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 static int
 mpr_alloc_requests(struct mpr_softc *sc)
 {
-	bus_dma_tag_template_t t;
+	bus_dma_template_t t;
 	struct mpr_command *cm;
 	int i, rsize, nsegs;
 
 	rsize = sc->reqframesz * sc->num_reqs;
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.alignment = 16;
-	t.lowaddr = BUS_SPACE_MAXADDR_32BIT;
-	t.maxsize = t.maxsegsize = rsize;
-	t.nsegments = 1;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(16), BD_MAXSIZE(rsize),
+	    BD_MAXSEGSIZE(rsize), BD_NSEGMENTS(1),
+	    BD_LOWADDR(BUS_SPACE_MAXADDR_32BIT));
 	if (bus_dma_template_tag(&t, &sc->req_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate request DMA tag\n");
 		return (ENOMEM);
@@ -1471,9 +1461,8 @@ mpr_alloc_requests(struct mpr_softc *sc)
 	}
 	rsize = sc->chain_frame_size * sc->num_chains;
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.alignment = 16;
-	t.maxsize = t.maxsegsize = rsize;
-	t.nsegments = howmany(rsize, PAGE_SIZE);
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(16), BD_MAXSIZE(rsize),
+	    BD_MAXSEGSIZE(rsize), BD_NSEGMENTS((howmany(rsize, PAGE_SIZE))));
 	if (bus_dma_template_tag(&t, &sc->chain_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate chain DMA tag\n");
 		return (ENOMEM);
@@ -1493,7 +1482,8 @@ mpr_alloc_requests(struct mpr_softc *sc)
 
 	rsize = MPR_SENSE_LEN * sc->num_reqs;
 	bus_dma_template_clone(&t, sc->req_dmat);
-	t.maxsize = t.maxsegsize = rsize;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(1), BD_MAXSIZE(rsize),
+	    BD_MAXSEGSIZE(rsize));
 	if (bus_dma_template_tag(&t, &sc->sense_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate sense DMA tag\n");
 		return (ENOMEM);
@@ -1521,10 +1511,10 @@ mpr_alloc_requests(struct mpr_softc *sc)
 
 	nsegs = (sc->maxio / PAGE_SIZE) + 1;
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.nsegments = nsegs;
-	t.flags = BUS_DMA_ALLOCNOW;
-	t.lockfunc = busdma_lock_mutex;
-	t.lockfuncarg = &sc->mpr_mtx;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_MAXSIZE(BUS_SPACE_MAXSIZE_32BIT),
+	    BD_NSEGMENTS(nsegs), BD_MAXSEGSIZE(BUS_SPACE_MAXSIZE_32BIT),
+	    BD_FLAGS(BUS_DMA_ALLOCNOW), BD_LOCKFUNC(busdma_lock_mutex),
+	    BD_LOCKFUNCARG(&sc->mpr_mtx));
 	if (bus_dma_template_tag(&t, &sc->buffer_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate buffer DMA tag\n");
 		return (ENOMEM);
@@ -1536,10 +1526,6 @@ mpr_alloc_requests(struct mpr_softc *sc)
 	 */
 	sc->commands = malloc(sizeof(struct mpr_command) * sc->num_reqs,
 	    M_MPR, M_WAITOK | M_ZERO);
-	if (!sc->commands) {
-		mpr_dprint(sc, MPR_ERROR, "Cannot allocate command memory\n");
-		return (ENOMEM);
-	}
 	for (i = 1; i < sc->num_reqs; i++) {
 		cm = &sc->commands[i];
 		cm->cm_req = sc->req_frames + i * sc->reqframesz;
@@ -1582,7 +1568,7 @@ mpr_alloc_requests(struct mpr_softc *sc)
 static int
 mpr_alloc_nvme_prp_pages(struct mpr_softc *sc)
 {
-	bus_dma_tag_template_t t;
+	bus_dma_template_t t;
 	struct mpr_prp_page *prp_page;
 	int PRPs_per_page, PRPs_required, pages_required;
 	int rsize, i;
@@ -1613,10 +1599,9 @@ mpr_alloc_nvme_prp_pages(struct mpr_softc *sc)
 	sc->prp_buffer_size = PAGE_SIZE * pages_required; 
 	rsize = sc->prp_buffer_size * NVME_QDEPTH; 
 	bus_dma_template_init(&t, sc->mpr_parent_dmat);
-	t.alignment = 4;
-	t.lowaddr = BUS_SPACE_MAXADDR_32BIT;
-	t.maxsize = t.maxsegsize = rsize;
-	t.nsegments = 1;
+	BUS_DMA_TEMPLATE_FILL(&t, BD_ALIGNMENT(4), BD_MAXSIZE(rsize),
+	    BD_MAXSEGSIZE(rsize), BD_NSEGMENTS(1),
+	    BD_LOWADDR(BUS_SPACE_MAXADDR_32BIT));
 	if (bus_dma_template_tag(&t, &sc->prp_page_dmat)) {
 		mpr_dprint(sc, MPR_ERROR, "Cannot allocate NVMe PRP DMA "
 		    "tag\n");
@@ -1799,7 +1784,7 @@ mpr_setup_sysctl(struct mpr_softc *sc)
 		sysctl_ctx_init(&sc->sysctl_ctx);
 		sc->sysctl_tree = SYSCTL_ADD_NODE(&sc->sysctl_ctx,
 		    SYSCTL_STATIC_CHILDREN(_hw_mpr), OID_AUTO, tmpstr2,
-		    CTLFLAG_RD, 0, tmpstr);
+		    CTLFLAG_RD | CTLFLAG_MPSAFE, 0, tmpstr);
 		if (sc->sysctl_tree == NULL)
 			return;
 		sysctl_ctx = &sc->sysctl_ctx;
@@ -1889,8 +1874,9 @@ mpr_setup_sysctl(struct mpr_softc *sc)
 	    "spinup after SATA ID error");
 
 	SYSCTL_ADD_PROC(sysctl_ctx, SYSCTL_CHILDREN(sysctl_tree),
-	    OID_AUTO, "dump_reqs", CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_SKIP, sc, 0,
-	    mpr_dump_reqs, "I", "Dump Active Requests");
+	    OID_AUTO, "dump_reqs",
+	    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_SKIP | CTLFLAG_NEEDGIANT,
+	    sc, 0, mpr_dump_reqs, "I", "Dump Active Requests");
 
 	SYSCTL_ADD_INT(sysctl_ctx, SYSCTL_CHILDREN(sysctl_tree),
 	    OID_AUTO, "use_phy_num", CTLFLAG_RD, &sc->use_phynum, 0,
@@ -2005,7 +1991,6 @@ mpr_parse_debug(struct mpr_softc *sc, char *list)
 	flags = 0;
 	sz = sizeof(mpr_debug_strings) / sizeof(mpr_debug_strings[0]);
 	while ((token = strsep(&list, ":,")) != NULL) {
-
 		/* Handle integer flags */
 		flags |= strtol(token, &endtoken, 0);
 		if (token != endtoken)
@@ -2380,20 +2365,20 @@ mpr_sas_log_info(struct mpr_softc *sc , u32 log_info)
 	};
 	union loginfo_type sas_loginfo;
 	char *originator_str = NULL;
- 
+
 	sas_loginfo.loginfo = log_info;
 	if (sas_loginfo.dw.bus_type != 3 /*SAS*/)
 		return;
- 
+
 	/* each nexus loss loginfo */
 	if (log_info == 0x31170000)
 		return;
- 
+
 	/* eat the loginfos associated with task aborts */
 	if ((log_info == 30050000) || (log_info == 0x31140000) ||
 	    (log_info == 0x31130000))
 		return;
- 
+
 	switch (sas_loginfo.dw.originator) {
 	case 0:
 		originator_str = "IOP";
@@ -2405,7 +2390,7 @@ mpr_sas_log_info(struct mpr_softc *sc , u32 log_info)
 		originator_str = "IR";
 		break;
 	}
- 
+
 	mpr_dprint(sc, MPR_LOG, "log_info(0x%08x): originator(%s), "
 	    "code(0x%02x), sub_code(0x%04x)\n", log_info, originator_str,
 	    sas_loginfo.dw.code, sas_loginfo.dw.subcode);
@@ -2416,7 +2401,7 @@ mpr_display_reply_info(struct mpr_softc *sc, uint8_t *reply)
 {
 	MPI2DefaultReply_t *mpi_reply;
 	u16 sc_status;
- 
+
 	mpi_reply = (MPI2DefaultReply_t*)reply;
 	sc_status = le16toh(mpi_reply->IOCStatus);
 	if (sc_status & MPI2_IOCSTATUS_FLAG_LOG_INFO_AVAILABLE)
@@ -2690,11 +2675,6 @@ mpr_register_events(struct mpr_softc *sc, uint8_t *mask,
 	int error = 0;
 
 	eh = malloc(sizeof(struct mpr_event_handle), M_MPR, M_WAITOK|M_ZERO);
-	if (!eh) {
-		mpr_dprint(sc, MPR_EVENT|MPR_ERROR,
-		    "Cannot allocate event memory\n");
-		return (ENOMEM);
-	}
 	eh->callback = cb;
 	eh->data = data;
 	TAILQ_INSERT_TAIL(&sc->event_list, eh, eh_list);
@@ -2750,7 +2730,7 @@ mpr_update_events(struct mpr_softc *sc, struct mpr_event_handle *handle,
 	if ((reply == NULL) ||
 	    (reply->IOCStatus & MPI2_IOCSTATUS_MASK) != MPI2_IOCSTATUS_SUCCESS)
 		error = ENXIO;
-	
+
 	if (reply)
 		MPR_DPRINT_EVENT(sc, generic, reply);
 
@@ -3760,11 +3740,7 @@ mpr_wait_command(struct mpr_softc *sc, struct mpr_command **cmp, int timeout,
 	// Check for context and wait for 50 mSec at a time until time has
 	// expired or the command has finished.  If msleep can't be used, need
 	// to poll.
-#if __FreeBSD_version >= 1000029
 	if (curthread->td_no_sleeping)
-#else //__FreeBSD_version < 1000029
-	if (curthread->td_pflags & TDP_NOSLEEPING)
-#endif //__FreeBSD_version >= 1000029
 		sleep_flag = NO_SLEEP;
 	getmicrouptime(&start_time);
 	if (mtx_owned(&sc->mpr_mtx) && sleep_flag == CAN_SLEEP) {

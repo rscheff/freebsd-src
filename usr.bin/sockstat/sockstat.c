@@ -32,10 +32,11 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
-#include <sys/file.h>
+#include <sys/jail.h>
 #include <sys/user.h>
 
 #include <sys/un.h>
@@ -73,10 +74,12 @@ __FBSDID("$FreeBSD$");
 
 static int	 opt_4;		/* Show IPv4 sockets */
 static int	 opt_6;		/* Show IPv6 sockets */
+static int	 opt_C;		/* Show congestion control */
 static int	 opt_c;		/* Show connected sockets */
 static int	 opt_j;		/* Show specified jail */
 static int	 opt_L;		/* Don't show IPv4 or IPv6 loopback sockets */
 static int	 opt_l;		/* Show listening sockets */
+static int	 opt_n;		/* Don't resolve UIDs to user names */
 static int	 opt_q;		/* Don't show header */
 static int	 opt_S;		/* Show protocol stack if applicable */
 static int	 opt_s;		/* Show protocol state if applicable */
@@ -117,6 +120,7 @@ struct sock {
 	int state;
 	const char *protoname;
 	char stack[TCP_FUNCTION_NAME_LEN_MAX];
+	char cc[TCP_CA_NAME_MAX];
 	struct addr *laddr;
 	struct addr *faddr;
 	struct sock *next;
@@ -715,6 +719,7 @@ gather_inet(int proto)
 			sock->state = xtp->t_state;
 			memcpy(sock->stack, xtp->xt_stack,
 			    TCP_FUNCTION_NAME_LEN_MAX);
+			memcpy(sock->cc, xtp->xt_cc, TCP_CA_NAME_MAX);
 		}
 		sock->protoname = protoname;
 		hash = (int)((uintptr_t)sock->socket % HASHSIZE);
@@ -1129,11 +1134,23 @@ displaysock(struct sock *s, int pos)
 				}
 				offset += 13;
 			}
-			if (opt_S && s->proto == IPPROTO_TCP) {
-				while (pos < offset)
-					pos += xprintf(" ");
-				xprintf("%.*s", TCP_FUNCTION_NAME_LEN_MAX,
-				    s->stack);
+			if (opt_S) {
+				if (s->proto == IPPROTO_TCP) {
+					while (pos < offset)
+						pos += xprintf(" ");
+					pos += xprintf("%.*s",
+					    TCP_FUNCTION_NAME_LEN_MAX,
+					    s->stack);
+				}
+				offset += TCP_FUNCTION_NAME_LEN_MAX + 1;
+			}
+			if (opt_C) {
+				if (s->proto == IPPROTO_TCP) {
+					while (pos < offset)
+						pos += xprintf(" ");
+					xprintf("%.*s", TCP_CA_NAME_MAX, s->cc);
+				}
+				offset += TCP_CA_NAME_MAX + 1;
 			}
 		}
 		if (laddr != NULL)
@@ -1169,7 +1186,10 @@ display(void)
 			printf(" %-12s", "CONN STATE");
 		}
 		if (opt_S)
-			printf(" %.*s", TCP_FUNCTION_NAME_LEN_MAX, "STACK");
+			printf(" %-*.*s", TCP_FUNCTION_NAME_LEN_MAX,
+			    TCP_FUNCTION_NAME_LEN_MAX, "STACK");
+		if (opt_C)
+			printf(" %-.*s", TCP_CA_NAME_MAX, "CC");
 		printf("\n");
 	}
 	setpassent(1);
@@ -1186,7 +1206,7 @@ display(void)
 				continue;
 			s->shown = 1;
 			pos = 0;
-			if ((pwd = getpwuid(xf->xf_uid)) == NULL)
+			if (opt_n || (pwd = getpwuid(xf->xf_uid)) == NULL)
 				pos += xprintf("%lu ", (u_long)xf->xf_uid);
 			else
 				pos += xprintf("%s ", pwd->pw_name);
@@ -1218,7 +1238,8 @@ display(void)
 	}
 }
 
-static int set_default_protos(void)
+static int
+set_default_protos(void)
 {
 	struct protoent *prot;
 	const char *pname;
@@ -1237,6 +1258,38 @@ static int set_default_protos(void)
 	return (pindex);
 }
 
+/*
+ * Return the vnet property of the jail, or -1 on error.
+ */
+static int
+jail_getvnet(int jid)
+{
+	struct iovec jiov[6];
+	int vnet;
+
+	vnet = -1;
+	jiov[0].iov_base = __DECONST(char *, "jid");
+	jiov[0].iov_len = sizeof("jid");
+	jiov[1].iov_base = &jid;
+	jiov[1].iov_len = sizeof(jid);
+	jiov[2].iov_base = __DECONST(char *, "vnet");
+	jiov[2].iov_len = sizeof("vnet");
+	jiov[3].iov_base = &vnet;
+	jiov[3].iov_len = sizeof(vnet);
+	jiov[4].iov_base = __DECONST(char *, "errmsg");
+	jiov[4].iov_len = sizeof("errmsg");
+	jiov[5].iov_base = jail_errmsg;
+	jiov[5].iov_len = JAIL_ERRMSGLEN;
+	jail_errmsg[0] = '\0';
+	if (jail_get(jiov, nitems(jiov), 0) < 0) {
+		if (!jail_errmsg[0])
+			snprintf(jail_errmsg, JAIL_ERRMSGLEN,
+			    "jail_get: %s", strerror(errno));
+		return (-1);
+	}
+	return (vnet);
+}
+
 static void
 usage(void)
 {
@@ -1252,13 +1305,16 @@ main(int argc, char *argv[])
 	int o, i;
 
 	opt_j = -1;
-	while ((o = getopt(argc, argv, "46cj:Llp:P:qSsUuvw")) != -1)
+	while ((o = getopt(argc, argv, "46Ccj:Llnp:P:qSsUuvw")) != -1)
 		switch (o) {
 		case '4':
 			opt_4 = 1;
 			break;
 		case '6':
 			opt_6 = 1;
+			break;
+		case 'C':
+			opt_C = 1;
 			break;
 		case 'c':
 			opt_c = 1;
@@ -1273,6 +1329,9 @@ main(int argc, char *argv[])
 			break;
 		case 'l':
 			opt_l = 1;
+			break;
+		case 'n':
+			opt_n = 1;
 			break;
 		case 'p':
 			parse_ports(optarg);
@@ -1310,6 +1369,21 @@ main(int argc, char *argv[])
 
 	if (argc > 0)
 		usage();
+
+	if (opt_j > 0) {
+		switch (jail_getvnet(opt_j)) {
+		case -1:
+			errx(2, "%s", jail_errmsg);
+		case JAIL_SYS_NEW:
+			if (jail_attach(opt_j) < 0)
+				err(3, "jail_attach()");
+			/* Set back to -1 for normal output in vnet jail. */
+			opt_j = -1;
+			break;
+		default:
+			break;
+		}
+	}
 
 	if ((!opt_4 && !opt_6) && protos_defined != -1)
 		opt_4 = opt_6 = 1;

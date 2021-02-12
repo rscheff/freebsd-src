@@ -34,6 +34,7 @@
 #include <sys/systm.h>
 #include <sys/conf.h>
 #include <sys/cpuvar.h>
+#include <sys/endian.h>
 #include <sys/fcntl.h>
 #include <sys/filio.h>
 #include <sys/kdb.h>
@@ -127,6 +128,17 @@ fbt_excluded(const char *name)
 	}
 
 	/*
+	 * Omit instrumentation of functions that are probably in DDB.  It
+	 * makes it too hard to debug broken FBT.
+	 *
+	 * NB: kdb_enter() can be excluded, but its call to printf() can't be.
+	 * This is generally OK since we're not yet in debugging context.
+	 */
+	if (strncmp(name, "db_", 3) == 0 ||
+	    strncmp(name, "kdb_", 4) == 0)
+		return (1);
+
+	/*
 	 * Lock owner methods may be called from probe context.
 	 */
 	if (strcmp(name, "owner_mtx") == 0 ||
@@ -134,6 +146,15 @@ fbt_excluded(const char *name)
 	    strcmp(name, "owner_rw") == 0 ||
 	    strcmp(name, "owner_sx") == 0)
 		return (1);
+
+	/*
+	 * Stack unwinders may be called from probe context on some
+	 * platforms.
+	 */
+#if defined(__aarch64__) || defined(__riscv)
+	if (strcmp(name, "unwind_frame") == 0)
+		return (1);
+#endif
 
 	/*
 	 * When DTrace is built into the kernel we need to exclude

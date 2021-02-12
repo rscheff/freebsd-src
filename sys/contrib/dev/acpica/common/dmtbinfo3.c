@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -528,27 +528,6 @@ ACPI_DMTABLE_INFO           AcpiDmTableInfoUefi[] =
 
 /*******************************************************************************
  *
- * VRTC - Virtual Real Time Clock Table
- *
- ******************************************************************************/
-
-ACPI_DMTABLE_INFO           AcpiDmTableInfoVrtc[] =
-{
-    ACPI_DMT_TERMINATOR
-};
-
-/* VRTC Subtables - VRTC Entry */
-
-ACPI_DMTABLE_INFO           AcpiDmTableInfoVrtc0[] =
-{
-    {ACPI_DMT_GAS,      ACPI_VRTC0_OFFSET (PhysicalAddress),        "PhysicalAddress", 0},
-    {ACPI_DMT_UINT32,   ACPI_VRTC0_OFFSET (Irq),                    "IRQ", 0},
-    ACPI_DMT_TERMINATOR
-};
-
-
-/*******************************************************************************
- *
  * WAET - Windows ACPI Emulated devices Table
  *
  ******************************************************************************/
@@ -691,7 +670,7 @@ ACPI_DMTABLE_INFO           AcpiDmTableInfoWpbt0[] =
 
 /*******************************************************************************
  *
- * WSMT - Windows SMM Security Migrations Table
+ * WSMT - Windows SMM Security Mitigations Table
  *
  ******************************************************************************/
 

@@ -23,7 +23,13 @@ VERSION_FILE=	${.CURDIR}/../loader/version
 .PATH:		${BOOTSRC}/i386/loader
 
 # architecture-specific loader code
-SRCS=		main.c conf.c vers.c chain.c
+SRCS=		main.c conf.c vers.c chain.c gfx_fb.c 8x16.c
+
+CFLAGS.gfx_fb.c += -I${.CURDIR}/../libi386
+CFLAGS.gfx_fb.c += -I$(SRCTOP)/sys/teken
+CFLAGS.gfx_fb.c += -I${SRCTOP}/sys/cddl/contrib/opensolaris/common/lz4
+CFLAGS.gfx_fb.c += -I${SRCTOP}/contrib/pnglite
+CFLAGS.gfx_fb.c += -DHAVE_MEMCPY -I${SRCTOP}/sys/contrib/zlib
 
 # Include bcache code.
 HAVE_BCACHE=	yes
@@ -37,6 +43,11 @@ CFLAGS+=	-DLOADER_FIREWIRE_SUPPORT
 LIBFIREWIRE=	${BOOTOBJ}/i386/libfirewire/libfirewire.a
 .endif
 
+.if ${MK_LOADER_ZFS} == "yes"
+CFLAGS.main.c+=	-I${SYSDIR}/contrib/openzfs/include
+CFLAGS.main.c+=	-I${SYSDIR}/contrib/openzfs/include/os/freebsd/zfs
+.endif
+
 .if exists(${.CURDIR}/help.i386)
 HELP_FILES=	${.CURDIR}/help.i386
 .endif
@@ -44,10 +55,12 @@ HELP_FILES=	${.CURDIR}/help.i386
 # Always add MI sources
 .include	"${BOOTSRC}/loader.mk"
 
-CLEANFILES+=	${LOADER} ${LOADER}.bin
+CLEANFILES+=	${LOADER} ${LOADER}.bin 8x16.c
+
+ORG=		0x0
 
 CFLAGS+=	-Wall
-LDFLAGS+=	-static -Ttext 0x0 -Wl,--gc-sections
+LDFLAGS+=	-static ${LDFLAGS_ORG} -Wl,--gc-sections
 
 # i386 standalone support library
 LIBI386=	${BOOTOBJ}/i386/libi386/libi386.a
@@ -57,12 +70,15 @@ CFLAGS+=	-I${BOOTSRC}/i386
 #CFLAGS+=	-g
 #LDFLAGS+=	-g
 
+8x16.c: ${SRCTOP}/contrib/terminus/ter-u16b.bdf
+	vtfontcvt -f compressed-source -o ${.TARGET} ${.ALLSRC}
+
 ${LOADER}: ${LOADER}.bin ${BTXLDR} ${BTXKERN}
 	btxld -v -f aout -e ${LOADER_ADDRESS} -o ${.TARGET} -l ${BTXLDR} \
 		-b ${BTXKERN} ${LOADER}.bin
 
 ${LOADER}.bin: ${LOADER}.sym
-	strip -R .comment -R .note -o ${.TARGET} ${.ALLSRC}
+	${STRIPBIN} -R .comment -R .note -o ${.TARGET} ${.ALLSRC}
 
 .if ${MK_LOADER_ZFS} == "yes" && ${LOADER_INTERP} == ${LOADER_DEFAULT_INTERP}
 LINKS+=		${BINDIR}/${LOADER} ${BINDIR}/zfsloader

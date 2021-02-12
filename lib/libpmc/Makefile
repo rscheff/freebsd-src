@@ -5,10 +5,12 @@ LIB=	pmc
 SRCS=	libpmc.c pmclog.c libpmc_pmu_util.c libpmc_json.cc
 INCS=	pmc.h pmclog.h pmcformat.h
 
-.if ${MACHINE_ARCH} == "aarch64" || ${MACHINE_ARCH} == "amd64" || \
+CFLAGS+= -I${SRCTOP}/${RELDIR:H}/libpmcstat
+
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_ARCH} == "amd64" || \
     ${MACHINE_ARCH} == "i386"
 
-.if ${MACHINE_ARCH} == "aarch64"
+.if ${MACHINE_CPUARCH} == "aarch64"
 EVENT_ARCH="arm64"
 .elif ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "i386"
 EVENT_ARCH="x86"
@@ -18,7 +20,6 @@ EVENT_ARCH="powerpc"
 
 .if ${MK_DIRDEPS_BUILD} == "yes"
 # avoid circular dependency
-CFLAGS+= -I${SRCTOP}/${RELDIR:H}/libpmcstat
 GENDIRDEPS_FILTER+= N${RELDIR:H}/libpmcstat
 JEVENTS?= ${HOST_OBJTOP}/${RELDIR}/pmu-events/jevents
 .else
@@ -31,9 +32,13 @@ SUBDIR+= pmu-events
 .endif
 .endif
 
-libpmc_events.c: ${JEVENTS}
-	${JEVENTS} ${EVENT_ARCH} ${.CURDIR}/pmu-events/arch libpmc_events.c
-SRCS+= libpmc_events.c
+libpmc_events.c: ${JEVENTS} .META
+	${JEVENTS} ${EVENT_ARCH} ${.CURDIR}/pmu-events/arch ${.TARGET}.tmp
+	if [ ! -e ${.TARGET} ] || ! cmp -s ${.TARGET} ${.TARGET}.tmp; then \
+		mv -f ${.TARGET}.tmp ${.TARGET}; \
+	fi
+CLEANFILES+=	libpmc_events.c libpmc_events.c.tmp
+SRCS+=	libpmc_events.c
 .endif
 
 WARNS?=	3
@@ -88,7 +93,6 @@ MAN+=	pmc.tsc.3
 MAN+=	pmc.ucf.3
 MAN+=	pmc.westmere.3
 MAN+=	pmc.westmereuc.3
-MAN+=	pmc.xscale.3
 
 MLINKS+= \
 	pmc_allocate.3 pmc_release.3 \

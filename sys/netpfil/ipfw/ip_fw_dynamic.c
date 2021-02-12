@@ -453,14 +453,17 @@ SYSCTL_U32(_net_inet_ip_fw, OID_AUTO, curr_max_length,
     CTLFLAG_VNET | CTLFLAG_RD, &VNET_NAME(curr_max_length), 0,
     "Current maximum length of states chains in hash buckets.");
 SYSCTL_PROC(_net_inet_ip_fw, OID_AUTO, dyn_buckets,
-    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW, 0, 0, sysctl_dyn_buckets,
-    "IU", "Max number of buckets for dynamic states hash table.");
+    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    0, 0, sysctl_dyn_buckets, "IU",
+    "Max number of buckets for dynamic states hash table.");
 SYSCTL_PROC(_net_inet_ip_fw, OID_AUTO, dyn_max,
-    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW, 0, 0, sysctl_dyn_max,
-    "IU", "Max number of dynamic states.");
+    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    0, 0, sysctl_dyn_max, "IU",
+    "Max number of dynamic states.");
 SYSCTL_PROC(_net_inet_ip_fw, OID_AUTO, dyn_parent_max,
-    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW, 0, 0, sysctl_dyn_parent_max,
-    "IU", "Max number of parent dynamic states.");
+    CTLFLAG_VNET | CTLTYPE_U32 | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+    0, 0, sysctl_dyn_parent_max, "IU",
+    "Max number of parent dynamic states.");
 SYSCTL_U32(_net_inet_ip_fw, OID_AUTO, dyn_ack_lifetime,
     CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(dyn_ack_lifetime), 0,
     "Lifetime of dynamic states for TCP ACK.");
@@ -485,7 +488,6 @@ SYSCTL_U32(_net_inet_ip_fw, OID_AUTO, dyn_keepalive,
 SYSCTL_U32(_net_inet_ip_fw, OID_AUTO, dyn_keep_states,
     CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(dyn_keep_states), 0,
     "Do not flush dynamic states on rule deletion");
-
 
 #ifdef IPFIREWALL_DYNDEBUG
 #define	DYN_DEBUG(fmt, ...)	do {			\
@@ -1161,7 +1163,6 @@ dyn_lookup_ipv4_parent_locked(const struct ipfw_flow_id *pkt,
 	}
 	return (s);
 }
-
 
 #ifdef INET6
 static uint32_t
@@ -3264,5 +3265,3 @@ ipfw_dyn_uninit(int pass)
 	if (IS_DEFAULT_VNET(curvnet))
 		free(dyn_hp_cache, M_IPFW);
 }
-
-
