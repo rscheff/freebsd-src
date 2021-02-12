@@ -1640,6 +1640,16 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 * XXX this is traditional behavior, may need to be cleaned up.
 	 */
 	if (tp->t_state == TCPS_SYN_SENT && (thflags & TH_SYN)) {
+	
+		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d-synack: "
+			"sack flags: %d topt: %d\n",
+			    __func__, __LINE__,
+			    (tp->t_flags & TF_SACK_PERMIT) ? 1:0,
+		    (to.to_flags & TOF_SACKPERM) ? 1:0);
+		}
+
+	
 		/* Handle parallel SYN for ECN */
 		if (!(thflags & TH_ACK) &&
 		    ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) &&
@@ -2507,6 +2517,16 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		hhook_run_tcp_est_in(tp, th, &to);
 #endif
 
+		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d: "
+			"una: %u nxt: %u max: %u th_ack: %d sackchg: %d dupacks:%d FRec:%d SACK:%d\n",
+			    __func__, __LINE__,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, 
+			    th->th_ack-tp->iss, sack_changed, tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags) ? 1 : 0,
+			    tp->t_flags & TF_SACK_PERMIT ? 1 : 0);
+		}
+
+
 		if (SEQ_LEQ(th->th_ack, tp->snd_una)) {
 			u_int maxseg;
 
@@ -2566,6 +2586,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 */
 				if (th->th_ack != tp->snd_una ||
 				    ((tp->t_flags & TF_SACK_PERMIT) &&
+				    (to.to_flags & TOF_SACK) &&
 				    !sack_changed))
 					break;
 				else if (!tcp_timer_active(tp, TT_REXMT))
@@ -2577,6 +2598,14 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					if (V_tcp_do_prr &&
 					    IN_FASTRECOVERY(tp->t_flags) &&
 					    (tp->t_flags & TF_SACK_PERMIT)) {
+					    		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d-prr: "
+			"una: %u nxt: %u max: %u th_ack: %d sackchg: %d dupacks:%d \n",
+			    __func__, __LINE__,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, 
+			    th->th_ack-tp->iss, sack_changed, tp->t_dupacks);
+		}
+
 						long snd_cnt = 0, limit = 0;
 						long del_data = 0, pipe = 0;
 						/*
@@ -2626,8 +2655,18 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						    tp->sackhint.sack_bytes_rexmit +
 						    (snd_cnt * maxseg);
 					} else if ((tp->t_flags & TF_SACK_PERMIT) &&
+					    (to.to_flags & TOF_SACK) &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
 						int awnd;
+
+		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d - sackrecovery: "
+			"una: %u nxt: %u max: %u th_ack: %d sackchg: %d dupacks:%d FRec:%d\n",
+			    __func__, __LINE__,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, 
+			    th->th_ack-tp->iss, sack_changed, tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags) ? 1 : 0);
+		}
+
 
 						/*
 						 * Compute the amount of data in flight first.
@@ -2641,17 +2680,43 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 							awnd = (tp->snd_nxt - tp->snd_fack) +
 								tp->sackhint.sack_bytes_rexmit;
 
+		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d - sackrecovery2: "
+			"awnd:%d ssthresh:%d cwnd:%d fack:%d sackrexmit:%d\n",
+			    __func__, __LINE__,
+			    awnd, tp->snd_ssthresh, tp->snd_cwnd, tp->snd_fack, tp->sackhint.sack_bytes_rexmit);
+		}
+
+
 						if (awnd < tp->snd_ssthresh) {
 							tp->snd_cwnd += maxseg;
 							if (tp->snd_cwnd > tp->snd_ssthresh)
 								tp->snd_cwnd = tp->snd_ssthresh;
 						}
-					} else
+					} else {
+							if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d - renorecovery: "
+			"una: %u nxt: %u max: %u th_ack: %d sackchg: %d dupacks:%d FRec:%d\n",
+			    __func__, __LINE__,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, 
+			    th->th_ack-tp->iss, sack_changed, tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags) ? 1:0);
+		}
+
 						tp->snd_cwnd += maxseg;
+					}
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh) {
 					tcp_seq onxt = tp->snd_nxt;
+
+		if (so->so_options & SO_DEBUG) {
+			log(LOG_CRIT, "%s#%d - dupthresh: "
+			"una: %u nxt: %u max: %u th_ack: %d sackchg: %d dupacks:%d FRec:%d\n",
+			    __func__, __LINE__,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, 
+			    th->th_ack-tp->iss, sack_changed, tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags)? 1:0);
+		}
+
 
 					/*
 					 * If we're doing sack, or prr, check
@@ -2689,7 +2754,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						tp->sackhint.recover_fs = max(1,
 						    tp->snd_nxt - tp->snd_una);
 					}
-					if (tp->t_flags & TF_SACK_PERMIT) {
+					if (tp->t_flags & TF_SACK_PERMIT &&
+					    to.to_flags & TOF_SACK) {
 						TCPSTAT_INC(
 						    tcps_sack_recovery_episode);
 						tp->snd_recover = tp->snd_nxt;
