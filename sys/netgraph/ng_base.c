@@ -836,7 +836,7 @@ ng_ID2noderef(ng_ID_t ID)
 }
 
 ng_ID_t
-ng_node2ID(node_p node)
+ng_node2ID(node_cp node)
 {
 	return (node ? NG_NODE_ID(node) : 0);
 }
@@ -1426,7 +1426,7 @@ ng_con_part2(node_p node, item_p item, hook_p hook)
 	LIST_INSERT_HEAD(&node->nd_hooks, hook, hk_hooks);
 	node->nd_numhooks++;
 	NG_HOOK_REF(hook);	/* one for the node */
-	
+
 	/*
 	 * We now have a symmetrical situation, where both hooks have been
 	 * linked to their nodes, the newhook methods have been called
@@ -1577,7 +1577,6 @@ ng_mkpeer(node_p node, const char *name, const char *name2, char *type)
 
 	if ((error == 0) && hook2->hk_node->nd_type->connect) {
 		error = (*hook2->hk_node->nd_type->connect) (hook2);
-
 	}
 
 	/*
@@ -1599,7 +1598,7 @@ ng_mkpeer(node_p node, const char *name, const char *name2, char *type)
 /************************************************************************
 		Utility routines to send self messages
 ************************************************************************/
-	
+
 /* Shut this node down as soon as everyone is clear of it */
 /* Should add arg "immediately" to jump the queue */
 int
@@ -2772,7 +2771,7 @@ ng_generic_msg(node_p here, item_p item, hook_p lasthook)
 
 	case NGM_BINARY2ASCII:
 	    {
-		int bufSize = 20 * 1024;	/* XXX hard coded constant */
+		int bufSize = 1024;
 		const struct ng_parse_type *argstype;
 		const struct ng_cmdlist *c;
 		struct ng_mesg *binary, *ascii;
@@ -2786,7 +2785,7 @@ ng_generic_msg(node_p here, item_p item, hook_p lasthook)
 			error = EINVAL;
 			break;
 		}
-
+retry_b2a:
 		/* Get a response message with lots of room */
 		NG_MKRESPONSE(resp, msg, sizeof(*ascii) + bufSize, M_NOWAIT);
 		if (resp == NULL) {
@@ -2828,9 +2827,13 @@ ng_generic_msg(node_p here, item_p item, hook_p lasthook)
 		if (argstype == NULL) {
 			*ascii->data = '\0';
 		} else {
-			if ((error = ng_unparse(argstype,
-			    (u_char *)binary->data,
-			    ascii->data, bufSize)) != 0) {
+			error = ng_unparse(argstype, (u_char *)binary->data,
+			    ascii->data, bufSize);
+			if (error == ERANGE) {
+				NG_FREE_MSG(resp);
+				bufSize *= 2;
+				goto retry_b2a;
+			} else if (error) {
 				NG_FREE_MSG(resp);
 				break;
 			}
@@ -3167,12 +3170,10 @@ vnet_netgraph_uninit(const void *unused __unused)
 		/* Attempt to kill it only if it is a regular node */
 		if (node != NULL) {
 			if (node == last_killed) {
-				/* This should never happen */
-				printf("ng node %s needs NGF_REALLY_DIE\n",
-				    node->nd_name);
 				if (node->nd_flags & NGF_REALLY_DIE)
 					panic("ng node %s won't die",
 					    node->nd_name);
+				/* The node persisted itself.  Try again. */
 				node->nd_flags |= NGF_REALLY_DIE;
 			}
 			ng_rmnode(node, NULL, NULL, 0);
@@ -3250,7 +3251,8 @@ static moduledata_t netgraph_mod = {
 	(NULL)
 };
 DECLARE_MODULE(netgraph, netgraph_mod, SI_SUB_NETGRAPH, SI_ORDER_FIRST);
-SYSCTL_NODE(_net, OID_AUTO, graph, CTLFLAG_RW, 0, "netgraph Family");
+SYSCTL_NODE(_net, OID_AUTO, graph, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "netgraph Family");
 SYSCTL_INT(_net_graph, OID_AUTO, abi_version, CTLFLAG_RD, SYSCTL_NULL_INT_PTR, NG_ABI_VERSION,"");
 SYSCTL_INT(_net_graph, OID_AUTO, msg_version, CTLFLAG_RD, SYSCTL_NULL_INT_PTR, NG_VERSION, "");
 
@@ -3384,8 +3386,10 @@ sysctl_debug_ng_dump_items(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
-SYSCTL_PROC(_debug, OID_AUTO, ng_dump_items, CTLTYPE_INT | CTLFLAG_RW,
-    0, sizeof(int), sysctl_debug_ng_dump_items, "I", "Number of allocated items");
+SYSCTL_PROC(_debug, OID_AUTO, ng_dump_items,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, 0, sizeof(int),
+    sysctl_debug_ng_dump_items, "I",
+    "Number of allocated items");
 #endif	/* NETGRAPH_DEBUG */
 
 /***********************************************************************

@@ -43,12 +43,13 @@ __FBSDID("$FreeBSD$");
 #include <errno.h>
 #include <fcntl.h>
 #include <fetch.h>
+#include <getopt.h>
+#include <libutil.h>
 #include <paths.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 #include <ucl.h>
 
 #include <openssl/err.h>
@@ -173,7 +174,7 @@ install_pkg_static(const char *path, const char *pkgpath, bool force)
 }
 
 static int
-fetch_to_fd(const char *url, char *path)
+fetch_to_fd(const char *url, char *path, const char *fetchOpts)
 {
 	struct url *u;
 	struct dns_srvinfo *mirrors, *current;
@@ -225,7 +226,7 @@ fetch_to_fd(const char *url, char *path)
 			u->port = current->port;
 		}
 
-		remote = fetchXGet(u, &st, "");
+		remote = fetchXGet(u, &st, fetchOpts);
 		if (remote == NULL) {
 			--retry;
 			if (retry <= 0)
@@ -433,9 +434,7 @@ sha256_fd(int fd, char out[SHA256_DIGEST_LENGTH * 2 + 1])
 	int ret;
 	SHA256_CTX sha256;
 
-	my_fd = -1;
 	fp = NULL;
-	r = 0;
 	ret = 1;
 
 	out[0] = '\0';
@@ -626,7 +625,6 @@ parse_cert(int fd) {
 	ssize_t linelen;
 
 	buf = NULL;
-	my_fd = -1;
 	sc = NULL;
 	line = NULL;
 	linecap = 0;
@@ -828,7 +826,7 @@ cleanup:
 }
 
 static int
-bootstrap_pkg(bool force)
+bootstrap_pkg(bool force, const char *fetchOpts)
 {
 	int fd_pkg, fd_sig;
 	int ret;
@@ -865,7 +863,7 @@ bootstrap_pkg(bool force)
 	snprintf(tmppkg, MAXPATHLEN, "%s/pkg.txz.XXXXXX",
 	    getenv("TMPDIR") ? getenv("TMPDIR") : _PATH_TMP);
 
-	if ((fd_pkg = fetch_to_fd(url, tmppkg)) == -1)
+	if ((fd_pkg = fetch_to_fd(url, tmppkg, fetchOpts)) == -1)
 		goto fetchfail;
 
 	if (signature_type != NULL &&
@@ -877,7 +875,7 @@ bootstrap_pkg(bool force)
 			snprintf(url, MAXPATHLEN, "%s/Latest/pkg.txz.sig",
 			    packagesite);
 
-			if ((fd_sig = fetch_to_fd(url, tmpsig)) == -1) {
+			if ((fd_sig = fetch_to_fd(url, tmpsig, fetchOpts)) == -1) {
 				fprintf(stderr, "Signature for pkg not "
 				    "available.\n");
 				goto fetchfail;
@@ -893,7 +891,7 @@ bootstrap_pkg(bool force)
 			snprintf(url, MAXPATHLEN, "%s/Latest/pkg.txz.pubkeysig",
 			    packagesite);
 
-			if ((fd_sig = fetch_to_fd(url, tmpsig)) == -1) {
+			if ((fd_sig = fetch_to_fd(url, tmpsig, fetchOpts)) == -1) {
 				fprintf(stderr, "Signature for pkg not "
 				    "available.\n");
 				goto fetchfail;
@@ -915,10 +913,15 @@ bootstrap_pkg(bool force)
 
 fetchfail:
 	warnx("Error fetching %s: %s", url, fetchLastErrString);
-	fprintf(stderr, "A pre-built version of pkg could not be found for "
-	    "your system.\n");
-	fprintf(stderr, "Consider changing PACKAGESITE or installing it from "
-	    "ports: 'ports-mgmt/pkg'.\n");
+	if (fetchLastErrCode == FETCH_RESOLV) {
+		fprintf(stderr, "Address resolution failed for %s.\n", packagesite);
+		fprintf(stderr, "Consider changing PACKAGESITE.\n");
+	} else {
+		fprintf(stderr, "A pre-built version of pkg could not be found for "
+		    "your system.\n");
+		fprintf(stderr, "Consider changing PACKAGESITE or installing it from "
+		    "ports: 'ports-mgmt/pkg'.\n");
+	}
 
 cleanup:
 	if (fd_sig != -1) {
@@ -942,6 +945,14 @@ static const char non_interactive_message[] =
 "The package management tool is not yet installed on your system.\n"
 "Please set ASSUME_ALWAYS_YES=yes environment variable to be able to bootstrap "
 "in non-interactive (stdin not being a tty)\n";
+
+static const char args_bootstrap_message[] =
+"Too many arguments\n"
+"Usage: pkg [-4|-6] bootstrap [-f] [-y]\n";
+
+static const char args_add_message[] =
+"Too many arguments\n"
+"Usage: pkg add [-f] [-y] {pkg.txz}\n";
 
 static int
 pkg_query_yes_no(void)
@@ -1031,41 +1042,131 @@ int
 main(int argc, char *argv[])
 {
 	char pkgpath[MAXPATHLEN];
-	const char *pkgarg;
-	int i;
-	bool bootstrap_only, force, yes;
+	const char *pkgarg, *repo_name;
+	bool activation_test, add_pkg, bootstrap_only, force, yes;
+	signed char ch;
+	const char *fetchOpts;
+	char *command;
 
+	activation_test = false;
+	add_pkg = false;
 	bootstrap_only = false;
+	command = NULL;
+	fetchOpts = "";
 	force = false;
 	pkgarg = NULL;
+	repo_name = NULL;
 	yes = false;
 
-	snprintf(pkgpath, MAXPATHLEN, "%s/sbin/pkg",
-	    getenv("LOCALBASE") ? getenv("LOCALBASE") : _LOCALBASE);
+	struct option longopts[] = {
+		{ "force",		no_argument,		NULL,	'f' },
+		{ "only-ipv4",		no_argument,		NULL,	'4' },
+		{ "only-ipv6",		no_argument,		NULL,	'6' },
+		{ "yes",		no_argument,		NULL,	'y' },
+		{ NULL,			0,			NULL,	0   },
+	};
 
-	if (argc > 1 && strcmp(argv[1], "bootstrap") == 0) {
-		bootstrap_only = true;
-		if (argc == 3 && strcmp(argv[2], "-f") == 0)
+	snprintf(pkgpath, MAXPATHLEN, "%s/sbin/pkg", getlocalbase());
+
+	while ((ch = getopt_long(argc, argv, "-:fr::yN46", longopts, NULL)) != -1) {
+		switch (ch) {
+		case 'f':
 			force = true;
+			break;
+		case 'N':
+			activation_test = true;
+			break;
+		case 'y':
+			yes = true;
+			break;
+		case '4':
+			fetchOpts = "4";
+			break;
+		case '6':
+			fetchOpts = "6";
+			break;
+		case 'r':
+			/*
+			 * The repository can only be specified for an explicit
+			 * bootstrap request at this time, so that we don't
+			 * confuse the user if they're trying to use a verb that
+			 * has some other conflicting meaning but we need to
+			 * bootstrap.
+			 *
+			 * For that reason, we specify that -r has an optional
+			 * argument above and process the next index ourselves.
+			 * This is mostly significant because getopt(3) will
+			 * otherwise eat the next argument, which could be
+			 * something we need to try and make sense of.
+			 *
+			 * At worst this gets us false positives that we ignore
+			 * in other contexts, and we have to do a little fudging
+			 * in order to support separating -r from the reponame
+			 * with a space since it's not actually optional in
+			 * the bootstrap/add sense.
+			 */
+			if (add_pkg || bootstrap_only) {
+				if (optarg != NULL) {
+					repo_name = optarg;
+				} else if (optind < argc) {
+					repo_name = argv[optind];
+				}
+
+				if (repo_name == NULL || *repo_name == '\0') {
+					fprintf(stderr,
+					    "Must specify a repository with -r!\n");
+					exit(EXIT_FAILURE);
+				}
+
+				if (optarg == NULL) {
+					/* Advance past repo name. */
+					optreset = 1;
+					optind++;
+				}
+			}
+			break;
+		case 1:
+			// Non-option arguments, first one is the command
+			if (command == NULL) {
+				command = argv[optind-1];
+				if (strcmp(command, "add") == 0) {
+					add_pkg = true;
+				}
+				else if (strcmp(command, "bootstrap") == 0) {
+					bootstrap_only = true;
+				}
+			}
+			// bootstrap doesn't accept other arguments
+			else if (bootstrap_only) {
+				fprintf(stderr, args_bootstrap_message);
+				exit(EXIT_FAILURE);
+			}
+			// For add, we accept exactly one further argument
+			else if (add_pkg && pkgarg != NULL) {
+				fprintf(stderr, args_add_message);
+				exit(EXIT_FAILURE);
+			}
+			else if (add_pkg) {
+				pkgarg = argv[optind-1];
+			}
+			break;
+		default:
+			break;
+		}
 	}
 
 	if ((bootstrap_only && force) || access(pkgpath, X_OK) == -1) {
 		/* 
 		 * To allow 'pkg -N' to be used as a reliable test for whether
 		 * a system is configured to use pkg, don't bootstrap pkg
-		 * when that argument is given as argv[1].
+		 * when that that option is passed.
 		 */
-		if (argv[1] != NULL && strcmp(argv[1], "-N") == 0)
+		if (activation_test)
 			errx(EXIT_FAILURE, "pkg is not installed");
 
-		config_init();
+		config_init(repo_name);
 
-		if (argc > 1 && strcmp(argv[1], "add") == 0) {
-			if (argc > 2 && strcmp(argv[2], "-f") == 0) {
-				force = true;
-				pkgarg = argv[3];
-			} else
-				pkgarg = argv[2];
+		if (add_pkg) {
 			if (pkgarg == NULL) {
 				fprintf(stderr, "Path to pkg.txz required\n");
 				exit(EXIT_FAILURE);
@@ -1083,16 +1184,8 @@ main(int argc, char *argv[])
 		 * not tty. Check the environment to see if user has answer
 		 * tucked in there already.
 		 */
-		config_bool(ASSUME_ALWAYS_YES, &yes);
-		if (!yes) {
-			for (i = 1; i < argc; i++) {
-				if (strcmp(argv[i], "-y") == 0 ||
-				    strcmp(argv[i], "--yes") == 0) {
-					yes = true;
-					break;
-				}
-			}
-		}
+		if (!yes)
+			config_bool(ASSUME_ALWAYS_YES, &yes);
 		if (!yes) {
 			if (!isatty(fileno(stdin))) {
 				fprintf(stderr, non_interactive_message);
@@ -1103,7 +1196,7 @@ main(int argc, char *argv[])
 			if (pkg_query_yes_no() == 0)
 				exit(EXIT_FAILURE);
 		}
-		if (bootstrap_pkg(force) != 0)
+		if (bootstrap_pkg(force, fetchOpts) != 0)
 			exit(EXIT_FAILURE);
 		config_finish();
 

@@ -146,7 +146,8 @@ struct lock_class lock_class_sx = {
 #ifdef SX_CUSTOM_BACKOFF
 static u_short __read_frequently asx_retries;
 static u_short __read_frequently asx_loops;
-static SYSCTL_NODE(_debug, OID_AUTO, sx, CTLFLAG_RD, NULL, "sxlock debugging");
+static SYSCTL_NODE(_debug, OID_AUTO, sx, CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
+    "sxlock debugging");
 SYSCTL_U16(_debug_sx, OID_AUTO, retries, CTLFLAG_RW, &asx_retries, 0, "");
 SYSCTL_U16(_debug_sx, OID_AUTO, loops, CTLFLAG_RW, &asx_loops, 0, "");
 
@@ -572,7 +573,7 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 	GIANT_DECLARE;
 	uintptr_t tid, setx;
 #ifdef ADAPTIVE_SX
-	volatile struct thread *owner;
+	struct thread *owner;
 	u_int i, n, spintries = 0;
 	enum { READERS, WRITER } sleep_reason = READERS;
 	bool in_critical = false;
@@ -619,12 +620,6 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 	if (SCHEDULER_STOPPED())
 		return (0);
 
-#if defined(ADAPTIVE_SX)
-	lock_delay_arg_init(&lda, &sx_delay);
-#elif defined(KDTRACE_HOOKS)
-	lock_delay_arg_init(&lda, NULL);
-#endif
-
 	if (__predict_false(x == SX_LOCK_UNLOCKED))
 		x = SX_READ_VALUE(sx);
 
@@ -643,6 +638,12 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 	if (LOCK_LOG_TEST(&sx->lock_object, 0))
 		CTR5(KTR_LOCK, "%s: %s contested (lock=%p) at %s:%d", __func__,
 		    sx->lock_object.lo_name, (void *)sx->sx_lock, file, line);
+
+#if defined(ADAPTIVE_SX)
+	lock_delay_arg_init(&lda, &sx_delay);
+#elif defined(KDTRACE_HOOKS)
+	lock_delay_arg_init_noadapt(&lda);
+#endif
 
 #ifdef HWPMC_HOOKS
 	PMC_SOFT_CALL( , , lock, failed);
@@ -1019,7 +1020,7 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 	GIANT_DECLARE;
 	struct thread *td;
 #ifdef ADAPTIVE_SX
-	volatile struct thread *owner;
+	struct thread *owner;
 	u_int i, n, spintries = 0;
 #endif
 #ifdef LOCK_PROFILING
@@ -1062,7 +1063,7 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 #if defined(ADAPTIVE_SX)
 	lock_delay_arg_init(&lda, &sx_delay);
 #elif defined(KDTRACE_HOOKS)
-	lock_delay_arg_init(&lda, NULL);
+	lock_delay_arg_init_noadapt(&lda);
 #endif
 
 #ifdef HWPMC_HOOKS

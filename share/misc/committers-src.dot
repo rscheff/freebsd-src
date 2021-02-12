@@ -157,6 +157,7 @@ dexuan [label="Dexuan Cui\ndexuan@FreeBSD.org\n2016/10/24"]
 dfr [label="Doug Rabson\ndfr@FreeBSD.org\n????/??/??"]
 dg [label="David Greenman\ndg@FreeBSD.org\n1993/06/14"]
 dim [label="Dimitry Andric\ndim@FreeBSD.org\n2010/08/30"]
+donner [label="Lutz Donnerhacke\ndonner@FreeBSD.org\n2021/01/14"]
 dougm [label="Doug Moore\ndougm@FreeBSD.org\n2019/04/30"]
 dteske [label="Devin Teske\ndteske@FreeBSD.org\n2012/04/10"]
 dumbbell [label="Jean-Sebastien Pedron\ndumbbell@FreeBSD.org\n2004/11/29"]
@@ -275,6 +276,7 @@ mw [label="Marcin Wojtas\nmw@FreeBSD.org\n2017/07/18"]
 neel [label="Neel Natu\nneel@FreeBSD.org\n2009/09/20"]
 netchild [label="Alexander Leidinger\nnetchild@FreeBSD.org\n2005/03/31"]
 ngie [label="Enji Cooper\nngie@FreeBSD.org\n2014/07/27"]
+nick [label="Nick O'Brien\nnick@FreeBSD.org\n2020/03/09"]
 nork [label="Norikatsu Shigemura\nnork@FreeBSD.org\n2009/06/09"]
 np [label="Navdeep Parhar\nnp@FreeBSD.org\n2009/06/05"]
 nwhitehorn [label="Nathan Whitehorn\nnwhitehorn@FreeBSD.org\n2008/07/03"]
@@ -299,6 +301,7 @@ ram [label="Ram Kishore Vegesna\nram@FreeBSD.org\n2018/04/04"]
 ray [label="Aleksandr Rybalko\nray@FreeBSD.org\n2011/05/25"]
 rdivacky [label="Roman Divacky\nrdivacky@FreeBSD.org\n2008/03/13"]
 remko [label="Remko Lodder\nremko@FreeBSD.org\n2007/02/23"]
+rew [label="Robert Wing\nrew@FreeBSD.org\n2020/07/23"]
 rgrimes [label="Rodney W. Grimes\nrgrimes@FreeBSD.org\n1993/06/12\n2017/03/03"]
 rik [label="Roman Kurakin\nrik@FreeBSD.org\n2003/12/18"]
 rlibby [label="Ryan Libby\nrlibby@FreeBSD.org\n2017/06/07"]
@@ -311,6 +314,7 @@ royger [label="Roger Pau Monne\nroyger@FreeBSD.org\n2013/11/26"]
 rpaulo [label="Rui Paulo\nrpaulo@FreeBSD.org\n2007/09/25"]
 rpokala [label="Ravi Pokala\nrpokala@FreeBSD.org\n2015/11/19"]
 rrs [label="Randall R Stewart\nrrs@FreeBSD.org\n2007/02/08"]
+rscheff [label="Richard Scheffenegger\nrscheff@FreeBSD.org\n2020/04/06"]
 rse [label="Ralf S. Engelschall\nrse@FreeBSD.org\n1997/07/31"]
 rstone [label="Ryan Stone\nrstone@FreeBSD.org\n2010/04/19"]
 ru [label="Ruslan Ermilov\nru@FreeBSD.org\n1999/05/27"]
@@ -402,6 +406,7 @@ adrian -> sgalabov
 
 ae -> melifaro
 
+allanjude -> rew
 allanjude -> tsoome
 
 alc -> davide
@@ -671,6 +676,8 @@ ken -> ram
 ken -> slm
 ken -> will
 
+kevans -> rew
+
 kib -> ae
 kib -> badger
 kib -> dchagin
@@ -698,6 +705,9 @@ kib -> yuripv
 kib -> zont
 
 kmacy -> lstewart
+
+kp -> donner
+kp -> nick
 
 marcel -> allanjude
 marcel -> art
@@ -770,11 +780,13 @@ peter -> jayanth
 peter -> ps
 
 philip -> benl
+philip -> donner
 philip -> ed
 philip -> jls
 philip -> matteo
 philip -> uqs
 philip -> kp
+philip -> nick
 
 phk -> jkoshy
 phk -> mux
@@ -788,6 +800,7 @@ pjd -> smh
 pjd -> trociny
 
 rgrimes -> markm
+rgrimes -> rscheff
 
 rmacklem -> jwd
 
@@ -878,6 +891,8 @@ thompsa -> eri
 
 trasz -> jh
 trasz -> mjg
+
+tuexen -> rscheff
 
 ume -> jinmei
 ume -> suz

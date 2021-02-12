@@ -142,7 +142,8 @@ array##_sysctl(SYSCTL_HANDLER_ARGS)					\
 		    sizeof(type) / sizeof(uint64_t));			\
 	return (SYSCTL_OUT(req, &s, sizeof(type)));			\
 }									\
-SYSCTL_PROC(parent, nbr, name, CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_RW, \
+SYSCTL_PROC(parent, nbr, name,						\
+    CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_NEEDGIANT,	\
     NULL, 0, array ## _sysctl, "I", desc)
 #endif /* SYSCTL_OID */
 
@@ -200,14 +201,14 @@ void vnet_log_recursion(struct vnet *, const char *, int);
 	const char *saved_vnet_lpush = curthread->td_vnet_lpush;	\
 	curvnet = arg;							\
 	curthread->td_vnet_lpush = __func__;
- 
+
 #define	CURVNET_SET_VERBOSE(arg)					\
 	CURVNET_SET_QUIET(arg)						\
 	if (saved_vnet)							\
 		vnet_log_recursion(saved_vnet, saved_vnet_lpush, __LINE__);
 
 #define	CURVNET_SET(arg)	CURVNET_SET_VERBOSE(arg)
- 
+
 #define	CURVNET_RESTORE()						\
 	VNET_ASSERT(curvnet != NULL && (saved_vnet == NULL ||		\
 	    saved_vnet->vnet_magic_n == VNET_MAGIC_N),			\
@@ -223,12 +224,12 @@ void vnet_log_recursion(struct vnet *, const char *, int);
 	    __FILE__, __LINE__, __func__, curvnet, (arg)));		\
 	struct vnet *saved_vnet = curvnet;				\
 	curvnet = arg;	
- 
+
 #define	CURVNET_SET_VERBOSE(arg)					\
 	CURVNET_SET_QUIET(arg)
 
 #define	CURVNET_SET(arg)	CURVNET_SET_VERBOSE(arg)
- 
+
 #define	CURVNET_RESTORE()						\
 	VNET_ASSERT(curvnet != NULL && (saved_vnet == NULL ||		\
 	    saved_vnet->vnet_magic_n == VNET_MAGIC_N),			\

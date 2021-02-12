@@ -108,7 +108,6 @@ ufs_quotactl(mp, cmds, id, arg)
 	type = cmds & SUBCMDMASK;
 	if (id == -1) {
 		switch (type) {
-
 		case USRQUOTA:
 			id = td->td_ucred->cr_ruid;
 			break;
@@ -213,39 +212,5 @@ ufs_uninit(vfsp)
 #ifdef UFS_DIRHASH
 	ufsdirhash_uninit();
 #endif
-	return (0);
-}
-
-/*
- * This is the generic part of fhtovp called after the underlying
- * filesystem has validated the file handle.
- *
- * Call the VFS_CHECKEXP beforehand to verify access.
- */
-int
-ufs_fhtovp(mp, ufhp, flags, vpp)
-	struct mount *mp;
-	struct ufid *ufhp;
-	int flags;
-	struct vnode **vpp;
-{
-	struct inode *ip;
-	struct vnode *nvp;
-	int error;
-
-	error = VFS_VGET(mp, ufhp->ufid_ino, flags, &nvp);
-	if (error) {
-		*vpp = NULLVP;
-		return (error);
-	}
-	ip = VTOI(nvp);
-	if (ip->i_mode == 0 || ip->i_gen != ufhp->ufid_gen ||
-	    ip->i_effnlink <= 0) {
-		vput(nvp);
-		*vpp = NULLVP;
-		return (ESTALE);
-	}
-	*vpp = nvp;
-	vnode_create_vobject(*vpp, DIP(ip, i_size), curthread);
 	return (0);
 }

@@ -1370,13 +1370,11 @@ struct node_host *
 ifa_exists(char *ifa_name)
 {
 	struct node_host	*n;
-	int			s;
 
 	if (iftab == NULL)
 		ifa_load();
 
 	/* check whether this is a group */
-	s = get_query_socket();
 	if (is_a_group(ifa_name)) {
 		/* fake a node_host */
 		if ((n = calloc(1, sizeof(*n))) == NULL)
@@ -1389,6 +1387,26 @@ ifa_exists(char *ifa_name)
 	for (n = iftab; n; n = n->next) {
 		if (n->af == AF_LINK && !strncmp(n->ifname, ifa_name, IFNAMSIZ))
 			return (n);
+	}
+
+	return (NULL);
+}
+
+static struct node_host *
+if_lookup(char *if_name)
+{
+	struct node_host *p, *n;
+
+	for (p = iftab; p; p = p->next) {
+		if (! strcmp(if_name, p->ifname)) {
+			n = calloc(1, sizeof(struct node_host));
+			bcopy(p, n, sizeof(struct node_host));
+
+			n->next = NULL;
+			n->tail = n;
+
+			return (n);
+		}
 	}
 
 	return (NULL);
@@ -1417,7 +1435,7 @@ ifa_grouplookup(char *ifa_name, int flags)
 	for (ifg = ifgr.ifgr_groups; ifg && len >= sizeof(struct ifg_req);
 	    ifg++) {
 		len -= sizeof(struct ifg_req);
-		if ((n = ifa_lookup(ifg->ifgrq_member, flags)) == NULL)
+		if ((n = if_lookup(ifg->ifgrq_member)) == NULL)
 			continue;
 		if (h == NULL)
 			h = n;
@@ -1438,14 +1456,15 @@ ifa_lookup(char *ifa_name, int flags)
 	int			 got4 = 0, got6 = 0;
 	const char		 *last_if = NULL;
 
+	/* first load iftab and isgroup_map */
+	if (iftab == NULL)
+		ifa_load();
+
 	if ((h = ifa_grouplookup(ifa_name, flags)) != NULL)
 		return (h);
 
 	if (!strncmp(ifa_name, "self", IFNAMSIZ))
 		ifa_name = NULL;
-
-	if (iftab == NULL)
-		ifa_load();
 
 	for (p = iftab; p; p = p->next) {
 		if (ifa_skip_if(ifa_name, p))
@@ -1563,16 +1582,17 @@ host(const char *s)
 		mask = -1;
 	}
 
-	/* interface with this name exists? */
-	if (cont && (h = host_if(ps, mask)) != NULL)
-		cont = 0;
-
 	/* IPv4 address? */
 	if (cont && (h = host_v4(s, mask)) != NULL)
 		cont = 0;
 
 	/* IPv6 address? */
 	if (cont && (h = host_v6(ps, v6mask)) != NULL)
+		cont = 0;
+
+	/* interface with this name exists? */
+	/* expensive with thousands of interfaces - prioritze IPv4/6 check */
+	if (cont && (h = host_if(ps, mask)) != NULL)
 		cont = 0;
 
 	/* dns lookup */

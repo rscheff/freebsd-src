@@ -94,14 +94,15 @@ __FBSDID("$FreeBSD$");
 #include <sys/vmmeter.h>
 
 #include <vm/vm.h>
+#include <vm/vm_param.h>
 #include <vm/vm_extern.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_page.h>
 #include <vm/vm_map.h>
 #include <vm/vm_object.h>
 #include <vm/vm_pager.h>
-#include <vm/vm_param.h>
 #include <vm/vm_phys.h>
+#include <vm/vm_dumpset.h>
 
 #ifdef DDB
 #ifndef KDB
@@ -1171,7 +1172,7 @@ exec_setregs(struct thread *td, struct image_params *imgp, uintptr_t stack)
 	regs->tf_cs = _ucodesel;
 
 	/* PS_STRINGS value for BSD/OS binaries.  It is 0 for non-BSD/OS. */
-	regs->tf_ebx = imgp->ps_strings;
+	regs->tf_ebx = (register_t)imgp->ps_strings;
 
         /*
          * Reset the hardware debug registers if they were in use.
@@ -1667,7 +1668,7 @@ add_physmap_entry(uint64_t base, uint64_t length, vm_paddr_t *physmap,
 	int i, insert_idx, physmap_idx;
 
 	physmap_idx = *physmap_idxp;
-	
+
 	if (length == 0)
 		return (1);
 
@@ -1828,7 +1829,7 @@ getmemsize(int first)
 	 * Tell the physical memory allocator about pages used to store
 	 * the kernel and preloaded data.  See kmem_bootstrap_free().
 	 */
-	vm_phys_add_seg((vm_paddr_t)KERNLOAD, trunc_page(first));
+	vm_phys_early_add_seg((vm_paddr_t)KERNLOAD, trunc_page(first));
 
 	TUNABLE_INT_FETCH("hw.above4g_allow", &above4g_allow);
 	TUNABLE_INT_FETCH("hw.above24g_allow", &above24g_allow);
@@ -2151,7 +2152,7 @@ do_next:
 		}
 	}
 	pmap_cmap3(0, 0);
-	
+
 	/*
 	 * XXX
 	 * The last chunk must contain at least one page plus the message
@@ -2180,7 +2181,7 @@ static void
 i386_kdb_init(void)
 {
 #ifdef DDB
-	db_fetch_ksymtab(bootinfo.bi_symtab, bootinfo.bi_esymtab);
+	db_fetch_ksymtab(bootinfo.bi_symtab, bootinfo.bi_esymtab, 0);
 #endif
 	kdb_init();
 #ifdef KDB
@@ -2504,8 +2505,6 @@ init386(int first)
 	thread0.td_pcb->pcb_ext = 0;
 	thread0.td_frame = &proc0_tf;
 
-	cpu_probe_amdc1e();
-
 #ifdef FDT
 	x86_init_fdt();
 #endif
@@ -2666,8 +2665,10 @@ smap_sysctl_handler(SYSCTL_HANDLER_ARGS)
 	}
 	return (error);
 }
-SYSCTL_PROC(_machdep, OID_AUTO, smap, CTLTYPE_OPAQUE|CTLFLAG_RD, NULL, 0,
-    smap_sysctl_handler, "S,bios_smap_xattr", "Raw BIOS SMAP data");
+SYSCTL_PROC(_machdep, OID_AUTO, smap,
+    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
+    smap_sysctl_handler, "S,bios_smap_xattr",
+    "Raw BIOS SMAP data");
 
 void
 spinlock_enter(void)

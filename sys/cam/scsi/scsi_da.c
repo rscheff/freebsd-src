@@ -1417,6 +1417,15 @@ static struct da_quirk_entry da_quirk_table[] =
 	},
 	{
 		/*
+                 * Same as above but enable the quirks for SSD SAMSUNG MZ7*
+                 * connected via SATA-to-SAS interposer and because of this
+                 * starting without "ATA"
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "SAMSUNG", "MZ7*", "*" },
+		/*quirks*/DA_Q_4K
+	},
+	{
+		/*
 		 * SuperTalent TeraDrive CT SSDs
 		 * 4k optimised & trim only works in 4k requests + 4k aligned
 		 */
@@ -1549,8 +1558,8 @@ static int da_send_ordered = DA_DEFAULT_SEND_ORDERED;
 static int da_disable_wp_detection = 0;
 static int da_enable_biospeedup = 1;
 
-static SYSCTL_NODE(_kern_cam, OID_AUTO, da, CTLFLAG_RD, 0,
-            "CAM Direct Access Disk driver");
+static SYSCTL_NODE(_kern_cam, OID_AUTO, da, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "CAM Direct Access Disk driver");
 SYSCTL_INT(_kern_cam_da, OID_AUTO, poll_period, CTLFLAG_RWTUN,
            &da_poll_period, 0, "Media polling period in seconds");
 SYSCTL_INT(_kern_cam_da, OID_AUTO, retry_count, CTLFLAG_RWTUN,
@@ -1566,7 +1575,8 @@ SYSCTL_INT(_kern_cam_da, OID_AUTO, enable_biospeedup, CTLFLAG_RDTUN,
 	    &da_enable_biospeedup, 0, "Enable BIO_SPEEDUP processing");
 
 SYSCTL_PROC(_kern_cam_da, OID_AUTO, default_softtimeout,
-    CTLTYPE_UINT | CTLFLAG_RW, NULL, 0, dasysctlsofttimeout, "I",
+    CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, NULL, 0,
+    dasysctlsofttimeout, "I",
     "Soft I/O timeout (ms)");
 TUNABLE_INT64("kern.cam.da.default_softtimeout", &da_default_softtimeout);
 
@@ -1798,7 +1808,6 @@ daclose(struct disk *dp)
 	    ("daclose\n"));
 
 	if (da_periph_hold(periph, PRIBIO, DA_REF_CLOSE_HOLD) == 0) {
-
 		/* Flush disk cache. */
 		if ((softc->flags & DA_FLAG_DIRTY) != 0 &&
 		    (softc->quirks & DA_Q_NO_SYNC_CACHE) == 0 &&
@@ -1945,7 +1954,6 @@ dadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t leng
 	 * Sync the disk cache contents to the physical media.
 	 */
 	if ((softc->quirks & DA_Q_NO_SYNC_CACHE) == 0) {
-
 		xpt_setup_ccb(&csio.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
 		csio.ccb_h.ccb_state = DA_CCB_DUMP;
 		scsi_synchronize_cache(&csio,
@@ -1998,7 +2006,6 @@ dainit(void)
 		printf("da: Failed to attach master async callback "
 		       "due to status 0x%x!\n", status);
 	} else if (da_send_ordered) {
-
 		/* Register our shutdown event handler */
 		if ((EVENTHANDLER_REGISTER(shutdown_post_sync, dashutdown,
 					   NULL, SHUTDOWN_PRI_DEFAULT)) == NULL)
@@ -2252,7 +2259,7 @@ dasysctlinit(void *context, int pending)
 	cam_periph_unlock(periph);
 	softc->sysctl_tree = SYSCTL_ADD_NODE_WITH_LABEL(&softc->sysctl_ctx,
 		SYSCTL_STATIC_CHILDREN(_kern_cam_da), OID_AUTO, tmpstr2,
-		CTLFLAG_RD, 0, tmpstr, "device_index");
+		CTLFLAG_RD | CTLFLAG_MPSAFE, 0, tmpstr, "device_index");
 	if (softc->sysctl_tree == NULL) {
 		printf("dasysctlinit: unable to allocate sysctl tree\n");
 		da_periph_release(periph, DA_REF_SYSCTL);
@@ -2264,15 +2271,18 @@ dasysctlinit(void *context, int pending)
 	 * the fly.
 	 */
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
-		OID_AUTO, "delete_method", CTLTYPE_STRING | CTLFLAG_RWTUN,
+		OID_AUTO, "delete_method",
+		CTLTYPE_STRING | CTLFLAG_RWTUN | CTLFLAG_NEEDGIANT,
 		softc, 0, dadeletemethodsysctl, "A",
 		"BIO_DELETE execution method");
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
-		OID_AUTO, "delete_max", CTLTYPE_U64 | CTLFLAG_RW,
+		OID_AUTO, "delete_max",
+		CTLTYPE_U64 | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
 		softc, 0, dadeletemaxsysctl, "Q",
 		"Maximum BIO_DELETE size");
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
-		OID_AUTO, "minimum_cmd_size", CTLTYPE_INT | CTLFLAG_RW,
+		OID_AUTO, "minimum_cmd_size",
+		CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
 		&softc->minimum_cmd_size, 0, dacmdsizesysctl, "I",
 		"Minimum CDB size");
 	SYSCTL_ADD_UQUAD(&softc->sysctl_ctx,
@@ -2289,11 +2299,13 @@ dasysctlinit(void *context, int pending)
 		"Total lbas in the unmap/dsm commands sent");
 
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
-		OID_AUTO, "zone_mode", CTLTYPE_STRING | CTLFLAG_RD,
+		OID_AUTO, "zone_mode",
+		CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
 		softc, 0, dazonemodesysctl, "A",
 		"Zone Mode");
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
-		OID_AUTO, "zone_support", CTLTYPE_STRING | CTLFLAG_RD,
+		OID_AUTO, "zone_support",
+		CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
 		softc, 0, dazonesupsysctl, "A",
 		"Zone Support");
 	SYSCTL_ADD_UQUAD(&softc->sysctl_ctx,
@@ -2335,11 +2347,11 @@ dasysctlinit(void *context, int pending)
 	    "Flags for drive");
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
 	    OID_AUTO, "rotating", CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
-	    &softc->flags, DA_FLAG_ROTATING, dabitsysctl, "I",
+	    &softc->flags, (u_int)DA_FLAG_ROTATING, dabitsysctl, "I",
 	    "Rotating media *DEPRECATED* gone in FreeBSD 14");
 	SYSCTL_ADD_PROC(&softc->sysctl_ctx, SYSCTL_CHILDREN(softc->sysctl_tree),
 	    OID_AUTO, "unmapped_io", CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
-	    &softc->flags, DA_FLAG_UNMAPPEDIO, dabitsysctl, "I",
+	    &softc->flags, (u_int)DA_FLAG_UNMAPPEDIO, dabitsysctl, "I",
 	    "Unmapped I/O support *DEPRECATED* gone in FreeBSD 14");
 
 #ifdef CAM_TEST_FAILURE
@@ -2381,7 +2393,7 @@ dasysctlinit(void *context, int pending)
 	 */
 	softc->sysctl_stats_tree = SYSCTL_ADD_NODE(&softc->sysctl_stats_ctx,
 	    SYSCTL_CHILDREN(softc->sysctl_tree), OID_AUTO, "stats",
-	    CTLFLAG_RD, 0, "Statistics");
+	    CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "Statistics");
 	SYSCTL_ADD_INT(&softc->sysctl_stats_ctx,
 		       SYSCTL_CHILDREN(softc->sysctl_stats_tree),
 		       OID_AUTO,
@@ -2619,11 +2631,11 @@ dadeletemethodchoose(struct da_softc *softc, da_delete_methods default_method)
 static int
 dabitsysctl(SYSCTL_HANDLER_ARGS)
 {
-	int flags = (intptr_t)arg1;
-	int test = arg2;
+	u_int *flags = arg1;
+	u_int test = arg2;
 	int tmpout, error;
 
-	tmpout = !!(flags & test);
+	tmpout = !!(*flags & test);
 	error = SYSCTL_OUT(req, &tmpout, sizeof(tmpout));
 	if (error || !req->newptr)
 		return (error);
@@ -2640,7 +2652,7 @@ daflagssysctl(SYSCTL_HANDLER_ARGS)
 
 	sbuf_new_for_sysctl(&sbuf, NULL, 0, req);
 	if (softc->flags != 0)
-		sbuf_printf(&sbuf, "0x%b", softc->flags, DA_FLAG_STRING);
+		sbuf_printf(&sbuf, "0x%b", (unsigned)softc->flags, DA_FLAG_STRING);
 	else
 		sbuf_printf(&sbuf, "0");
 	error = sbuf_finish(&sbuf);
@@ -2837,7 +2849,7 @@ daregister(struct cam_periph *periph, void *arg)
 	TASK_INIT(&softc->sysctl_task, 0, dasysctlinit, periph);
 
 	/*
-	 * Take an exclusive section lock qon the periph while dastart is called
+	 * Take an exclusive section lock on the periph while dastart is called
 	 * to finish the probe.  The lock will be dropped in dadone at the end
 	 * of probe. This locks out daopen and daclose from racing with the
 	 * probe.
@@ -2902,15 +2914,16 @@ daregister(struct cam_periph *periph, void *arg)
 	softc->disk->d_open = daopen;
 	softc->disk->d_close = daclose;
 	softc->disk->d_strategy = dastrategy;
-	softc->disk->d_dump = dadump;
+	if (cam_sim_pollable(periph->sim))
+		softc->disk->d_dump = dadump;
 	softc->disk->d_getattr = dagetattr;
 	softc->disk->d_gone = dadiskgonecb;
 	softc->disk->d_name = "da";
 	softc->disk->d_drv1 = periph;
 	if (cpi.maxio == 0)
 		softc->maxio = DFLTPHYS;	/* traditional default */
-	else if (cpi.maxio > MAXPHYS)
-		softc->maxio = MAXPHYS;		/* for safety */
+	else if (cpi.maxio > maxphys)
+		softc->maxio = maxphys;		/* for safety */
 	else
 		softc->maxio = cpi.maxio;
 	if (softc->quirks & DA_Q_128KB)
@@ -3852,7 +3865,6 @@ out:
 			free(sup_cap, M_SCSIDA);
 			daprobedone(periph, start_ccb);
 			break;
-
 		}
 
 		start_ccb->ccb_h.ccb_bp = NULL;
@@ -3967,7 +3979,7 @@ out:
 static void
 da_delete_unmap(struct cam_periph *periph, union ccb *ccb, struct bio *bp)
 {
-	struct da_softc *softc = (struct da_softc *)periph->softc;;
+	struct da_softc *softc = (struct da_softc *)periph->softc;
 	struct bio *bp1;
 	uint8_t *buf = softc->unmap_buf;
 	struct scsi_unmap_desc *d = (void *)&buf[UNMAP_HEAD_SIZE];
@@ -4808,7 +4820,7 @@ dadone_proberc(struct cam_periph *periph, union ccb *done_ccb)
 			if (maxsector == 0)
 				maxsector = -1;
 		}
-		if (block_size >= MAXPHYS) {
+		if (block_size >= maxphys) {
 			xpt_print(periph->path,
 			    "unsupportable block size %ju\n",
 			    (uintmax_t) block_size);
@@ -4866,7 +4878,6 @@ dadone_proberc(struct cam_periph *periph, union ccb *done_ccb)
 						 /*reduction*/0,
 						 /*timeout*/0,
 						 /*getcount_only*/0);
-
 
 			xpt_setup_ccb(&cgd.ccb_h, done_ccb->ccb_h.path,
 				      CAM_PRIORITY_NORMAL);
@@ -5780,7 +5791,6 @@ dadone_probeatazone(struct cam_periph *periph, union ccb *done_ccb)
 						 /*getcount_only*/0);
 			}
 		}
-
 	}
 
 	free(csio->data_ptr, M_SCSIDA);
@@ -5880,7 +5890,6 @@ dadone_tur(struct cam_periph *periph, union ccb *done_ccb)
 	cam_periph_assert(periph, MA_OWNED);
 
 	if ((done_ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
-
 		if (daerror(done_ccb, CAM_RETRY_SELTO,
 		    SF_RETRY_UA | SF_NO_RECOVERY | SF_NO_PRINT) == ERESTART)
 			return;	/* Will complete again, keep reference */
@@ -6511,7 +6520,6 @@ scsi_ata_zac_mgmt_out(struct ccb_scsiio *csio, uint32_t retries,
 				retval = 1;
 				goto bailout;
 			}
-
 		}
 
 		auxiliary = (zm_action & 0xf) | (zone_flags << 8);

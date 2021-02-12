@@ -28,7 +28,9 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#include "opt_rss.h"
 #include "opt_tcpdebug.h"
+
 /**
  * Some notes about usage.
  *
@@ -151,6 +153,11 @@ __FBSDID("$FreeBSD$");
 #include <net/route.h>
 #include <net/vnet.h>
 
+#ifdef RSS
+#include <net/netisr.h>
+#include <net/rss_config.h>
+#endif
+
 #define TCPSTATES		/* for logging */
 
 #include <netinet/in.h>
@@ -180,8 +187,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_offload.h>
 #endif
 
-#include "opt_rss.h"
-
 MALLOC_DEFINE(M_TCPHPTS, "tcp_hpts", "TCP hpts");
 #ifdef RSS
 static int tcp_bind_threads = 1;
@@ -203,7 +208,8 @@ static void tcp_init_hptsi(void *st);
 int32_t tcp_min_hptsi_time = DEFAULT_MIN_SLEEP;
 static int32_t tcp_hpts_callout_skip_swi = 0;
 
-SYSCTL_NODE(_net_inet_tcp, OID_AUTO, hpts, CTLFLAG_RW, 0, "TCP Hpts controls");
+SYSCTL_NODE(_net_inet_tcp, OID_AUTO, hpts, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "TCP Hpts controls");
 
 #define	timersub(tvp, uvp, vvp)						\
 	do {								\
@@ -239,7 +245,6 @@ counter_u64_t hpts_loops;
 SYSCTL_COUNTER_U64(_net_inet_tcp_hpts, OID_AUTO, loops, CTLFLAG_RD,
     &hpts_loops, "Number of times hpts had to loop to catch up");
 
-
 counter_u64_t back_tosleep;
 
 SYSCTL_COUNTER_U64(_net_inet_tcp_hpts, OID_AUTO, no_tcbsfound, CTLFLAG_RD,
@@ -273,7 +278,6 @@ SYSCTL_INT(_net_inet_tcp_hpts, OID_AUTO, loopmax, CTLFLAG_RW,
 
 static uint32_t hpts_sleep_max = HPTS_MAX_SLEEP_ALLOWED;
 
-
 static int
 sysctl_net_inet_tcp_hpts_max_sleep(SYSCTL_HANDLER_ARGS)
 {
@@ -293,7 +297,7 @@ sysctl_net_inet_tcp_hpts_max_sleep(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_net_inet_tcp_hpts, OID_AUTO, maxsleep,
-    CTLTYPE_UINT | CTLFLAG_RW,
+    CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
     &hpts_sleep_max, 0,
     &sysctl_net_inet_tcp_hpts_max_sleep, "IU",
     "Maximum time hpts will sleep");
@@ -1150,9 +1154,10 @@ hpts_random_cpu(struct inpcb *inp){
 }
 
 static uint16_t
-hpts_cpuid(struct inpcb *inp){
+hpts_cpuid(struct inpcb *inp)
+{
 	u_int cpuid;
-#ifdef NUMA
+#if !defined(RSS) && defined(NUMA)
 	struct hpts_domain_info *di;
 #endif
 
@@ -1166,7 +1171,7 @@ hpts_cpuid(struct inpcb *inp){
 		return (inp->inp_hpts_cpu);
 	}
 	/* If one is set the other must be the same */
-#ifdef	RSS
+#ifdef RSS
 	cpuid = rss_hash2cpuid(inp->inp_flowid, inp->inp_flowtype);
 	if (cpuid == NETISR_CPUID_NONE)
 		return (hpts_random_cpu(inp));
@@ -1903,7 +1908,7 @@ tcp_init_hptsi(void *st)
 		    SYSCTL_STATIC_CHILDREN(_net_inet_tcp_hpts),
 		    OID_AUTO,
 		    unit,
-		    CTLFLAG_RW, 0,
+		    CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
 		    "");
 		SYSCTL_ADD_INT(&hpts->hpts_ctx,
 		    SYSCTL_CHILDREN(hpts->hpts_root),

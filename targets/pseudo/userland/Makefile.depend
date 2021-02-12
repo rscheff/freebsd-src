@@ -188,6 +188,7 @@ DIRDEPS+= \
 	usr.bin/dirname \
 	usr.bin/dpv \
 	usr.bin/drill \
+	usr.bin/dtc \
 	usr.bin/du \
 	usr.bin/ee \
 	usr.bin/elf2aout \
@@ -436,7 +437,6 @@ DIRDEPS+= \
 	usr.sbin/binmiscctl \
 	usr.sbin/bluetooth/ath3kfw \
 	usr.sbin/bluetooth/bcmfw \
-	usr.sbin/bluetooth/bt3cfw \
 	usr.sbin/bluetooth/bthidcontrol \
 	usr.sbin/bluetooth/bthidd \
 	usr.sbin/bluetooth/btpand \
@@ -737,7 +737,6 @@ DIRDEPS+= \
 	usr.sbin/wlandebug \
 	usr.sbin/wpa/hostapd \
 	usr.sbin/wpa/hostapd_cli \
-	usr.sbin/wpa/ndis_events \
 	usr.sbin/wpa/wpa_cli \
 	usr.sbin/wpa/wpa_passphrase \
 	usr.sbin/wpa/wpa_supplicant \
@@ -788,7 +787,6 @@ DIRDEPS.amd64= \
 	usr.sbin/kgmon \
 	usr.sbin/lptcontrol \
 	usr.sbin/mptable \
-	usr.sbin/ndiscvt \
 	usr.sbin/spkrtest \
 	usr.sbin/sade \
 	usr.sbin/zzz
@@ -814,7 +812,6 @@ DIRDEPS.i386= \
 	usr.sbin/kgmon \
 	usr.sbin/lptcontrol \
 	usr.sbin/mptable \
-	usr.sbin/ndiscvt \
 	usr.sbin/pnpinfo \
 	usr.sbin/sade \
 	usr.sbin/spkrtest \
@@ -853,10 +850,6 @@ DIRDEPS+= usr.sbin/cxgbetool
 
 .if ${MK_MLX5TOOL} != "no"
 DIRDEPS+= usr.sbin/mlx5tool
-.endif
-
-.if ${MK_GPL_DTC} != "yes"
-DIRDEPS+= usr.bin/dtc
 .endif
 
 DIRDEPS+= ${DIRDEPS.${MACHINE}:U}

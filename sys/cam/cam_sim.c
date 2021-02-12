@@ -72,9 +72,7 @@ cam_sim_alloc(sim_action_func sim_action, sim_poll_func sim_poll,
 {
 	struct cam_sim *sim;
 
-	sim = (struct cam_sim *)malloc(sizeof(struct cam_sim),
-	    M_CAMSIM, M_ZERO | M_NOWAIT);
-
+	sim = malloc(sizeof(struct cam_sim), M_CAMSIM, M_ZERO | M_NOWAIT);
 	if (sim == NULL)
 		return (NULL);
 
@@ -92,13 +90,7 @@ cam_sim_alloc(sim_action_func sim_action, sim_poll_func sim_poll,
 	sim->refcount = 1;
 	sim->devq = queue;
 	sim->mtx = mtx;
-	if (mtx == &Giant) {
-		sim->flags |= 0;
-		callout_init(&sim->callout, 0);
-	} else {
-		sim->flags |= CAM_SIM_MPSAFE;
-		callout_init(&sim->callout, 1);
-	}
+	callout_init(&sim->callout, 1);
 	return (sim);
 }
 
@@ -124,22 +116,24 @@ cam_sim_alloc_dev(sim_action_func sim_action, sim_poll_func sim_poll,
 void
 cam_sim_free(struct cam_sim *sim, int free_devq)
 {
-	struct mtx *mtx = sim->mtx;
+	struct mtx *mtx;
 	int error;
 
-	if (mtx) {
-		mtx_assert(mtx, MA_OWNED);
-	} else {
+	if (sim->mtx == NULL) {
 		mtx = &cam_sim_free_mtx;
 		mtx_lock(mtx);
+	} else {
+		mtx = sim->mtx;
+		mtx_assert(mtx, MA_OWNED);
 	}
+	KASSERT(sim->refcount >= 1, ("sim->refcount >= 1"));
 	sim->refcount--;
 	if (sim->refcount > 0) {
 		error = msleep(sim, mtx, PRIBIO, "simfree", 0);
 		KASSERT(error == 0, ("invalid error value for msleep(9)"));
 	}
 	KASSERT(sim->refcount == 0, ("sim->refcount == 0"));
-	if (sim->mtx == NULL)
+	if (mtx == &cam_sim_free_mtx)	/* sim->mtx == NULL */
 		mtx_unlock(mtx);
 
 	if (free_devq)
@@ -150,17 +144,16 @@ cam_sim_free(struct cam_sim *sim, int free_devq)
 void
 cam_sim_release(struct cam_sim *sim)
 {
-	struct mtx *mtx = sim->mtx;
+	struct mtx *mtx;
 
-	if (mtx) {
-		if (!mtx_owned(mtx))
-			mtx_lock(mtx);
-		else
-			mtx = NULL;
-	} else {
+	if (sim->mtx == NULL)
 		mtx = &cam_sim_free_mtx;
+	else if (!mtx_owned(sim->mtx))
+		mtx = sim->mtx;
+	else
+		mtx = NULL;	/* We hold the lock. */
+	if (mtx)
 		mtx_lock(mtx);
-	}
 	KASSERT(sim->refcount >= 1, ("sim->refcount >= 1"));
 	sim->refcount--;
 	if (sim->refcount == 0)
@@ -172,17 +165,16 @@ cam_sim_release(struct cam_sim *sim)
 void
 cam_sim_hold(struct cam_sim *sim)
 {
-	struct mtx *mtx = sim->mtx;
+	struct mtx *mtx;
 
-	if (mtx) {
-		if (!mtx_owned(mtx))
-			mtx_lock(mtx);
-		else
-			mtx = NULL;
-	} else {
+	if (sim->mtx == NULL)
 		mtx = &cam_sim_free_mtx;
+	else if (!mtx_owned(sim->mtx))
+		mtx = sim->mtx;
+	else
+		mtx = NULL;	/* We hold the lock. */
+	if (mtx)
 		mtx_lock(mtx);
-	}
 	KASSERT(sim->refcount >= 1, ("sim->refcount >= 1"));
 	sim->refcount++;
 	if (mtx)

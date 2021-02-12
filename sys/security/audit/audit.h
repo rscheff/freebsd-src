@@ -120,6 +120,10 @@ void	 audit_arg_upath1(struct thread *td, int dirfd, char *upath);
 void	 audit_arg_upath1_canon(char *upath);
 void	 audit_arg_upath2(struct thread *td, int dirfd, char *upath);
 void	 audit_arg_upath2_canon(char *upath);
+void	 audit_arg_upath1_vp(struct thread *td, struct vnode *rdir,
+	    struct vnode *cdir, char *upath);
+void	 audit_arg_upath2_vp(struct thread *td, struct vnode *rdir,
+	    struct vnode *cdir, char *upath);
 void	 audit_arg_vnode1(struct vnode *vp);
 void	 audit_arg_vnode2(struct vnode *vp);
 void	 audit_arg_text(const char *text);
@@ -136,7 +140,7 @@ void	 audit_arg_argv(char *argv, int argc, int length);
 void	 audit_arg_envv(char *envv, int envc, int length);
 void	 audit_arg_rights(cap_rights_t *rightsp);
 void	 audit_arg_fcntl_rights(uint32_t fcntlrights);
-void	 audit_sysclose(struct thread *td, int fd);
+void	 audit_sysclose(struct thread *td, int fd, struct file *fp);
 void	 audit_cred_copy(struct ucred *src, struct ucred *dest);
 void	 audit_cred_destroy(struct ucred *cred);
 void	 audit_cred_init(struct ucred *cred);
@@ -362,6 +366,16 @@ void	 audit_thread_free(struct thread *td);
 		audit_arg_upath2_canon((upath));			\
 } while (0)
 
+#define	AUDIT_ARG_UPATH1_VP(td, rdir, cdir, upath) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath1_vp((td), (rdir), (cdir), (upath));	\
+} while (0)
+
+#define	AUDIT_ARG_UPATH2_VP(td, rdir, cdir, upath) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath2_vp((td), (rdir), (cdir), (upath));	\
+} while (0)
+
 #define	AUDIT_ARG_VALUE(value) do {					\
 	if (AUDITING_TD(curthread))					\
 		audit_arg_value((value));				\
@@ -448,9 +462,13 @@ void	 audit_thread_free(struct thread *td);
 #define	AUDIT_ARG_UPATH1_CANON(upath)
 #define	AUDIT_ARG_UPATH2(td, dirfd, upath)
 #define	AUDIT_ARG_UPATH2_CANON(upath)
+#define	AUDIT_ARG_UPATH1_VP(td, rdir, cdir, upath)
+#define	AUDIT_ARG_UPATH2_VP(td, rdir, cdir, upath)
 #define	AUDIT_ARG_VALUE(value)
 #define	AUDIT_ARG_VNODE1(vp)
 #define	AUDIT_ARG_VNODE2(vp)
+
+#define	AUDITING_TD(td)		0
 
 #define	AUDIT_SYSCALL_ENTER(code, td)	0
 #define	AUDIT_SYSCALL_EXIT(error, td)

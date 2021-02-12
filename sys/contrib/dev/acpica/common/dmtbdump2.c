@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -475,9 +475,14 @@ AcpiDmDumpIvrs (
 
         switch (Subtable->Type)
         {
-        case ACPI_IVRS_TYPE_HARDWARE:
+        case ACPI_IVRS_TYPE_HARDWARE1:
 
             InfoTable = AcpiDmTableInfoIvrs0;
+            break;
+
+        case ACPI_IVRS_TYPE_HARDWARE2:
+
+            InfoTable = AcpiDmTableInfoIvrs01;
             break;
 
         case ACPI_IVRS_TYPE_MEMORY1:
@@ -514,11 +519,23 @@ AcpiDmDumpIvrs (
 
         /* The hardware subtable can contain multiple device entries */
 
-        if (Subtable->Type == ACPI_IVRS_TYPE_HARDWARE)
+        if (Subtable->Type == ACPI_IVRS_TYPE_HARDWARE1 ||
+            Subtable->Type == ACPI_IVRS_TYPE_HARDWARE2)
         {
-            EntryOffset = Offset + sizeof (ACPI_IVRS_HARDWARE);
-            DeviceEntry = ACPI_ADD_PTR (ACPI_IVRS_DE_HEADER, Subtable,
-                sizeof (ACPI_IVRS_HARDWARE));
+            if (Subtable->Type == ACPI_IVRS_TYPE_HARDWARE1)
+            {
+                EntryOffset = Offset + sizeof (ACPI_IVRS_HARDWARE1);
+                DeviceEntry = ACPI_ADD_PTR (ACPI_IVRS_DE_HEADER, Subtable,
+                    sizeof (ACPI_IVRS_HARDWARE1));
+            }
+            else
+            {
+                /* ACPI_IVRS_TYPE_HARDWARE2 subtable type */
+
+                EntryOffset = Offset + sizeof (ACPI_IVRS_HARDWARE2);
+                DeviceEntry = ACPI_ADD_PTR (ACPI_IVRS_DE_HEADER, Subtable,
+                    sizeof (ACPI_IVRS_HARDWARE2));
+            }
 
             while (EntryOffset < (Offset + Subtable->Length))
             {
@@ -1093,59 +1110,6 @@ AcpiDmDumpMsct (
         Offset += sizeof (ACPI_MSCT_PROXIMITY);
         Subtable = ACPI_ADD_PTR (ACPI_MSCT_PROXIMITY, Subtable,
             sizeof (ACPI_MSCT_PROXIMITY));
-    }
-}
-
-
-/*******************************************************************************
- *
- * FUNCTION:    AcpiDmDumpMtmr
- *
- * PARAMETERS:  Table               - A MTMR table
- *
- * RETURN:      None
- *
- * DESCRIPTION: Format the contents of a MTMR
- *
- ******************************************************************************/
-
-void
-AcpiDmDumpMtmr (
-    ACPI_TABLE_HEADER       *Table)
-{
-    ACPI_STATUS             Status;
-    UINT32                  Offset = sizeof (ACPI_TABLE_MTMR);
-    ACPI_MTMR_ENTRY         *Subtable;
-
-
-    /* Main table */
-
-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoMtmr);
-    if (ACPI_FAILURE (Status))
-    {
-        return;
-    }
-
-    /* Subtables */
-
-    Subtable = ACPI_ADD_PTR (ACPI_MTMR_ENTRY, Table, Offset);
-    while (Offset < Table->Length)
-    {
-        /* Common subtable header */
-
-        AcpiOsPrintf ("\n");
-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
-            sizeof (ACPI_MTMR_ENTRY), AcpiDmTableInfoMtmr0);
-        if (ACPI_FAILURE (Status))
-        {
-            return;
-        }
-
-        /* Point to next subtable */
-
-        Offset += sizeof (ACPI_MTMR_ENTRY);
-        Subtable = ACPI_ADD_PTR (ACPI_MTMR_ENTRY, Subtable,
-            sizeof (ACPI_MTMR_ENTRY));
     }
 }
 

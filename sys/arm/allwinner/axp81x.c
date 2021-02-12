@@ -1118,9 +1118,9 @@ axp8xx_intr(void *arg)
 		if (bootverbose)
 			device_printf(dev, "AXP_IRQSTAT4 val: %x\n", val);
 		if (val & AXP_IRQSTAT4_BATLVL_LO0)
-			devctl_notify("PMU", "Battery", "shutdown threshold", NULL);
+			devctl_notify("PMU", "Battery", "shutdown-threshold", NULL);
 		if (val & AXP_IRQSTAT4_BATLVL_LO1)
-			devctl_notify("PMU", "Battery", "warning threshold", NULL);
+			devctl_notify("PMU", "Battery", "warning-threshold", NULL);
 		/* Acknowledge */
 		axp8xx_write(dev, AXP_IRQSTAT4, val);
 	}
@@ -1316,7 +1316,6 @@ axp8xx_gpio_pin_set(device_t dev, uint32_t pin, unsigned int val)
 
 	return (error);
 }
-
 
 static int
 axp8xx_gpio_pin_toggle(device_t dev, uint32_t pin)
@@ -1538,7 +1537,7 @@ axp8xx_attach(device_t dev)
 		SYSCTL_ADD_PROC(device_get_sysctl_ctx(dev),
 		    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)),
 		    OID_AUTO, sc->sensors[i].name,
-		    CTLTYPE_INT | CTLFLAG_RD,
+		    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
 		    dev, sc->sensors[i].id, axp8xx_sysctl,
 		    sc->sensors[i].format,
 		    sc->sensors[i].desc);
@@ -1546,7 +1545,7 @@ axp8xx_attach(device_t dev)
 	SYSCTL_ADD_PROC(device_get_sysctl_ctx(dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)),
 	    OID_AUTO, "batchargecurrentstep",
-	    CTLTYPE_INT | CTLFLAG_RW,
+	    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
 	    dev, 0, axp8xx_sysctl_chargecurrent,
 	    "I", "Battery Charging Current Step, "
 	    "0: 200mA, 1: 400mA, 2: 600mA, 3: 800mA, "

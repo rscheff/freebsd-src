@@ -12,6 +12,8 @@ TESTSDIR=	${TESTSBASE}/sys/fs/fusefs
 GTESTS+=	access
 GTESTS+=	allow_other
 GTESTS+=	bmap
+GTESTS+=	cache
+GTESTS+=	copy_file_range
 GTESTS+=	create
 GTESTS+=	default_permissions
 GTESTS+=	default_permissions_privileged
@@ -28,6 +30,7 @@ GTESTS+=	io
 GTESTS+=	link
 GTESTS+=	locks
 GTESTS+=	lookup
+GTESTS+=	lseek
 GTESTS+=	mkdir
 GTESTS+=	mknod
 GTESTS+=	mount
@@ -80,7 +83,5 @@ CXXSTD=		c++14
 LIBADD+=	pthread
 LIBADD+=	gmock gtest
 LIBADD+=	util
-
-WARNS?=	6
 
 .include <bsd.test.mk>

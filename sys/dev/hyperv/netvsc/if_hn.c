@@ -71,8 +71,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/queue.h>
 #include <sys/lock.h>
+#include <sys/proc.h>
 #include <sys/rmlock.h>
 #include <sys/sbuf.h>
+#include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
@@ -165,8 +167,11 @@ __FBSDID("$FreeBSD$");
 #define HN_LOCK_ASSERT(sc)		sx_assert(&(sc)->hn_lock, SA_XLOCKED)
 #define HN_LOCK(sc)					\
 do {							\
-	while (sx_try_xlock(&(sc)->hn_lock) == 0)	\
+	while (sx_try_xlock(&(sc)->hn_lock) == 0) {	\
+		/* Relinquish cpu to avoid deadlock */	\
+		sched_relinquish(curthread);		\
 		DELAY(1000);				\
+	}						\
 } while (0)
 #define HN_UNLOCK(sc)			sx_xunlock(&(sc)->hn_lock)
 
@@ -576,12 +581,16 @@ SYSCTL_INT(_hw_hn, OID_AUTO, tx_agg_pkts, CTLFLAG_RDTUN,
     &hn_tx_agg_pkts, 0, "Packet transmission aggregation packet limit");
 
 /* VF list */
-SYSCTL_PROC(_hw_hn, OID_AUTO, vflist, CTLFLAG_RD | CTLTYPE_STRING,
-    0, 0, hn_vflist_sysctl, "A", "VF list");
+SYSCTL_PROC(_hw_hn, OID_AUTO, vflist,
+    CTLFLAG_RD | CTLTYPE_STRING | CTLFLAG_NEEDGIANT, 0, 0,
+    hn_vflist_sysctl, "A",
+    "VF list");
 
 /* VF mapping */
-SYSCTL_PROC(_hw_hn, OID_AUTO, vfmap, CTLFLAG_RD | CTLTYPE_STRING,
-    0, 0, hn_vfmap_sysctl, "A", "VF mapping");
+SYSCTL_PROC(_hw_hn, OID_AUTO, vfmap,
+    CTLFLAG_RD | CTLTYPE_STRING | CTLFLAG_NEEDGIANT, 0, 0,
+    hn_vfmap_sysctl, "A",
+    "VF mapping");
 
 /* Transparent VF */
 static int			hn_xpnt_vf = 1;
@@ -2362,8 +2371,7 @@ hn_attach(device_t dev)
 	 */
 
 	ifp->if_baudrate = IF_Gbps(10);
-	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST |
-	    IFF_NEEDSEPOCH;
+	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = hn_ioctl;
 	ifp->if_init = hn_init;
 #ifdef HN_IFSTART_SUPPORT

@@ -47,10 +47,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/signalvar.h>
 #include <sys/vnode.h>
 #include <sys/acct.h>
-#include <sys/bus.h>
 #include <sys/capsicum.h>
 #include <sys/compressor.h>
 #include <sys/condvar.h>
+#include <sys/devctl.h>
 #include <sys/event.h>
 #include <sys/fcntl.h>
 #include <sys/imgact.h>
@@ -67,7 +67,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/procdesc.h>
 #include <sys/ptrace.h>
 #include <sys/posix4.h>
-#include <sys/pioctl.h>
 #include <sys/racct.h>
 #include <sys/resourcevar.h>
 #include <sys/sdt.h>
@@ -108,6 +107,7 @@ static int	coredump(struct thread *);
 static int	killpg1(struct thread *td, int sig, int pgid, int all,
 		    ksiginfo_t *ksi);
 static int	issignal(struct thread *td);
+static void	reschedule_signals(struct proc *p, sigset_t block, int flags);
 static int	sigprop(int sig);
 static void	tdsigwakeup(struct thread *, int, sig_t, int);
 static int	sig_suspend_threads(struct thread *, struct proc *, int);
@@ -134,7 +134,7 @@ static int	kern_forcesigexit = 1;
 SYSCTL_INT(_kern, OID_AUTO, forcesigexit, CTLFLAG_RW,
     &kern_forcesigexit, 0, "Force trap signal to be handled");
 
-static SYSCTL_NODE(_kern, OID_AUTO, sigqueue, CTLFLAG_RW, 0,
+static SYSCTL_NODE(_kern, OID_AUTO, sigqueue, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "POSIX real time signal");
 
 static int	max_pending_per_proc = 128;
@@ -156,6 +156,12 @@ SYSCTL_INT(_kern_sigqueue, OID_AUTO, alloc_fail, CTLFLAG_RD,
 static int	kern_lognosys = 0;
 SYSCTL_INT(_kern, OID_AUTO, lognosys, CTLFLAG_RWTUN, &kern_lognosys, 0,
     "Log invalid syscalls");
+
+__read_frequently bool sigfastblock_fetch_always = false;
+SYSCTL_BOOL(_kern, OID_AUTO, sigfastblock_fetch_always, CTLFLAG_RWTUN,
+    &sigfastblock_fetch_always, 0,
+    "Fetch sigfastblock word on each syscall entry for proper "
+    "blocking semantic");
 
 SYSINIT(signal, SI_SUB_P1003_1B, SI_ORDER_FIRST+3, sigqueue_start, NULL);
 
@@ -2005,6 +2011,7 @@ trapsignal(struct thread *td, ksiginfo_t *ksi)
 	code = ksi->ksi_code;
 	KASSERT(_SIG_VALID(sig), ("invalid signal"));
 
+	sigfastblock_fetch(td);
 	PROC_LOCK(p);
 	ps = p->p_sigacts;
 	mtx_lock(&ps->ps_mtx);
@@ -2220,9 +2227,9 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 		 * is default; don't stop the process below if sleeping,
 		 * and don't clear any pending SIGCONT.
 		 */
-		if ((prop & SIGPROP_TTYSTOP) &&
-		    (p->p_pgrp->pg_jobc == 0) &&
-		    (action == SIG_DFL)) {
+		if ((prop & SIGPROP_TTYSTOP) != 0 &&
+		    (p->p_pgrp->pg_flags & PGRP_ORPHANED) != 0 &&
+		    action == SIG_DFL) {
 			if (ksi && (ksi->ksi_flags & KSI_INS))
 				ksiginfo_tryfree(ksi);
 			return (ret);
@@ -2248,14 +2255,6 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 	    !((prop & SIGPROP_CONT) && (p->p_flag & P_STOPPED_SIG)))
 		return (ret);
 
-	/* SIGKILL: Remove procfs STOPEVENTs. */
-	if (sig == SIGKILL) {
-		/* from procfs_ioctl.c: PIOCBIC */
-		p->p_stops = 0;
-		/* from procfs_ioctl.c: PIOCCONT */
-		p->p_step = 0;
-		wakeup(&p->p_step);
-	}
 	wakeup_swapper = 0;
 
 	/*
@@ -2676,7 +2675,7 @@ stopme:
 	return (td->td_xsig);
 }
 
-void
+static void
 reschedule_signals(struct proc *p, sigset_t block, int flags)
 {
 	struct sigacts *ps;
@@ -2845,15 +2844,13 @@ issignal(struct thread *td)
 	struct sigqueue *queue;
 	sigset_t sigpending;
 	ksiginfo_t ksi;
-	int prop, sig, traced;
+	int prop, sig;
 
 	p = td->td_proc;
 	ps = p->p_sigacts;
 	mtx_assert(&ps->ps_mtx, MA_OWNED);
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	for (;;) {
-		traced = (p->p_flag & P_TRACED) || (p->p_stops & S_SIG);
-
 		sigpending = td->td_sigqueue.sq_signals;
 		SIGSETOR(sigpending, p->p_sigqueue.sq_signals);
 		SIGSETNAND(sigpending, td->td_sigmask);
@@ -2896,17 +2893,12 @@ issignal(struct thread *td)
 			sig = sig_ffs(&sigpending);
 		}
 
-		if (p->p_stops & S_SIG) {
-			mtx_unlock(&ps->ps_mtx);
-			stopevent(p, S_SIG, sig);
-			mtx_lock(&ps->ps_mtx);
-		}
-
 		/*
 		 * We should see pending but ignored signals
 		 * only if P_TRACED was on when they were posted.
 		 */
-		if (SIGISMEMBER(ps->ps_sigignore, sig) && (traced == 0)) {
+		if (SIGISMEMBER(ps->ps_sigignore, sig) &&
+		    (p->p_flag & P_TRACED) == 0) {
 			sigqueue_delete(&td->td_sigqueue, sig);
 			sigqueue_delete(&p->p_sigqueue, sig);
 			continue;
@@ -2969,7 +2961,6 @@ issignal(struct thread *td)
 		 * to clear it from the pending mask.
 		 */
 		switch ((intptr_t)p->p_sigacts->ps_sigact[_SIG_IDX(sig)]) {
-
 		case (intptr_t)SIG_DFL:
 			/*
 			 * Don't take default actions on system processes.
@@ -2993,17 +2984,20 @@ issignal(struct thread *td)
 			 * should ignore tty stops.
 			 */
 			if (prop & SIGPROP_STOP) {
-				if (p->p_flag &
-				    (P_TRACED | P_WEXIT | P_SINGLE_EXIT) ||
-				    (p->p_pgrp->pg_jobc == 0 &&
-				     prop & SIGPROP_TTYSTOP))
+				mtx_unlock(&ps->ps_mtx);
+				if ((p->p_flag & (P_TRACED | P_WEXIT |
+				    P_SINGLE_EXIT)) != 0 || ((p->p_pgrp->
+				    pg_flags & PGRP_ORPHANED) != 0 &&
+				    (prop & SIGPROP_TTYSTOP) != 0)) {
+					mtx_lock(&ps->ps_mtx);
 					break;	/* == ignore */
+				}
 				if (TD_SBDRY_INTR(td)) {
 					KASSERT((td->td_flags & TDF_SBDRY) != 0,
 					    ("lost TDF_SBDRY"));
+					mtx_lock(&ps->ps_mtx);
 					return (-1);
 				}
-				mtx_unlock(&ps->ps_mtx);
 				WITNESS_WARN(WARN_GIANTOK | WARN_SLEEPOK,
 				    &p->p_mtx.lock_object, "Catching SIGSTOP");
 				sigqueue_delete(&td->td_sigqueue, sig);
@@ -3106,11 +3100,6 @@ postsig(int sig)
 		ktrpsig(sig, action, td->td_pflags & TDP_OLDMASK ?
 		    &td->td_oldsigmask : &td->td_sigmask, ksi.ksi_code);
 #endif
-	if ((p->p_stops & S_SIG) != 0) {
-		mtx_unlock(&ps->ps_mtx);
-		stopevent(p, S_SIG, sig);
-		mtx_lock(&ps->ps_mtx);
-	}
 
 	if (action == SIG_DFL) {
 		/*
@@ -3153,6 +3142,92 @@ postsig(int sig)
 	return (1);
 }
 
+int
+sig_ast_checksusp(struct thread *td)
+{
+	struct proc *p;
+	int ret;
+
+	p = td->td_proc;
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+
+	if ((td->td_flags & TDF_NEEDSUSPCHK) == 0)
+		return (0);
+
+	ret = thread_suspend_check(1);
+	MPASS(ret == 0 || ret == EINTR || ret == ERESTART);
+	return (ret);
+}
+
+int
+sig_ast_needsigchk(struct thread *td)
+{
+	struct proc *p;
+	struct sigacts *ps;
+	int ret, sig;
+
+	p = td->td_proc;
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+
+	if ((td->td_flags & TDF_NEEDSIGCHK) == 0)
+		return (0);
+
+	ps = p->p_sigacts;
+	mtx_lock(&ps->ps_mtx);
+	sig = cursig(td);
+	if (sig == -1) {
+		mtx_unlock(&ps->ps_mtx);
+		KASSERT((td->td_flags & TDF_SBDRY) != 0, ("lost TDF_SBDRY"));
+		KASSERT(TD_SBDRY_INTR(td),
+		    ("lost TDF_SERESTART of TDF_SEINTR"));
+		KASSERT((td->td_flags & (TDF_SEINTR | TDF_SERESTART)) !=
+		    (TDF_SEINTR | TDF_SERESTART),
+		    ("both TDF_SEINTR and TDF_SERESTART"));
+		ret = TD_SBDRY_ERRNO(td);
+	} else if (sig != 0) {
+		ret = SIGISMEMBER(ps->ps_sigintr, sig) ? EINTR : ERESTART;
+		mtx_unlock(&ps->ps_mtx);
+	} else {
+		mtx_unlock(&ps->ps_mtx);
+		ret = 0;
+	}
+
+	/*
+	 * Do not go into sleep if this thread was the ptrace(2)
+	 * attach leader.  cursig() consumed SIGSTOP from PT_ATTACH,
+	 * but we usually act on the signal by interrupting sleep, and
+	 * should do that here as well.
+	 */
+	if ((td->td_dbgflags & TDB_FSTP) != 0) {
+		if (ret == 0)
+			ret = EINTR;
+		td->td_dbgflags &= ~TDB_FSTP;
+	}
+
+	return (ret);
+}
+
+int
+sig_intr(void)
+{
+	struct thread *td;
+	struct proc *p;
+	int ret;
+
+	td = curthread;
+	if ((td->td_flags & (TDF_NEEDSIGCHK | TDF_NEEDSUSPCHK)) == 0)
+		return (0);
+
+	p = td->td_proc;
+
+	PROC_LOCK(p);
+	ret = sig_ast_checksusp(td);
+	if (ret == 0)
+		ret = sig_ast_needsigchk(td);
+	PROC_UNLOCK(p);
+	return (ret);
+}
+
 void
 proc_wkilled(struct proc *p)
 {
@@ -3174,7 +3249,7 @@ proc_wkilled(struct proc *p)
  * Kill the current process for stated reason.
  */
 void
-killproc(struct proc *p, char *why)
+killproc(struct proc *p, const char *why)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
@@ -3344,9 +3419,10 @@ sysctl_debug_num_cores_check (SYSCTL_HANDLER_ARGS)
 	num_cores = new_val;
 	return (0);
 }
-SYSCTL_PROC(_debug, OID_AUTO, ncores, CTLTYPE_INT|CTLFLAG_RW,
-	    0, sizeof(int), sysctl_debug_num_cores_check, "I",
-	    "Maximum number of generated process corefiles while using index format");
+SYSCTL_PROC(_debug, OID_AUTO, ncores,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, 0, sizeof(int),
+    sysctl_debug_num_cores_check, "I",
+    "Maximum number of generated process corefiles while using index format");
 
 #define	GZIP_SUFFIX	".gz"
 #define	ZSTD_SUFFIX	".zst"
@@ -3367,8 +3443,9 @@ sysctl_compress_user_cores(SYSCTL_HANDLER_ARGS)
 	compress_user_cores = val;
 	return (error);
 }
-SYSCTL_PROC(_kern, OID_AUTO, compress_user_cores, CTLTYPE_INT | CTLFLAG_RWTUN,
-    0, sizeof(int), sysctl_compress_user_cores, "I",
+SYSCTL_PROC(_kern, OID_AUTO, compress_user_cores,
+    CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_NEEDGIANT, 0, sizeof(int),
+    sysctl_compress_user_cores, "I",
     "Enable compression of user corefiles ("
     __XSTRING(COMPRESS_GZIP) " = gzip, "
     __XSTRING(COMPRESS_ZSTD) " = zstd)");
@@ -3465,8 +3542,9 @@ corefile_open_last(struct thread *td, char *name, int indexpos,
 		    (lasttime.tv_sec == vattr.va_mtime.tv_sec &&
 		    lasttime.tv_nsec >= vattr.va_mtime.tv_nsec)) {
 			if (oldvp != NULL)
-				vnode_close_locked(td, oldvp);
+				vn_close(oldvp, FWRITE, td->td_ucred, td);
 			oldvp = vp;
+			VOP_UNLOCK(oldvp);
 			lasttime = vattr.va_mtime;
 		} else {
 			vnode_close_locked(td, vp);
@@ -3477,12 +3555,18 @@ corefile_open_last(struct thread *td, char *name, int indexpos,
 		if (nextvp == NULL) {
 			if ((td->td_proc->p_flag & P_SUGID) != 0) {
 				error = EFAULT;
-				vnode_close_locked(td, oldvp);
+				vn_close(oldvp, FWRITE, td->td_ucred, td);
 			} else {
 				nextvp = oldvp;
+				error = vn_lock(nextvp, LK_EXCLUSIVE);
+				if (error != 0) {
+					vn_close(nextvp, FWRITE, td->td_ucred,
+					    td);
+					nextvp = NULL;
+				}
 			}
 		} else {
-			vnode_close_locked(td, oldvp);
+			vn_close(oldvp, FWRITE, td->td_ucred, td);
 		}
 	}
 	if (error != 0) {
@@ -3655,7 +3739,6 @@ coredump(struct thread *td)
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	MPASS((p->p_flag & P_HADTHREADS) == 0 || p->p_singlethread == td);
-	_STOPEVENT(p, S_CORE, 0);
 
 	if (!do_coredump || (!sugid_coredump && (p->p_flag & P_SUGID) != 0) ||
 	    (p->p_flag2 & P2_NOTRACE) != 0) {
@@ -3736,7 +3819,7 @@ coredump(struct thread *td)
 	if (error != 0 || coredump_devctl == 0)
 		goto out;
 	sb = sbuf_new_auto();
-	if (vn_fullpath_global(td, p->p_textvp, &fullpath, &freepath) != 0)
+	if (vn_fullpath_global(p->p_textvp, &fullpath, &freepath) != 0)
 		goto out2;
 	sbuf_printf(sb, "comm=\"");
 	devctl_safe_quote_sb(sb, fullpath);
@@ -3751,7 +3834,7 @@ coredump(struct thread *td)
 	if (name[0] != '/') {
 		fullpathsize = MAXPATHLEN;
 		freepath = malloc(fullpathsize, M_TEMP, M_WAITOK);
-		if (vn_getcwd(td, freepath, &fullpath, &fullpathsize) != 0) {
+		if (vn_getcwd(freepath, &fullpath, &fullpathsize) != 0) {
 			free(freepath, M_TEMP);
 			goto out2;
 		}
@@ -3800,7 +3883,8 @@ nosys(struct thread *td, struct nosys_args *args)
 		uprintf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
 		    td->td_sa.code);
 	}
-	if (kern_lognosys == 2 || kern_lognosys == 3) {
+	if (kern_lognosys == 2 || kern_lognosys == 3 ||
+	    (p->p_pid == 1 && (kern_lognosys & 3) == 0)) {
 		printf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
 		    td->td_sa.code);
 	}
@@ -3952,6 +4036,58 @@ sig_drop_caught(struct proc *p)
 	}
 }
 
+static void
+sigfastblock_failed(struct thread *td, bool sendsig, bool write)
+{
+	ksiginfo_t ksi;
+
+	/*
+	 * Prevent further fetches and SIGSEGVs, allowing thread to
+	 * issue syscalls despite corruption.
+	 */
+	sigfastblock_clear(td);
+
+	if (!sendsig)
+		return;
+	ksiginfo_init_trap(&ksi);
+	ksi.ksi_signo = SIGSEGV;
+	ksi.ksi_code = write ? SEGV_ACCERR : SEGV_MAPERR;
+	ksi.ksi_addr = td->td_sigblock_ptr;
+	trapsignal(td, &ksi);
+}
+
+static bool
+sigfastblock_fetch_sig(struct thread *td, bool sendsig, uint32_t *valp)
+{
+	uint32_t res;
+
+	if ((td->td_pflags & TDP_SIGFASTBLOCK) == 0)
+		return (true);
+	if (fueword32((void *)td->td_sigblock_ptr, &res) == -1) {
+		sigfastblock_failed(td, sendsig, false);
+		return (false);
+	}
+	*valp = res;
+	td->td_sigblock_val = res & ~SIGFASTBLOCK_FLAGS;
+	return (true);
+}
+
+static void
+sigfastblock_resched(struct thread *td, bool resched)
+{
+	struct proc *p;
+
+	if (resched) {
+		p = td->td_proc;
+		PROC_LOCK(p);
+		reschedule_signals(p, td->td_sigmask, 0);
+		PROC_UNLOCK(p);
+	}
+	thread_lock(td);
+	td->td_flags |= TDF_ASTPENDING | TDF_NEEDSIGCHK;
+	thread_unlock(td);
+}
+
 int
 sys_sigfastblock(struct thread *td, struct sigfastblock_args *uap)
 {
@@ -3960,6 +4096,7 @@ sys_sigfastblock(struct thread *td, struct sigfastblock_args *uap)
 	uint32_t oldval;
 
 	error = 0;
+	p = td->td_proc;
 	switch (uap->cmd) {
 	case SIGFASTBLOCK_SETPTR:
 		if ((td->td_pflags & TDP_SIGFASTBLOCK) != 0) {
@@ -3975,18 +4112,22 @@ sys_sigfastblock(struct thread *td, struct sigfastblock_args *uap)
 		break;
 
 	case SIGFASTBLOCK_UNBLOCK:
-		if ((td->td_pflags & TDP_SIGFASTBLOCK) != 0) {
+		if ((td->td_pflags & TDP_SIGFASTBLOCK) == 0) {
 			error = EINVAL;
 			break;
 		}
-again:
-		res = casueword32(td->td_sigblock_ptr, SIGFASTBLOCK_PEND,
-		    &oldval, 0);
-		if (res == -1) {
-			error = EFAULT;
-			break;
-		}
-		if (res == 1) {
+
+		for (;;) {
+			res = casueword32(td->td_sigblock_ptr,
+			    SIGFASTBLOCK_PEND, &oldval, 0);
+			if (res == -1) {
+				error = EFAULT;
+				sigfastblock_failed(td, false, true);
+				break;
+			}
+			if (res == 0)
+				break;
+			MPASS(res == 1);
 			if (oldval != SIGFASTBLOCK_PEND) {
 				error = EBUSY;
 				break;
@@ -3994,8 +4135,22 @@ again:
 			error = thread_check_susp(td, false);
 			if (error != 0)
 				break;
-			goto again;
 		}
+		if (error != 0)
+			break;
+
+		/*
+		 * td_sigblock_val is cleared there, but not on a
+		 * syscall exit.  The end effect is that a single
+		 * interruptible sleep, while user sigblock word is
+		 * set, might return EINTR or ERESTART to usermode
+		 * without delivering signal.  All further sleeps,
+		 * until userspace clears the word and does
+		 * sigfastblock(UNBLOCK), observe current word and no
+		 * longer get interrupted.  It is slight
+		 * non-conformance, with alternative to have read the
+		 * sigblock word on each syscall entry.
+		 */
 		td->td_sigblock_val = 0;
 
 		/*
@@ -4003,12 +4158,8 @@ again:
 		 * signals to current thread.  But notify others about
 		 * fake unblock.
 		 */
-		p = td->td_proc;
-		if (error == 0 && p->p_numthreads != 1) {
-			PROC_LOCK(p);
-			reschedule_signals(p, td->td_sigmask, 0);
-			PROC_UNLOCK(p);
-		}
+		sigfastblock_resched(td, error == 0 && p->p_numthreads != 1);
+
 		break;
 
 	case SIGFASTBLOCK_UNSETPTR:
@@ -4016,8 +4167,7 @@ again:
 			error = EINVAL;
 			break;
 		}
-		res = fueword32(td->td_sigblock_ptr, &oldval);
-		if (res == -1) {
+		if (!sigfastblock_fetch_sig(td, false, &oldval)) {
 			error = EFAULT;
 			break;
 		}
@@ -4025,8 +4175,7 @@ again:
 			error = EBUSY;
 			break;
 		}
-		td->td_pflags &= ~TDP_SIGFASTBLOCK;
-		td->td_sigblock_val = 0;
+		sigfastblock_clear(td);
 		break;
 
 	default:
@@ -4037,32 +4186,68 @@ again:
 }
 
 void
-fetch_sigfastblock(struct thread *td)
+sigfastblock_clear(struct thread *td)
 {
+	bool resched;
 
 	if ((td->td_pflags & TDP_SIGFASTBLOCK) == 0)
 		return;
-	if (fueword32(td->td_sigblock_ptr, &td->td_sigblock_val) == -1) {
-		fetch_sigfastblock_failed(td, false);
-		return;
-	}
-	td->td_sigblock_val &= ~SIGFASTBLOCK_FLAGS;
+	td->td_sigblock_val = 0;
+	resched = (td->td_pflags & TDP_SIGFASTPENDING) != 0 ||
+	    SIGPENDING(td);
+	td->td_pflags &= ~(TDP_SIGFASTBLOCK | TDP_SIGFASTPENDING);
+	sigfastblock_resched(td, resched);
 }
 
 void
-fetch_sigfastblock_failed(struct thread *td, bool write)
+sigfastblock_fetch(struct thread *td)
 {
-	ksiginfo_t ksi;
+	uint32_t val;
 
-	/*
-	 * Prevent further fetches and SIGSEGVs, allowing thread to
-	 * issue syscalls despite corruption.
-	 */
-	td->td_pflags &= ~TDP_SIGFASTBLOCK;
+	(void)sigfastblock_fetch_sig(td, true, &val);
+}
 
-	ksiginfo_init_trap(&ksi);
-	ksi.ksi_signo = SIGSEGV;
-	ksi.ksi_code = write ? SEGV_ACCERR : SEGV_MAPERR;
-	ksi.ksi_addr = td->td_sigblock_ptr;
-	trapsignal(td, &ksi);
+static void
+sigfastblock_setpend1(struct thread *td)
+{
+	int res;
+	uint32_t oldval;
+
+	if ((td->td_pflags & TDP_SIGFASTPENDING) == 0)
+		return;
+	res = fueword32((void *)td->td_sigblock_ptr, &oldval);
+	if (res == -1) {
+		sigfastblock_failed(td, true, false);
+		return;
+	}
+	for (;;) {
+		res = casueword32(td->td_sigblock_ptr, oldval, &oldval,
+		    oldval | SIGFASTBLOCK_PEND);
+		if (res == -1) {
+			sigfastblock_failed(td, true, true);
+			return;
+		}
+		if (res == 0) {
+			td->td_sigblock_val = oldval & ~SIGFASTBLOCK_FLAGS;
+			td->td_pflags &= ~TDP_SIGFASTPENDING;
+			break;
+		}
+		MPASS(res == 1);
+		if (thread_check_susp(td, false) != 0)
+			break;
+	}
+}
+
+void
+sigfastblock_setpend(struct thread *td, bool resched)
+{
+	struct proc *p;
+
+	sigfastblock_setpend1(td);
+	if (resched) {
+		p = td->td_proc;
+		PROC_LOCK(p);
+		reschedule_signals(p, fastblock_mask, SIGPROCMASK_FASTBLK);
+		PROC_UNLOCK(p);
+	}
 }

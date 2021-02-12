@@ -50,10 +50,8 @@ __FBSDID("$FreeBSD$");
     Rules are stored in a linear linked list, so lookup efficiency
     won't be too good for large lists.
 
-
     Initial development: April, 1998 (cjm)
 */
-
 
 /* System includes */
 #ifdef _KERNEL
@@ -113,13 +111,9 @@ struct proxy_entry {
 	struct proxy_entry *last;
 };
 
-
-
 /*
     File scope variables
 */
-
-
 
 /* Local (static) functions:
 
@@ -388,7 +382,7 @@ ProxyEncodeIpHeader(struct ip *pip,
 #define OPTION_LEN_BYTES  8
 #define OPTION_LEN_INT16  4
 #define OPTION_LEN_INT32  2
-	u_char option[OPTION_LEN_BYTES];
+	_Alignas(_Alignof(u_short)) u_char option[OPTION_LEN_BYTES];
 
 #ifdef LIBALIAS_DEBUG
 	fprintf(stdout, " ip cksum 1 = %x\n", (u_int) IpChecksum(pip));
@@ -451,7 +445,6 @@ ProxyEncodeIpHeader(struct ip *pip,
 	fprintf(stdout, "tcp cksum 2 = %x\n", (u_int) TcpChecksum(pip));
 #endif
 }
-
 
 /* Functions by other packet alias source files
 
@@ -519,7 +512,6 @@ ProxyModify(struct libalias *la, struct alias_link *lnk,
 		break;
 	}
 }
-
 
 /*
     Public API functions

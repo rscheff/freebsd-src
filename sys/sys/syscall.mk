@@ -354,7 +354,7 @@ MIASM =  \
 	jail_get.o \
 	jail_set.o \
 	jail_remove.o \
-	closefrom.o \
+	freebsd12_closefrom.o \
 	__semctl.o \
 	msgctl.o \
 	shmctl.o \
@@ -414,4 +414,10 @@ MIASM =  \
 	__sysctlbyname.o \
 	shm_open2.o \
 	shm_rename.o \
-	sigfastblock.o
+	sigfastblock.o \
+	__realpathat.o \
+	close_range.o \
+	rpctls_syscall.o \
+	__specialfd.o \
+	aio_writev.o \
+	aio_readv.o

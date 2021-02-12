@@ -100,7 +100,8 @@ __FBSDID("$FreeBSD$");
 #include "tom/t4_tom.h"
 #include "cxgbei.h"
 
-SYSCTL_NODE(_kern_icl, OID_AUTO, cxgbei, CTLFLAG_RD, 0, "Chelsio iSCSI offload");
+SYSCTL_NODE(_kern_icl, OID_AUTO, cxgbei, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "Chelsio iSCSI offload");
 static int coalesce = 1;
 SYSCTL_INT(_kern_icl_cxgbei, OID_AUTO, coalesce, CTLFLAG_RWTUN,
 	&coalesce, 0, "Try to coalesce PDUs before sending");
@@ -623,7 +624,7 @@ icl_cxgbei_conn_handoff(struct icl_conn *ic, int fd)
 	 * Steal the socket from userland.
 	 */
 	error = fget(curthread, fd,
-	    cap_rights_init(&rights, CAP_SOCK_CLIENT), &fp);
+	    cap_rights_init_one(&rights, CAP_SOCK_CLIENT), &fp);
 	if (error != 0)
 		return (error);
 	if (fp->f_type != DTYPE_SOCKET) {
@@ -672,7 +673,7 @@ icl_cxgbei_conn_handoff(struct icl_conn *ic, int fd)
 		MPASS(tp->tod != NULL);
 		MPASS(tp->t_toe != NULL);
 		toep = tp->t_toe;
-		MPASS(toep->vi->pi->adapter == icc->sc);
+		MPASS(toep->vi->adapter == icc->sc);
 		icc->toep = toep;
 		icc->cwt = cxgbei_select_worker_thread(icc);
 

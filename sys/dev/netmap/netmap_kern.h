@@ -1353,6 +1353,24 @@ nm_native_on(struct netmap_adapter *na)
 	return nm_netmap_on(na) && (na->na_flags & NAF_NATIVE);
 }
 
+static inline struct netmap_kring *
+netmap_kring_on(struct netmap_adapter *na, u_int q, enum txrx t)
+{
+	struct netmap_kring *kring = NULL;
+
+	if (!nm_native_on(na))
+		return NULL;
+
+	if (t == NR_RX && q < na->num_rx_rings)
+		kring = na->rx_rings[q];
+	else if (t == NR_TX && q < na->num_tx_rings)
+		kring = na->tx_rings[q];
+	else
+		return NULL;
+
+	return (kring->nr_mode == NKR_NETMAP_ON) ? kring : NULL;
+}
+
 static inline int
 nm_iszombie(struct netmap_adapter *na)
 {
@@ -1431,8 +1449,7 @@ int netmap_attach_common(struct netmap_adapter *);
 /* fill priv->np_[tr]xq{first,last} using the ringid and flags information
  * coming from a struct nmreq_register
  */
-int netmap_interp_ringid(struct netmap_priv_d *priv, uint32_t nr_mode,
-			uint16_t nr_ringid, uint64_t nr_flags);
+int netmap_interp_ringid(struct netmap_priv_d *priv, struct nmreq_header *hdr);
 /* update the ring parameters (number and size of tx and rx rings).
  * It calls the nm_config callback, if available.
  */
@@ -1467,7 +1484,7 @@ void netmap_enable_all_rings(struct ifnet *);
 
 int netmap_buf_size_validate(const struct netmap_adapter *na, unsigned mtu);
 int netmap_do_regif(struct netmap_priv_d *priv, struct netmap_adapter *na,
-		uint32_t nr_mode, uint16_t nr_ringid, uint64_t nr_flags);
+		struct nmreq_header *);
 void netmap_do_unregif(struct netmap_priv_d *priv);
 
 u_int nm_bound_var(u_int *v, u_int dflt, u_int lo, u_int hi, const char *msg);

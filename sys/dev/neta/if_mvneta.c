@@ -186,6 +186,7 @@ STATIC void sysctl_mvneta_init(struct mvneta_softc *);
 
 /* MIB */
 STATIC void mvneta_clear_mib(struct mvneta_softc *);
+STATIC uint64_t mvneta_read_mib(struct mvneta_softc *, int);
 STATIC void mvneta_update_mib(struct mvneta_softc *);
 
 /* Switch */
@@ -1102,7 +1103,7 @@ STATIC int
 mvneta_initreg(struct ifnet *ifp)
 {
 	struct mvneta_softc *sc;
-	int q, i;
+	int q;
 	uint32_t reg;
 
 	sc = ifp->if_softc;
@@ -1189,14 +1190,9 @@ mvneta_initreg(struct ifnet *ifp)
 	MVNETA_WRITE(sc, MVNETA_PXCX, reg);
 
 	/* clear MIB counter registers(clear by read) */
-	for (i = 0; i < nitems(mvneta_mib_list); i++) {
-		if (mvneta_mib_list[i].reg64)
-			MVNETA_READ_MIB_8(sc, mvneta_mib_list[i].regnum);
-		else
-			MVNETA_READ_MIB_4(sc, mvneta_mib_list[i].regnum);
-	}
-	MVNETA_READ(sc, MVNETA_PDFC);
-	MVNETA_READ(sc, MVNETA_POFC);
+	mvneta_sc_lock(sc);
+	mvneta_clear_mib(sc);
+	mvneta_sc_unlock(sc);
 
 	/* Set SDC register except IPGINT bits */
 	reg  = MVNETA_SDC_RXBSZ_16_64BITWORDS;
@@ -2828,18 +2824,15 @@ mvneta_tx_set_csumflag(struct ifnet *ifp,
 	csum_flags = ifp->if_hwassist & m->m_pkthdr.csum_flags;
 	eh = mtod(m, struct ether_header *);
 
-	if (csum_flags == 0)
-		return;
-
 	switch (ntohs(eh->ether_type)) {
 	case ETHERTYPE_IP:
 		ipoff = ETHER_HDR_LEN;
 		break;
-	case ETHERTYPE_IPV6:
-		return;
 	case ETHERTYPE_VLAN:
 		ipoff = ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN;
 		break;
+	default:
+		csum_flags = 0;
 	}
 
 	if (__predict_true(csum_flags & (CSUM_IP|CSUM_IP_TCP|CSUM_IP_UDP))) {
@@ -3479,10 +3472,10 @@ sysctl_mvneta_init(struct mvneta_softc *sc)
 	children = SYSCTL_CHILDREN(device_get_sysctl_tree(sc->dev));
 
 	tree = SYSCTL_ADD_NODE(ctx, children, OID_AUTO, "rx",
-	    CTLFLAG_RD, 0, "NETA RX");
+	    CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "NETA RX");
 	rxchildren = SYSCTL_CHILDREN(tree);
 	tree = SYSCTL_ADD_NODE(ctx, children, OID_AUTO, "mib",
-	    CTLFLAG_RD, 0, "NETA MIB");
+	    CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "NETA MIB");
 	mchildren = SYSCTL_CHILDREN(tree);
 
 
@@ -3502,8 +3495,9 @@ sysctl_mvneta_init(struct mvneta_softc *sc)
 		mib_arg->index = i;
 		SYSCTL_ADD_PROC(ctx, mchildren, OID_AUTO,
 		    mvneta_mib_list[i].sysctl_name,
-		    CTLTYPE_U64|CTLFLAG_RD, (void *)mib_arg, 0,
-		    sysctl_read_mib, "I", mvneta_mib_list[i].desc);
+		    CTLTYPE_U64 | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
+		    (void *)mib_arg, 0, sysctl_read_mib, "I",
+		    mvneta_mib_list[i].desc);
 	}
 	SYSCTL_ADD_UQUAD(ctx, mchildren, OID_AUTO, "rx_discard",
 	    CTLFLAG_RD, &sc->counter_pdfc, "Port Rx Discard Frame Counter");
@@ -3513,8 +3507,8 @@ sysctl_mvneta_init(struct mvneta_softc *sc)
 	    CTLFLAG_RD, &sc->counter_watchdog, 0, "TX Watchdog Counter");
 
 	SYSCTL_ADD_PROC(ctx, mchildren, OID_AUTO, "reset",
-	    CTLTYPE_INT|CTLFLAG_RW, (void *)sc, 0,
-	    sysctl_clear_mib, "I", "Reset MIB counters");
+	    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT,
+	    (void *)sc, 0, sysctl_clear_mib, "I", "Reset MIB counters");
 
 	for (q = 0; q < MVNETA_RX_QNUM_MAX; q++) {
 		rxarg = &sc->sysctl_rx_queue[q];
@@ -3525,13 +3519,13 @@ sysctl_mvneta_init(struct mvneta_softc *sc)
 
 		/* hw.mvneta.mvneta[unit].rx.[queue] */
 		tree = SYSCTL_ADD_NODE(ctx, rxchildren, OID_AUTO,
-		    sysctl_queue_names[q], CTLFLAG_RD, 0,
+		    sysctl_queue_names[q], CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
 		    sysctl_queue_descrs[q]);
 		qchildren = SYSCTL_CHILDREN(tree);
 
 		/* hw.mvneta.mvneta[unit].rx.[queue].threshold_timer_us */
 		SYSCTL_ADD_PROC(ctx, qchildren, OID_AUTO, "threshold_timer_us",
-		    CTLTYPE_UINT | CTLFLAG_RW, rxarg, 0,
+		    CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, rxarg, 0,
 		    sysctl_set_queue_rxthtime, "I",
 		    "interrupt coalescing threshold timer [us]");
 	}
@@ -3540,6 +3534,19 @@ sysctl_mvneta_init(struct mvneta_softc *sc)
 /*
  * MIB
  */
+STATIC uint64_t
+mvneta_read_mib(struct mvneta_softc *sc, int index)
+{
+	struct mvneta_mib_def *mib;
+	uint64_t val;
+
+	mib = &mvneta_mib_list[index];
+	val = MVNETA_READ_MIB(sc, mib->regnum);
+	if (mib->reg64)
+		val |= (uint64_t)MVNETA_READ_MIB(sc, mib->regnum + 4) << 32;
+	return (val);
+}
+
 STATIC void
 mvneta_clear_mib(struct mvneta_softc *sc)
 {
@@ -3548,10 +3555,7 @@ mvneta_clear_mib(struct mvneta_softc *sc)
 	KASSERT_SC_MTX(sc);
 
 	for (i = 0; i < nitems(mvneta_mib_list); i++) {
-		if (mvneta_mib_list[i].reg64)
-			MVNETA_READ_MIB_8(sc, mvneta_mib_list[i].regnum);
-		else
-			MVNETA_READ_MIB_4(sc, mvneta_mib_list[i].regnum);
+		(void)mvneta_read_mib(sc, i);
 		sc->sysctl_mib[i].counter = 0;
 	}
 	MVNETA_READ(sc, MVNETA_PDFC);
@@ -3571,11 +3575,7 @@ mvneta_update_mib(struct mvneta_softc *sc)
 
 	for (i = 0; i < nitems(mvneta_mib_list); i++) {
 
-		if (mvneta_mib_list[i].reg64)
-			val = MVNETA_READ_MIB_8(sc, mvneta_mib_list[i].regnum);
-		else
-			val = MVNETA_READ_MIB_4(sc, mvneta_mib_list[i].regnum);
-
+		val = mvneta_read_mib(sc, i);
 		if (val == 0)
 			continue;
 

@@ -402,6 +402,28 @@ link_speed_string(uint8_t speed)
 }
 
 static const char *
+max_read_string(u_int max_read)
+{
+
+	switch (max_read) {
+	case 0x0:
+		return ("128");
+	case 0x1:
+		return ("256");
+	case 0x2:
+		return ("512");
+	case 0x3:
+		return ("1024");
+	case 0x4:
+		return ("2048");
+	case 0x5:
+		return ("4096");
+	default:
+		return ("undef");
+	}
+}
+
+static const char *
 aspm_string(uint8_t aspm)
 {
 
@@ -503,6 +525,8 @@ cap_express(int fd, struct pci_conf *p, uint8_t ptr)
 			    (ctl & PCIEM_CTL2_ARI) ? "enabled" : "disabled");
 		}
 	}
+	printf("\n                 max read %s", max_read_string((ctl &
+	    PCIEM_CTL_MAX_READ_REQUEST) >> 12));
 	cap = read_config(fd, &p->pc_sel, ptr + PCIER_LINK_CAP, 4);
 	sta = read_config(fd, &p->pc_sel, ptr + PCIER_LINK_STA, 2);
 	if (cap == 0 && sta == 0)
@@ -898,13 +922,15 @@ ecap_vendor(int fd, struct pci_conf *p, uint16_t ptr, uint8_t ver)
 	if ((ver < 1) || (cap_level <= 1))
 		return;
 	for (i = 0; i < len; i += 4) {
-		val = read_config(fd, &p->pc_sel, ptr + PCIR_VSEC_DATA + i, 4);
+		val = read_config(fd, &p->pc_sel, ptr + i, 4);
 		if ((i % 16) == 0)
 			printf("                 ");
-		printf("%02x %02x %02x %02x ", val & 0xff, (val >> 8) & 0xff,
+		printf("%02x %02x %02x %02x", val & 0xff, (val >> 8) & 0xff,
 		    (val >> 16) & 0xff, (val >> 24) & 0xff);
 		if ((((i + 4) % 16) == 0 ) || ((i + 4) >= len))
 			printf("\n");
+		else
+			printf(" ");
 	}
 }
 
@@ -1015,6 +1041,20 @@ static struct {
 	{ PCIZ_LN_REQ, "LN Requester" },
 	{ PCIZ_DPC, "Downstream Port Containment" },
 	{ PCIZ_L1PM, "L1 PM Substates" },
+	{ PCIZ_PTM, "Precision Time Measurement" },
+	{ PCIZ_M_PCIE, "PCIe over M-PHY" },
+	{ PCIZ_FRS, "FRS Queuing" },
+	{ PCIZ_RTR, "Readiness Time Reporting" },
+	{ PCIZ_DVSEC, "Designated Vendor-Specific" },
+	{ PCIZ_VF_REBAR, "VF Resizable BAR" },
+	{ PCIZ_DLNK, "Data Link Feature" },
+	{ PCIZ_16GT, "Physical Layer 16.0 GT/s" },
+	{ PCIZ_LMR, "Lane Margining at Receiver" },
+	{ PCIZ_HIER_ID, "Hierarchy ID" },
+	{ PCIZ_NPEM, "Native PCIe Enclosure Management" },
+	{ PCIZ_PL32, "Physical Layer 32.0 GT/s" },
+	{ PCIZ_AP, "Alternate Protocol" },
+	{ PCIZ_SFI, "System Firmware Intermediary" },
 	{ 0, NULL }
 };
 

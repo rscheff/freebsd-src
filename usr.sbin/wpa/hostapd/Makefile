@@ -45,11 +45,15 @@ SRCS=	accounting.c \
 	ieee802_11.c \
 	ieee802_11_auth.c \
 	ieee802_11_common.c \
+	ieee802_11_he.c \
+	ieee802_11_ht.c \
 	ieee802_11_shared.c \
+	ieee802_11_vht.c \
 	ieee802_1x.c \
 	ip_addr.c \
 	l2_packet_freebsd.c \
 	main.c \
+	mbo_ap.c \
 	ms_funcs.c \
 	neighbor_db.c \
 	os_unix.c \
@@ -103,6 +107,11 @@ CFLAGS+=-I${.CURDIR:H}/wpa_supplicant \
 	-DCONFIG_DRIVER_BSD \
 	-DCONFIG_DRIVER_RADIUS_ACL \
 	-DCONFIG_HS20 \
+	-DCONFIG_MBO \
+	-DCONFIG_IEEE80211N \
+	-DCONFIG_IEEE80211W \
+	-DCONFIG_IEEE80211AC \
+	-DCONFIG_IEEE80211AX \
 	-DCONFIG_INTERWORKING \
 	-DCONFIG_PEERKEY \
 	-DCONFIG_RSN_PREAUTH \
@@ -153,6 +162,10 @@ SRCS+=	eap_server_gtc.c \
 	eapol_auth_dump.c \
 	eapol_auth_sm.c
 TLS_FUNCS=y
+
+# For WPS, EAP modes, etc
+NEED_DH_GROUPS=y
+NEED_DH_GROUPS_ALL=y
 
 .if !empty(CFLAGS:M*-DCONFIG_WPS)
 NEED_SIM_COMMON=y

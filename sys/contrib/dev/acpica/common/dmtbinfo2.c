@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -403,7 +403,21 @@ ACPI_DMTABLE_INFO           AcpiDmTableInfoIvrs0[] =
     {ACPI_DMT_UINT64,   ACPI_IVRS0_OFFSET (BaseAddress),            "Base Address", 0},
     {ACPI_DMT_UINT16,   ACPI_IVRS0_OFFSET (PciSegmentGroup),        "PCI Segment Group", 0},
     {ACPI_DMT_UINT16,   ACPI_IVRS0_OFFSET (Info),                   "Virtualization Info", 0},
-    {ACPI_DMT_UINT32,   ACPI_IVRS0_OFFSET (Reserved),               "Reserved", 0},
+    {ACPI_DMT_UINT32,   ACPI_IVRS0_OFFSET (FeatureReporting),       "Feature Reporting", 0},
+    ACPI_DMT_TERMINATOR
+};
+
+/* 0x10: I/O Virtualization Hardware Definition (IVHD) Block */
+
+ACPI_DMTABLE_INFO           AcpiDmTableInfoIvrs01[] =
+{
+    {ACPI_DMT_UINT16,   ACPI_IVRS01_OFFSET (CapabilityOffset),       "Capability Offset", 0},
+    {ACPI_DMT_UINT64,   ACPI_IVRS01_OFFSET (BaseAddress),            "Base Address", 0},
+    {ACPI_DMT_UINT16,   ACPI_IVRS01_OFFSET (PciSegmentGroup),        "PCI Segment Group", 0},
+    {ACPI_DMT_UINT16,   ACPI_IVRS01_OFFSET (Info),                   "Virtualization Info", 0},
+    {ACPI_DMT_UINT32,   ACPI_IVRS01_OFFSET (Attributes),             "Attributes", 0},
+    {ACPI_DMT_UINT64,   ACPI_IVRS01_OFFSET (EfrRegisterImage),       "EFR Image", 0},
+    {ACPI_DMT_UINT64,   ACPI_IVRS01_OFFSET (Reserved),               "Reserved", 0},
     ACPI_DMT_TERMINATOR
 };
 
@@ -891,28 +905,6 @@ ACPI_DMTABLE_INFO           AcpiDmTableInfoMsct0[] =
     {ACPI_DMT_UINT32,   ACPI_MSCT0_OFFSET (RangeEnd),               "Domain Range End", 0},
     {ACPI_DMT_UINT32,   ACPI_MSCT0_OFFSET (ProcessorCapacity),      "Processor Capacity", 0},
     {ACPI_DMT_UINT64,   ACPI_MSCT0_OFFSET (MemoryCapacity),         "Memory Capacity", 0},
-    ACPI_DMT_TERMINATOR
-};
-
-
-/*******************************************************************************
- *
- * MTMR - MID Timer Table
- *
- ******************************************************************************/
-
-ACPI_DMTABLE_INFO           AcpiDmTableInfoMtmr[] =
-{
-    ACPI_DMT_TERMINATOR
-};
-
-/* MTMR Subtables - MTMR Entry */
-
-ACPI_DMTABLE_INFO           AcpiDmTableInfoMtmr0[] =
-{
-    {ACPI_DMT_GAS,      ACPI_MTMR0_OFFSET (PhysicalAddress),        "PhysicalAddress", 0},
-    {ACPI_DMT_UINT32,   ACPI_MTMR0_OFFSET (Frequency),              "Frequency", 0},
-    {ACPI_DMT_UINT32,   ACPI_MTMR0_OFFSET (Irq),                    "IRQ", 0},
     ACPI_DMT_TERMINATOR
 };
 

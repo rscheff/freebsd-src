@@ -26,7 +26,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd October 17, 2019
+.Dd January 26, 2021
 .Dt DDB 4
 .Os
 .Sh NAME
@@ -87,6 +87,16 @@ which is the default
 unless the
 .Dv KDB_UNATTENDED
 option is specified.
+Similarly, if the
+.Va debug.debugger_on_recursive_panic
+variable is set to
+.Dv 1 ,
+then the debugger will be invoked on a recursive kernel panic.
+This variable has a default value of
+.Dv 0 ,
+and has no effect if
+.Va debug.debugger_on_panic
+is already set non-zero.
 .Pp
 The current location is called
 .Va dot .
@@ -532,9 +542,7 @@ if the argument is a decimal number, or address
 .Ar addr ,
 otherwise.
 .El
-.Pp
 .Ss SPECIALIZED HELPER COMMANDS
-.Pp
 .Bl -tag -width indent -compact
 .It Xo
 .Ic findstack
@@ -947,14 +955,10 @@ at address
 Display the register set.
 If the
 .Cm u
-modifier is specified, it displays user registers instead of
-kernel registers or the currently saved one.
+modifier is specified, the register contents of the thread's previous
+trapframe are displayed instead.
+Usually, this corresponds to the saved state from userspace.
 .Pp
-.Sy Warning :
-The support of the
-.Cm u
-modifier depends on the machine.
-If not supported, incorrect information will be displayed.
 .\"
 .Pp
 .It Ic show Cm rman Ar addr
@@ -1466,10 +1470,6 @@ The kernel debugger was entered as a result of an assertion failure in the
 .Xr mac_test 4
 module of the
 TrustedBSD MAC Framework.
-.It Va kdb.enter.ndis
-The kernel debugger was entered as a result of an
-.Xr ndis 4
-breakpoint event.
 .It Va kdb.enter.netgraph
 The kernel debugger was entered as a result of a
 .Xr netgraph 4
@@ -1594,7 +1594,6 @@ directory.
 .Xr acpi 4 ,
 .Xr CAM 4 ,
 .Xr mac_test 4 ,
-.Xr ndis 4 ,
 .Xr netgraph 4 ,
 .Xr textdump 4 ,
 .Xr witness 4 ,

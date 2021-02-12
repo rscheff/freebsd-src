@@ -82,7 +82,8 @@ static uint32_t tcp_disable_all_bb_logs = 0;
 
 RB_PROTOTYPE_STATIC(tcp_log_id_tree, tcp_log_id_bucket, tlb_rb, tcp_log_id_cmp)
 
-SYSCTL_NODE(_net_inet_tcp, OID_AUTO, bb, CTLFLAG_RW, 0, "TCP Black Box controls");
+SYSCTL_NODE(_net_inet_tcp, OID_AUTO, bb, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "TCP Black Box controls");
 
 SYSCTL_BOOL(_net_inet_tcp_bb, OID_AUTO, log_verbose, CTLFLAG_RW, &tcp_log_verbose,
     0, "Force verbose logging for TCP traces");
@@ -1191,7 +1192,6 @@ tcp_log_tcpcbinit(struct tcpcb *tp)
 	}
 }
 
-
 /* Remove entries */
 static void
 tcp_log_expire(void *unused __unused)
@@ -1692,6 +1692,9 @@ retry:
 	COPY_STAT(snd_numholes);
 	COPY_STAT(snd_scale);
 	COPY_STAT(rcv_scale);
+	COPY_STAT_T(flags2);
+	COPY_STAT_T(fbyte_in);
+	COPY_STAT_T(fbyte_out);
 #undef COPY_STAT
 #undef COPY_STAT_T
 	log_buf->tlb_flex1 = 0;
@@ -2335,7 +2338,6 @@ tcp_log_dump_node_logbuf(struct tcp_log_id_node *tln, char *reason, int how)
 	return (0);
 }
 
-
 /*
  * Queue the log buffers for all sessions in a bucket for transmissions via
  * the log buffer facility.
@@ -2573,7 +2575,6 @@ done:
 }
 #undef	LOCAL_SAVE
 
-
 /*
  * Queue the log buffers for all sessions in a bucket for transmissions via
  * the log buffer facility.
@@ -2635,4 +2636,3 @@ tcp_log_flowend(struct tcpcb *tp)
 				TCP_LOG_FLOWEND, 0, 0, NULL, false);
 	}
 }
-

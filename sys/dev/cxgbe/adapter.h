@@ -118,7 +118,10 @@ enum {
 	SGE_MAX_WR_NDESC = SGE_MAX_WR_LEN / EQ_ESIZE, /* max WR size in desc */
 	TX_SGL_SEGS = 39,
 	TX_SGL_SEGS_TSO = 38,
+	TX_SGL_SEGS_VM = 38,
+	TX_SGL_SEGS_VM_TSO = 37,
 	TX_SGL_SEGS_EO_TSO = 30,	/* XXX: lower for IPv6. */
+	TX_SGL_SEGS_VXLAN_TSO = 37,
 	TX_WR_FLITS = SGE_MAX_WR_LEN / 8
 };
 
@@ -172,6 +175,7 @@ enum {
 	DOOMED		= (1 << 0),
 	VI_INIT_DONE	= (1 << 1),
 	VI_SYSCTL_CTX	= (1 << 2),
+	TX_USES_VM_WR 	= (1 << 3),
 
 	/* adapter debug_flags */
 	DF_DUMP_MBOX		= (1 << 0),	/* Log all mbox cmd/rpl. */
@@ -190,6 +194,7 @@ enum {
 struct vi_info {
 	device_t dev;
 	struct port_info *pi;
+	struct adapter *adapter;
 
 	struct ifnet *ifp;
 	struct pfil_head *pfil;
@@ -285,6 +290,7 @@ struct port_info {
 	int nvi;
 	int up_vis;
 	int uld_vis;
+	bool vxlan_tcam_entry;
 
 	struct tx_sched_params *sched_params;
 
@@ -308,10 +314,12 @@ struct port_info {
  	struct port_stats stats;
 	u_int tnl_cong_drops;
 	u_int tx_parse_error;
-	u_long	tx_tls_records;
-	u_long	tx_tls_octets;
-	u_long	rx_tls_records;
-	u_long	rx_tls_octets;
+	int fcs_reg;
+	uint64_t fcs_base;
+	u_long	tx_toe_tls_records;
+	u_long	tx_toe_tls_octets;
+	u_long	rx_toe_tls_records;
+	u_long	rx_toe_tls_octets;
 
 	struct callout tick;
 };
@@ -549,6 +557,23 @@ struct sge_fl {
 
 struct mp_ring;
 
+struct txpkts {
+	uint8_t wr_type;	/* type 0 or type 1 */
+	uint8_t npkt;		/* # of packets in this work request */
+	uint8_t len16;		/* # of 16B pieces used by this work request */
+	uint8_t score;
+	uint8_t max_npkt;	/* maximum number of packets allowed */
+	uint16_t plen;		/* total payload (sum of all packets) */
+
+	/* straight from fw_eth_tx_pkts_vm_wr. */
+	__u8   ethmacdst[6];
+	__u8   ethmacsrc[6];
+	__be16 ethtype;
+	__be16 vlantci;
+
+	struct mbuf *mb[15];
+};
+
 /* txq: SGE egress queue + what's needed for Ethernet NIC */
 struct sge_txq {
 	struct sge_eq eq;	/* MUST be first */
@@ -559,6 +584,8 @@ struct sge_txq {
 	struct sglist *gl;
 	__be32 cpl_ctrl0;	/* for convenience */
 	int tc_idx;		/* traffic class */
+	uint64_t last_tx;	/* cycle count when eth_tx was last called */
+	struct txpkts txp;
 
 	struct task tx_reclaim_task;
 	/* stats for common events first */
@@ -573,7 +600,10 @@ struct sge_txq {
 	uint64_t txpkts1_wrs;	/* # of type1 coalesced tx work requests */
 	uint64_t txpkts0_pkts;	/* # of frames in type0 coalesced tx WRs */
 	uint64_t txpkts1_pkts;	/* # of frames in type1 coalesced tx WRs */
+	uint64_t txpkts_flush;	/* # of times txp had to be sent by tx_update */
 	uint64_t raw_wrs;	/* # of raw work requests (alloc_wr_mbuf) */
+	uint64_t vxlan_tso_wrs;	/* # of VXLAN TSO work requests */
+	uint64_t vxlan_txcsum;
 
 	uint64_t kern_tls_records;
 	uint64_t kern_tls_short;
@@ -600,14 +630,13 @@ struct sge_rxq {
 	struct sge_fl fl;	/* MUST follow iq */
 
 	struct ifnet *ifp;	/* the interface this rxq belongs to */
-#if defined(INET) || defined(INET6)
 	struct lro_ctrl lro;	/* LRO state */
-#endif
 
 	/* stats for common events first */
 
 	uint64_t rxcsum;	/* # of times hardware assisted with checksum */
 	uint64_t vlan_extraction;/* # of times VLAN tag was extracted */
+	uint64_t vxlan_rxcsum;
 
 	/* stats for not-that-common events */
 
@@ -685,7 +714,9 @@ struct sge_wrq {
 
 #define INVALID_NM_RXQ_CNTXT_ID ((uint16_t)(-1))
 struct sge_nm_rxq {
-	volatile int nm_state;	/* NM_OFF, NM_ON, or NM_BUSY */
+	/* Items used by the driver rx ithread are in this cacheline. */
+	volatile int nm_state __aligned(CACHE_LINE_SIZE);	/* NM_OFF, NM_ON, or NM_BUSY */
+	u_int nid;		/* netmap ring # for this queue */
 	struct vi_info *vi;
 
 	struct iq_desc *iq_desc;
@@ -694,19 +725,23 @@ struct sge_nm_rxq {
 	uint16_t iq_cidx;
 	uint16_t iq_sidx;
 	uint8_t iq_gen;
-
-	__be64  *fl_desc;
-	uint16_t fl_cntxt_id;
-	uint32_t fl_cidx;
-	uint32_t fl_pidx;
 	uint32_t fl_sidx;
+
+	/* Items used by netmap rxsync are in this cacheline. */
+	__be64  *fl_desc __aligned(CACHE_LINE_SIZE);
+	uint16_t fl_cntxt_id;
+	uint32_t fl_pidx;
+	uint32_t fl_sidx2;	/* copy of fl_sidx */
 	uint32_t fl_db_val;
+	u_int fl_db_saved;
+	u_int fl_db_threshold;	/* in descriptors */
 	u_int fl_hwidx:4;
 
-	u_int fl_db_saved;
-	u_int nid;		/* netmap ring # for this queue */
-
-	/* infrequently used items after this */
+	/*
+	 * fl_cidx is used by both the ithread and rxsync, the rest are not used
+	 * in the rx fast path.
+	 */
+	uint32_t fl_cidx __aligned(CACHE_LINE_SIZE);
 
 	bus_dma_tag_t iq_desc_tag;
 	bus_dmamap_t iq_desc_map;
@@ -716,7 +751,7 @@ struct sge_nm_rxq {
 	bus_dma_tag_t fl_desc_tag;
 	bus_dmamap_t fl_desc_map;
 	bus_addr_t fl_ba;
-} __aligned(CACHE_LINE_SIZE);
+};
 
 #define INVALID_NM_TXQ_CNTXT_ID ((u_int)(-1))
 struct sge_nm_txq {
@@ -766,6 +801,8 @@ struct sge {
 	uint16_t iq_base;	/* first abs_id */
 	int eq_start;		/* first cntxt_id */
 	int eq_base;		/* first abs_id */
+	int iqmap_sz;
+	int eqmap_sz;
 	struct sge_iq **iqmap;	/* iq->cntxt_id to iq mapping */
 	struct sge_eq **eqmap;	/* eq->cntxt_id to eq mapping */
 
@@ -826,7 +863,13 @@ struct adapter {
 	int lro_timeout;
 	int sc_do_rxcopy;
 
+	int vxlan_port;
+	u_int vxlan_refcount;
+	int rawf_base;
+	int nrawf;
+
 	struct taskqueue *tq[MAX_NCHAN];	/* General purpose taskqueues */
+	struct task async_event_task;
 	struct port_info *port[MAX_NPORTS];
 	uint8_t chan_map[MAX_NCHAN];		/* channel -> port */
 
@@ -949,22 +992,22 @@ struct adapter {
 #define TXQ_LOCK_ASSERT_NOTOWNED(txq)	EQ_LOCK_ASSERT_NOTOWNED(&(txq)->eq)
 
 #define for_each_txq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.txq[vi->first_txq], iter = 0; \
+	for (q = &vi->adapter->sge.txq[vi->first_txq], iter = 0; \
 	    iter < vi->ntxq; ++iter, ++q)
 #define for_each_rxq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.rxq[vi->first_rxq], iter = 0; \
+	for (q = &vi->adapter->sge.rxq[vi->first_rxq], iter = 0; \
 	    iter < vi->nrxq; ++iter, ++q)
 #define for_each_ofld_txq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.ofld_txq[vi->first_ofld_txq], iter = 0; \
+	for (q = &vi->adapter->sge.ofld_txq[vi->first_ofld_txq], iter = 0; \
 	    iter < vi->nofldtxq; ++iter, ++q)
 #define for_each_ofld_rxq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.ofld_rxq[vi->first_ofld_rxq], iter = 0; \
+	for (q = &vi->adapter->sge.ofld_rxq[vi->first_ofld_rxq], iter = 0; \
 	    iter < vi->nofldrxq; ++iter, ++q)
 #define for_each_nm_txq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.nm_txq[vi->first_nm_txq], iter = 0; \
+	for (q = &vi->adapter->sge.nm_txq[vi->first_nm_txq], iter = 0; \
 	    iter < vi->nnmtxq; ++iter, ++q)
 #define for_each_nm_rxq(vi, iter, q) \
-	for (q = &vi->pi->adapter->sge.nm_rxq[vi->first_nm_rxq], iter = 0; \
+	for (q = &vi->adapter->sge.nm_rxq[vi->first_nm_rxq], iter = 0; \
 	    iter < vi->nnmrxq; ++iter, ++q)
 #define for_each_vi(_pi, _iter, _vi) \
 	for ((_vi) = (_pi)->vi, (_iter) = 0; (_iter) < (_pi)->nvi; \
@@ -1165,7 +1208,6 @@ int update_mac_settings(struct ifnet *, int);
 int adapter_full_init(struct adapter *);
 int adapter_full_uninit(struct adapter *);
 uint64_t cxgbe_get_counter(struct ifnet *, ift_counter);
-void cxgbe_snd_tag_init(struct cxgbe_snd_tag *, struct ifnet *, int);
 int vi_full_init(struct vi_info *);
 int vi_full_uninit(struct vi_info *);
 void vi_sysctls(struct vi_info *);
@@ -1199,7 +1241,7 @@ union authctx;
 void t4_aes_getdeckey(void *, const void *, unsigned int);
 void t4_copy_partial_hash(int, union authctx *, void *);
 void t4_init_gmac_hash(const char *, int, char *);
-void t4_init_hmac_digest(struct auth_hash *, u_int, char *, int, char *);
+void t4_init_hmac_digest(struct auth_hash *, u_int, const char *, int, char *);
 
 #ifdef DEV_NETMAP
 /* t4_netmap.c */
@@ -1207,6 +1249,12 @@ struct sge_nm_rxq;
 void cxgbe_nm_attach(struct vi_info *);
 void cxgbe_nm_detach(struct vi_info *);
 void service_nm_rxq(struct sge_nm_rxq *);
+int alloc_nm_rxq(struct vi_info *, struct sge_nm_rxq *, int, int,
+    struct sysctl_oid *);
+int free_nm_rxq(struct vi_info *, struct sge_nm_rxq *);
+int alloc_nm_txq(struct vi_info *, struct sge_nm_txq *, int, int,
+    struct sysctl_oid *);
+int free_nm_txq(struct vi_info *, struct sge_nm_txq *);
 #endif
 
 /* t4_sge.c */
@@ -1219,6 +1267,11 @@ int t4_create_dma_tag(struct adapter *);
 void t4_sge_sysctls(struct adapter *, struct sysctl_ctx_list *,
     struct sysctl_oid_list *);
 int t4_destroy_dma_tag(struct adapter *);
+int alloc_ring(struct adapter *, size_t, bus_dma_tag_t *, bus_dmamap_t *,
+    bus_addr_t *, void **);
+int free_ring(struct adapter *, bus_dma_tag_t, bus_dmamap_t, bus_addr_t,
+    void *);
+int sysctl_uint16(SYSCTL_HANDLER_ARGS);
 int t4_setup_adapter_queues(struct adapter *);
 int t4_teardown_adapter_queues(struct adapter *);
 int t4_setup_vi_queues(struct vi_info *);
@@ -1234,7 +1287,7 @@ void t4_intr_evt(void *);
 void t4_wrq_tx_locked(struct adapter *, struct sge_wrq *, struct wrqe *);
 void t4_update_fl_bufsize(struct ifnet *);
 struct mbuf *alloc_wr_mbuf(int, int);
-int parse_pkt(struct adapter *, struct mbuf **);
+int parse_pkt(struct mbuf **, bool);
 void *start_wrq_wr(struct sge_wrq *, int, struct wrq_cookie *);
 void commit_wrq_wr(struct sge_wrq *, void *, struct wrq_cookie *);
 int tnl_cong(struct port_info *, int);
@@ -1342,5 +1395,13 @@ write_via_memwin(struct adapter *sc, int idx, uint32_t addr,
 {
 
 	return (rw_via_memwin(sc, idx, addr, (void *)(uintptr_t)val, len, 1));
+}
+
+/* Number of len16 -> number of descriptors */
+static inline int
+tx_len16_to_desc(int len16)
+{
+
+	return (howmany(len16, EQ_ESIZE / 16));
 }
 #endif

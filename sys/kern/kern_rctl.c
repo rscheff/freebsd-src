@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2010 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Edward Tomasz Napierala under sponsorship
  * from the FreeBSD Foundation.
@@ -35,7 +34,7 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
-#include <sys/bus.h>
+#include <sys/devctl.h>
 #include <sys/malloc.h>
 #include <sys/queue.h>
 #include <sys/refcount.h>
@@ -591,8 +590,8 @@ rctl_enforce(struct proc *p, int resource, uint64_t amount)
 			    p->p_pid, p->p_ucred->cr_ruid,
 			    p->p_ucred->cr_prison->pr_prison_racct->prr_name);
 			sbuf_finish(&sb);
-			devctl_notify_f("RCTL", "rule", "matched",
-			    sbuf_data(&sb), M_NOWAIT);
+			devctl_notify("RCTL", "rule", "matched",
+			    sbuf_data(&sb));
 			sbuf_delete(&sb);
 			free(buf, M_RCTL);
 			link->rrl_exceeded = 1;
@@ -600,6 +599,11 @@ rctl_enforce(struct proc *p, int resource, uint64_t amount)
 		case RCTL_ACTION_THROTTLE:
 			if (p->p_state != PRS_NORMAL)
 				continue;
+
+			if (rule->rr_amount == 0) {
+				racct_proc_throttle(p, rctl_throttle_max);
+				continue;
+			}
 
 			/*
 			 * Make the process sleep for a fraction of second
@@ -1063,16 +1067,16 @@ static void
 rctl_rule_free(void *context, int pending)
 {
 	struct rctl_rule *rule;
-	
+
 	rule = (struct rctl_rule *)context;
 
 	ASSERT_RACCT_ENABLED();
 	KASSERT(rule->rr_refcount == 0, ("rule->rr_refcount != 0"));
-	
+
 	/*
 	 * We don't need locking here; rule is guaranteed to be inaccessible.
 	 */
-	
+
 	rctl_rule_release_subject(rule);
 	uma_zfree(rctl_rule_zone, rule);
 }
@@ -2021,7 +2025,7 @@ again:
 			rulecnt--;
 		}
 	}
-	
+
 	LIST_FOREACH(link, &newuip->ui_racct->r_rule_links, rrl_next) {
 		if (newlink == NULL)
 			goto goaround;
@@ -2208,35 +2212,35 @@ rctl_init(void)
 int
 sys_rctl_get_racct(struct thread *td, struct rctl_get_racct_args *uap)
 {
-	
+
 	return (ENOSYS);
 }
 
 int
 sys_rctl_get_rules(struct thread *td, struct rctl_get_rules_args *uap)
 {
-	
+
 	return (ENOSYS);
 }
 
 int
 sys_rctl_get_limits(struct thread *td, struct rctl_get_limits_args *uap)
 {
-	
+
 	return (ENOSYS);
 }
 
 int
 sys_rctl_add_rule(struct thread *td, struct rctl_add_rule_args *uap)
 {
-	
+
 	return (ENOSYS);
 }
 
 int
 sys_rctl_remove_rule(struct thread *td, struct rctl_remove_rule_args *uap)
 {
-	
+
 	return (ENOSYS);
 }
 

@@ -51,7 +51,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/mount.h>
 #include <sys/mutex.h>
 #include <sys/namei.h>
-#include <sys/pioctl.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/ptrace.h>
@@ -68,6 +67,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
 #include <sys/sysproto.h>
+#include <sys/timers.h>
+#include <sys/umtx.h>
 #include <sys/vnode.h>
 #include <sys/wait.h>
 #ifdef KTRACE
@@ -119,22 +120,26 @@ static int sysctl_kern_ps_strings(SYSCTL_HANDLER_ARGS);
 static int sysctl_kern_usrstack(SYSCTL_HANDLER_ARGS);
 static int sysctl_kern_stackprot(SYSCTL_HANDLER_ARGS);
 static int do_execve(struct thread *td, struct image_args *args,
-    struct mac *mac_p);
+    struct mac *mac_p, struct vmspace *oldvmspace);
 
 /* XXX This should be vm_size_t. */
 SYSCTL_PROC(_kern, KERN_PS_STRINGS, ps_strings, CTLTYPE_ULONG|CTLFLAG_RD|
-    CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_ps_strings, "LU", "");
+    CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_ps_strings, "LU",
+    "Location of process' ps_strings structure");
 
 /* XXX This should be vm_size_t. */
 SYSCTL_PROC(_kern, KERN_USRSTACK, usrstack, CTLTYPE_ULONG|CTLFLAG_RD|
-    CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_usrstack, "LU", "");
+    CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_usrstack, "LU",
+    "Top of process stack");
 
 SYSCTL_PROC(_kern, OID_AUTO, stackprot, CTLTYPE_INT|CTLFLAG_RD|CTLFLAG_MPSAFE,
-    NULL, 0, sysctl_kern_stackprot, "I", "");
+    NULL, 0, sysctl_kern_stackprot, "I",
+    "Stack memory permissions");
 
 u_long ps_arg_cache_limit = PAGE_SIZE / 16;
 SYSCTL_ULONG(_kern, OID_AUTO, ps_arg_cache_limit, CTLFLAG_RW, 
-    &ps_arg_cache_limit, 0, "");
+    &ps_arg_cache_limit, 0,
+    "Process' command line characters cache limit");
 
 static int disallow_high_osrel;
 SYSCTL_INT(_kern, OID_AUTO, disallow_high_osrel, CTLFLAG_RW,
@@ -220,8 +225,9 @@ sys_execve(struct thread *td, struct execve_args *uap)
 	error = exec_copyin_args(&args, uap->fname, UIO_USERSPACE,
 	    uap->argv, uap->envv);
 	if (error == 0)
-		error = kern_execve(td, &args, NULL);
+		error = kern_execve(td, &args, NULL, oldvmspace);
 	post_execve(td, error, oldvmspace);
+	AUDIT_SYSCALL_EXIT(error == EJUSTRETURN ? 0 : error, td);
 	return (error);
 }
 
@@ -230,7 +236,7 @@ struct fexecve_args {
 	int	fd;
 	char	**argv;
 	char	**envv;
-}
+};
 #endif
 int
 sys_fexecve(struct thread *td, struct fexecve_args *uap)
@@ -246,9 +252,10 @@ sys_fexecve(struct thread *td, struct fexecve_args *uap)
 	    uap->argv, uap->envv);
 	if (error == 0) {
 		args.fd = uap->fd;
-		error = kern_execve(td, &args, NULL);
+		error = kern_execve(td, &args, NULL, oldvmspace);
 	}
 	post_execve(td, error, oldvmspace);
+	AUDIT_SYSCALL_EXIT(error == EJUSTRETURN ? 0 : error, td);
 	return (error);
 }
 
@@ -275,8 +282,9 @@ sys___mac_execve(struct thread *td, struct __mac_execve_args *uap)
 	error = exec_copyin_args(&args, uap->fname, UIO_USERSPACE,
 	    uap->argv, uap->envv);
 	if (error == 0)
-		error = kern_execve(td, &args, uap->mac_p);
+		error = kern_execve(td, &args, uap->mac_p, oldvmspace);
 	post_execve(td, error, oldvmspace);
+	AUDIT_SYSCALL_EXIT(error == EJUSTRETURN ? 0 : error, td);
 	return (error);
 #else
 	return (ENOSYS);
@@ -323,30 +331,26 @@ post_execve(struct thread *td, int error, struct vmspace *oldvmspace)
 			thread_single_end(p, SINGLE_BOUNDARY);
 		PROC_UNLOCK(p);
 	}
-	if ((td->td_pflags & TDP_EXECVMSPC) != 0) {
-		KASSERT(p->p_vmspace != oldvmspace,
-		    ("oldvmspace still used"));
-		vmspace_free(oldvmspace);
-		td->td_pflags &= ~TDP_EXECVMSPC;
-	}
+	exec_cleanup(td, oldvmspace);
 }
 
 /*
- * XXX: kern_execve has the astonishing property of not always returning to
+ * kern_execve() has the astonishing property of not always returning to
  * the caller.  If sufficiently bad things happen during the call to
  * do_execve(), it can end up calling exit1(); as a result, callers must
  * avoid doing anything which they might need to undo (e.g., allocating
  * memory).
  */
 int
-kern_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
+kern_execve(struct thread *td, struct image_args *args, struct mac *mac_p,
+    struct vmspace *oldvmspace)
 {
 
 	AUDIT_ARG_ARGV(args->begin_argv, args->argc,
 	    exec_args_get_begin_envv(args) - args->begin_argv);
 	AUDIT_ARG_ENVV(exec_args_get_begin_envv(args), args->envc,
 	    args->endp - exec_args_get_begin_envv(args));
-	return (do_execve(td, args, mac_p));
+	return (do_execve(td, args, mac_p, oldvmspace));
 }
 
 /*
@@ -354,7 +358,8 @@ kern_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
  * userspace pointers from the passed thread.
  */
 static int
-do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
+do_execve(struct thread *td, struct image_args *args, struct mac *mac_p,
+    struct vmspace *oldvmspace)
 {
 	struct proc *p = td->td_proc;
 	struct nameidata nd;
@@ -572,8 +577,7 @@ interpret:
 		imgp->execpath = args->fname;
 	else {
 		VOP_UNLOCK(imgp->vp);
-		if (vn_fullpath(td, imgp->vp, &imgp->execpath,
-		    &imgp->freepath) != 0)
+		if (vn_fullpath(imgp->vp, &imgp->execpath, &imgp->freepath) != 0)
 			imgp->execpath = args->fname;
 		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 	}
@@ -644,8 +648,8 @@ interpret:
 		free(imgp->freepath, M_TEMP);
 		imgp->freepath = NULL;
 		/* set new name to that of the interpreter */
-		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | FOLLOW | SAVENAME,
-		    UIO_SYSSPACE, imgp->interpreter_name, td);
+		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | LOCKSHARED | FOLLOW |
+		    SAVENAME, UIO_SYSSPACE, imgp->interpreter_name, td);
 		args->fname = imgp->interpreter_name;
 		goto interpret;
 	}
@@ -698,6 +702,7 @@ interpret:
 		 * cannot be shared after an exec.
 		 */
 		fdunshare(td);
+		pdunshare(td);
 		/* close files on exec */
 		fdcloseexec(td);
 	}
@@ -908,12 +913,6 @@ exec_fail_dealloc:
 				td->td_dbgflags |= TDB_EXEC;
 			PROC_UNLOCK(p);
 		}
-
-		/*
-		 * Stop the process here if its stop event mask has
-		 * the S_EXEC bit set.
-		 */
-		STOPEVENT(p, S_EXEC, 0);
 	} else {
 exec_fail:
 		/* we're done here, clear P_INEXEC */
@@ -953,6 +952,7 @@ exec_fail:
 
 	if (error && imgp->vmspace_destroyed) {
 		/* sorry, no more process anymore. exit gracefully */
+		exec_cleanup(td, oldvmspace);
 		exit1(td, 0, SIGABRT);
 		/* NOT REACHED */
 	}
@@ -971,6 +971,17 @@ exec_fail:
 	return (error == 0 ? EJUSTRETURN : error);
 }
 
+void
+exec_cleanup(struct thread *td, struct vmspace *oldvmspace)
+{
+	if ((td->td_pflags & TDP_EXECVMSPC) != 0) {
+		KASSERT(td->td_proc->p_vmspace != oldvmspace,
+		    ("oldvmspace still used"));
+		vmspace_free(oldvmspace);
+		td->td_pflags &= ~TDP_EXECVMSPC;
+	}
+}
+
 int
 exec_map_first_page(struct image_params *imgp)
 {
@@ -984,14 +995,16 @@ exec_map_first_page(struct image_params *imgp)
 	object = imgp->vp->v_object;
 	if (object == NULL)
 		return (EACCES);
-	VM_OBJECT_WLOCK(object);
 #if VM_NRESERVLEVEL > 0
-	vm_object_color(object, 0);
+	if ((object->flags & OBJ_COLORED) == 0) {
+		VM_OBJECT_WLOCK(object);
+		vm_object_color(object, 0);
+		VM_OBJECT_WUNLOCK(object);
+	}
 #endif
-	error = vm_page_grab_valid(&m, object, 0,
+	error = vm_page_grab_valid_unlocked(&m, object, 0,
 	    VM_ALLOC_COUNT(VM_INITIAL_PAGEIN) |
             VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY | VM_ALLOC_WIRED);
-	VM_OBJECT_WUNLOCK(object);
 
 	if (error != VM_PAGER_OK)
 		return (EIO);
@@ -1030,16 +1043,18 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	struct rlimit rlim_stack;
 	vm_offset_t sv_minuser, stack_addr;
 	vm_map_t map;
+	vm_prot_t stack_prot;
 	u_long ssiz;
 
 	imgp->vmspace_destroyed = 1;
 	imgp->sysent = sv;
 
-	td->td_pflags &= ~TDP_SIGFASTBLOCK;
-	td->td_sigblock_ptr = NULL;
-	td->td_sigblock_val = 0;
+	sigfastblock_clear(td);
+	umtx_exec(p);
+	itimers_exec(p);
+	if (sv->sv_onexec != NULL)
+		sv->sv_onexec(p, imgp);
 
-	/* May be called with Giant held */
 	EVENTHANDLER_DIRECT_INVOKE(process_exec, p, imgp);
 
 	/*
@@ -1052,19 +1067,20 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 		sv_minuser = sv->sv_minuser;
 	else
 		sv_minuser = MAX(sv->sv_minuser, PAGE_SIZE);
-	if (vmspace->vm_refcnt == 1 && vm_map_min(map) == sv_minuser &&
+	if (refcount_load(&vmspace->vm_refcnt) == 1 &&
+	    vm_map_min(map) == sv_minuser &&
 	    vm_map_max(map) == sv->sv_maxuser &&
 	    cpu_exec_vmspace_reuse(p, map)) {
 		shmexit(vmspace);
 		pmap_remove_pages(vmspace_pmap(vmspace));
 		vm_map_remove(map, vm_map_min(map), vm_map_max(map));
 		/*
-		 * An exec terminates mlockall(MCL_FUTURE), ASLR state
-		 * must be re-evaluated.
+		 * An exec terminates mlockall(MCL_FUTURE).
+		 * ASLR and W^X states must be re-evaluated.
 		 */
 		vm_map_lock(map);
 		vm_map_modflags(map, 0, MAP_WIREFUTURE | MAP_ASLR |
-		    MAP_ASLR_IGNSTART);
+		    MAP_ASLR_IGNSTART | MAP_WXORX);
 		vm_map_unlock(map);
 	} else {
 		error = vmspace_exec(p, sv_minuser, sv->sv_maxuser);
@@ -1111,11 +1127,16 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	if (ssiz < imgp->eff_stack_sz)
 		imgp->eff_stack_sz = ssiz;
 	stack_addr = sv->sv_usrstack - ssiz;
-	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz,
-	    obj != NULL && imgp->stack_prot != 0 ? imgp->stack_prot :
-	    sv->sv_stackprot, VM_PROT_ALL, MAP_STACK_GROWS_DOWN);
-	if (error != KERN_SUCCESS)
+	stack_prot = obj != NULL && imgp->stack_prot != 0 ?
+	    imgp->stack_prot : sv->sv_stackprot;
+	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz, stack_prot,
+	    VM_PROT_ALL, MAP_STACK_GROWS_DOWN);
+	if (error != KERN_SUCCESS) {
+		uprintf("exec_new_vmspace: mapping stack size %#jx prot %#x "
+		    "failed mach error %d errno %d\n", (uintmax_t)ssiz,
+		    stack_prot, error, vm_mmap_to_errno(error));
 		return (vm_mmap_to_errno(error));
+	}
 
 	/*
 	 * vm_ssize and vm_maxsaddr are somewhat antiquated concepts, but they
@@ -1211,7 +1232,7 @@ exec_copyin_data_fds(struct thread *td, struct image_args *args,
 
 	memset(args, '\0', sizeof(*args));
 	ofdp = td->td_proc->p_fd;
-	if (datalen >= ARG_MAX || fdslen > ofdp->fd_lastfile + 1)
+	if (datalen >= ARG_MAX || fdslen >= ofdp->fd_nfiles)
 		return (E2BIG);
 	error = exec_alloc_args(args);
 	if (error != 0)
@@ -1519,6 +1540,17 @@ exec_args_get_begin_envv(struct image_args *args)
 	return (args->endp);
 }
 
+void
+exec_stackgap(struct image_params *imgp, uintptr_t *dp)
+{
+	if (imgp->sysent->sv_stackgap == NULL ||
+	    (imgp->proc->p_fctl0 & (NT_FREEBSD_FCTL_ASLR_DISABLE |
+	    NT_FREEBSD_FCTL_ASG_DISABLE)) != 0 ||
+	    (imgp->map_flags & MAP_ASLR) == 0)
+		return;
+	imgp->sysent->sv_stackgap(imgp, dp);
+}
+
 /*
  * Copy strings out to the new process address space, constructing new arg
  * and env vector tables. Return a pointer to the base so that it can be used
@@ -1549,6 +1581,7 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	p = imgp->proc;
 	szsigcode = 0;
 	arginfo = (struct ps_strings *)p->p_sysent->sv_psstrings;
+	imgp->ps_strings = arginfo;
 	if (p->p_sysent->sv_sigcode_base == 0) {
 		if (p->p_sysent->sv_szsigcode != NULL)
 			szsigcode = *(p->p_sysent->sv_szsigcode);
@@ -1573,8 +1606,8 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	if (execpath_len != 0) {
 		destp -= execpath_len;
 		destp = rounddown2(destp, sizeof(void *));
-		imgp->execpathp = destp;
-		error = copyout(imgp->execpath, (void *)destp, execpath_len);
+		imgp->execpathp = (void *)destp;
+		error = copyout(imgp->execpath, imgp->execpathp, execpath_len);
 		if (error != 0)
 			return (error);
 	}
@@ -1584,8 +1617,8 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	 */
 	arc4rand(canary, sizeof(canary), 0);
 	destp -= sizeof(canary);
-	imgp->canary = destp;
-	error = copyout(canary, (void *)destp, sizeof(canary));
+	imgp->canary = (void *)destp;
+	error = copyout(canary, imgp->canary, sizeof(canary));
 	if (error != 0)
 		return (error);
 	imgp->canarylen = sizeof(canary);
@@ -1595,8 +1628,8 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	 */
 	destp -= szps;
 	destp = rounddown2(destp, sizeof(void *));
-	imgp->pagesizes = destp;
-	error = copyout(pagesizes, (void *)destp, szps);
+	imgp->pagesizes = (void *)destp;
+	error = copyout(pagesizes, imgp->pagesizes, szps);
 	if (error != 0)
 		return (error);
 	imgp->pagesizeslen = szps;
@@ -1608,8 +1641,7 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	destp = rounddown2(destp, sizeof(void *));
 	ustringp = destp;
 
-	if (imgp->sysent->sv_stackgap != NULL)
-		imgp->sysent->sv_stackgap(imgp, &destp);
+	exec_stackgap(imgp, &destp);
 
 	if (imgp->auxargs) {
 		/*
@@ -1648,6 +1680,7 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	/*
 	 * Fill in "ps_strings" struct for ps, w, etc.
 	 */
+	imgp->argv = vectp;
 	if (suword(&arginfo->ps_argvstr, (long)(intptr_t)vectp) != 0 ||
 	    suword32(&arginfo->ps_nargvstr, argc) != 0)
 		return (EFAULT);
@@ -1667,6 +1700,7 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	if (suword(vectp++, 0) != 0)
 		return (EFAULT);
 
+	imgp->envv = vectp;
 	if (suword(&arginfo->ps_envstr, (long)(intptr_t)vectp) != 0 ||
 	    suword32(&arginfo->ps_nenvstr, envc) != 0)
 		return (EFAULT);

@@ -156,8 +156,7 @@ struct ctlname {
 #define	REQ_WIRED	2
 
 /* definitions for sysctl_req 'flags' member */
-#if defined(__aarch64__) || defined(__amd64__) || defined(__powerpc64__) ||\
-    (defined(__mips__) && defined(__mips_n64))
+#ifdef COMPAT_FREEBSD32
 #define	SCTL_MASK32	1	/* 32 bit emulation */
 #endif
 
@@ -334,6 +333,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	SYSCTL_NODE_WITH_LABEL(parent, nbr, name, access, handler, descr, label) \
 	SYSCTL_OID_GLOBAL(parent, nbr, name, CTLTYPE_NODE|(access),	\
 	    NULL, 0, handler, "N", descr, label);			\
+	SYSCTL_ENFORCE_FLAGS(access);					\
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_NODE)
 
@@ -934,11 +934,12 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
  */
 #define	CTL_SYSCTL_DEBUG	0	/* printf all nodes */
 #define	CTL_SYSCTL_NAME		1	/* string name of OID */
-#define	CTL_SYSCTL_NEXT		2	/* next OID */
+#define	CTL_SYSCTL_NEXT		2	/* next OID, honoring CTLFLAG_SKIP */
 #define	CTL_SYSCTL_NAME2OID	3	/* int array of name */
 #define	CTL_SYSCTL_OIDFMT	4	/* OID's kind and format */
 #define	CTL_SYSCTL_OIDDESCR	5	/* OID's description */
 #define	CTL_SYSCTL_OIDLABEL	6	/* aggregation label */
+#define	CTL_SYSCTL_NEXTNOSKIP	7	/* next OID, ignoring CTLFLAG_SKIP */
 
 /*
  * CTL_KERN identifiers
@@ -1069,6 +1070,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	USER_POSIX2_UPE		18	/* int: POSIX2_UPE */
 #define	USER_STREAM_MAX		19	/* int: POSIX2_STREAM_MAX */
 #define	USER_TZNAME_MAX		20	/* int: POSIX2_TZNAME_MAX */
+#define	USER_LOCALBASE		21	/* string: _PATH_LOCALBASE */
 
 #define	CTL_P1003_1B_ASYNCHRONOUS_IO		1	/* boolean */
 #define	CTL_P1003_1B_MAPPED_FILES		2	/* boolean */
@@ -1096,9 +1098,9 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	CTL_P1003_1B_SIGQUEUE_MAX		24	/* int */
 #define	CTL_P1003_1B_TIMER_MAX			25	/* int */
 
-#define	CTL_P1003_1B_MAXID		26
-
 #ifdef _KERNEL
+
+#define	CTL_P1003_1B_MAXID		26
 
 /*
  * Declare some common oids.
@@ -1122,7 +1124,6 @@ SYSCTL_DECL(_dev);
 SYSCTL_DECL(_hw);
 SYSCTL_DECL(_hw_bus);
 SYSCTL_DECL(_hw_bus_devices);
-SYSCTL_DECL(_hw_bus_info);
 SYSCTL_DECL(_machdep);
 SYSCTL_DECL(_machdep_mitigations);
 SYSCTL_DECL(_user);

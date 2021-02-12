@@ -107,8 +107,10 @@ lock_destroy(struct lock_object *lock)
 	lock->lo_flags &= ~LO_INITIALIZED;
 }
 
-static SYSCTL_NODE(_debug, OID_AUTO, lock, CTLFLAG_RD, NULL, "lock debugging");
-static SYSCTL_NODE(_debug_lock, OID_AUTO, delay, CTLFLAG_RD, NULL,
+static SYSCTL_NODE(_debug, OID_AUTO, lock, CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
+    "lock debugging");
+static SYSCTL_NODE(_debug_lock, OID_AUTO, delay,
+    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
     "lock delay");
 
 static u_int __read_mostly starvation_limit = 131072;
@@ -546,7 +548,6 @@ lock_profile_lookup(struct lock_object *lo, int spin, const char *file,
 		if (lp->line == line && lp->file == p &&
 		    lp->name == lo->lo_name)
 			return (lp);
-
 	}
 	lp = SLIST_FIRST(&type->lpt_lpalloc);
 	if (lp == NULL) {
@@ -725,7 +726,8 @@ out:
 	critical_exit();
 }
 
-static SYSCTL_NODE(_debug_lock, OID_AUTO, prof, CTLFLAG_RD, NULL,
+static SYSCTL_NODE(_debug_lock, OID_AUTO, prof,
+    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
     "lock profiling");
 SYSCTL_INT(_debug_lock_prof, OID_AUTO, skipspin, CTLFLAG_RW,
     &lock_prof_skipspin, 0, "Skip profiling on spinlocks.");
@@ -733,11 +735,17 @@ SYSCTL_INT(_debug_lock_prof, OID_AUTO, skipcount, CTLFLAG_RW,
     &lock_prof_skipcount, 0, "Sample approximately every N lock acquisitions.");
 SYSCTL_INT(_debug_lock_prof, OID_AUTO, rejected, CTLFLAG_RD,
     &lock_prof_rejected, 0, "Number of rejected profiling records");
-SYSCTL_PROC(_debug_lock_prof, OID_AUTO, stats, CTLTYPE_STRING | CTLFLAG_RD,
-    NULL, 0, dump_lock_prof_stats, "A", "Lock profiling statistics");
-SYSCTL_PROC(_debug_lock_prof, OID_AUTO, reset, CTLTYPE_INT | CTLFLAG_RW,
-    NULL, 0, reset_lock_prof_stats, "I", "Reset lock profiling statistics");
-SYSCTL_PROC(_debug_lock_prof, OID_AUTO, enable, CTLTYPE_INT | CTLFLAG_RW,
-    NULL, 0, enable_lock_prof, "I", "Enable lock profiling");
+SYSCTL_PROC(_debug_lock_prof, OID_AUTO, stats,
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
+    dump_lock_prof_stats, "A",
+    "Lock profiling statistics");
+SYSCTL_PROC(_debug_lock_prof, OID_AUTO, reset,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_NEEDGIANT, NULL, 0,
+    reset_lock_prof_stats, "I",
+    "Reset lock profiling statistics");
+SYSCTL_PROC(_debug_lock_prof, OID_AUTO, enable,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE, NULL, 0,
+    enable_lock_prof, "I",
+    "Enable lock profiling");
 
 #endif

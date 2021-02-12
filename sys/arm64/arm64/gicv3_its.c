@@ -32,6 +32,7 @@
 
 #include "opt_acpi.h"
 #include "opt_platform.h"
+#include "opt_iommu.h"
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
@@ -47,13 +48,18 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
+#include <sys/taskqueue.h>
+#include <sys/tree.h>
 #include <sys/queue.h>
 #include <sys/rman.h>
+#include <sys/sbuf.h>
 #include <sys/smp.h>
+#include <sys/sysctl.h>
 #include <sys/vmem.h>
 
 #include <vm/vm.h>
 #include <vm/pmap.h>
+#include <vm/vm_page.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -69,6 +75,11 @@ __FBSDID("$FreeBSD$");
 #endif
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
+
+#ifdef IOMMU
+#include <dev/iommu/iommu.h>
+#include <dev/iommu/iommu_gas.h>
+#endif
 
 #include "pcib_if.h"
 #include "pic_if.h"
@@ -226,9 +237,11 @@ struct gicv3_its_irqsrc {
 	u_int			gi_id;
 	u_int			gi_lpi;
 	struct its_dev		*gi_its_dev;
+	TAILQ_ENTRY(gicv3_its_irqsrc) gi_link;
 };
 
 struct gicv3_its_softc {
+	device_t	dev;
 	struct intr_pic *sc_pic;
 	struct resource *sc_its_res;
 
@@ -251,17 +264,21 @@ struct gicv3_its_softc {
 	size_t sc_its_cmd_next_idx;
 
 	vmem_t *sc_irq_alloc;
-	struct gicv3_its_irqsrc	*sc_irqs;
+	struct gicv3_its_irqsrc	**sc_irqs;
 	u_int	sc_irq_base;
 	u_int	sc_irq_length;
+	u_int	sc_irq_count;
 
 	struct mtx sc_its_dev_lock;
 	TAILQ_HEAD(its_dev_list, its_dev) sc_its_dev_list;
+	TAILQ_HEAD(free_irqs, gicv3_its_irqsrc) sc_free_irqs;
 
 #define	ITS_FLAGS_CMDQ_FLUSH		0x00000001
 #define	ITS_FLAGS_LPI_CONF_FLUSH	0x00000002
 #define	ITS_FLAGS_ERRATA_CAVIUM_22375	0x00000004
 	u_int sc_its_flags;
+	bool	trace_enable;
+	vm_page_t ma; /* fake msi page */
 };
 
 static void *conf_base;
@@ -314,6 +331,10 @@ static msi_release_msi_t gicv3_its_release_msi;
 static msi_alloc_msix_t gicv3_its_alloc_msix;
 static msi_release_msix_t gicv3_its_release_msix;
 static msi_map_msi_t gicv3_its_map_msi;
+#ifdef IOMMU
+static msi_iommu_init_t gicv3_iommu_init;
+static msi_iommu_deinit_t gicv3_iommu_deinit;
+#endif
 
 static void its_cmd_movi(device_t, struct gicv3_its_irqsrc *);
 static void its_cmd_mapc(device_t, struct its_col *, uint8_t);
@@ -345,6 +366,10 @@ static device_method_t gicv3_its_methods[] = {
 	DEVMETHOD(msi_alloc_msix,	gicv3_its_alloc_msix),
 	DEVMETHOD(msi_release_msix,	gicv3_its_release_msix),
 	DEVMETHOD(msi_map_msi,		gicv3_its_map_msi),
+#ifdef IOMMU
+	DEVMETHOD(msi_iommu_init,	gicv3_iommu_init),
+	DEVMETHOD(msi_iommu_deinit,	gicv3_iommu_deinit),
+#endif
 
 	/* End */
 	DEVMETHOD_END
@@ -488,7 +513,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			    (nitspages - 1);
 
 			switch (page_size) {
-			case PAGE_SIZE:		/* 4KB */
+			case PAGE_SIZE_4K:	/* 4KB */
 				reg |=
 				    GITS_BASER_PSZ_4K << GITS_BASER_PSZ_SHIFT;
 				break;
@@ -519,7 +544,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			    (reg & GITS_BASER_PSZ_MASK)) {
 				switch (page_size) {
 				case PAGE_SIZE_16K:
-					page_size = PAGE_SIZE;
+					page_size = PAGE_SIZE_4K;
 					continue;
 				case PAGE_SIZE_64K:
 					page_size = PAGE_SIZE_16K;
@@ -713,12 +738,92 @@ its_init_cpu(device_t dev, struct gicv3_its_softc *sc)
 }
 
 static int
+gicv3_its_sysctl_trace_enable(SYSCTL_HANDLER_ARGS)
+{
+	struct gicv3_its_softc *sc;
+	int rv;
+
+	sc = arg1;
+
+	rv = sysctl_handle_bool(oidp, &sc->trace_enable, 0, req);
+	if (rv != 0 || req->newptr == NULL)
+		return (rv);
+	if (sc->trace_enable)
+		gic_its_write_8(sc, GITS_TRKCTLR, 3);
+	else
+		gic_its_write_8(sc, GITS_TRKCTLR, 0);
+
+	return (0);
+}
+
+static int
+gicv3_its_sysctl_trace_regs(SYSCTL_HANDLER_ARGS)
+{
+	struct gicv3_its_softc *sc;
+	struct sbuf *sb;
+	int err;
+
+	sc = arg1;
+	sb = sbuf_new_for_sysctl(NULL, NULL, 128, req);
+	if (sb == NULL) {
+		device_printf(sc->dev, "Could not allocate sbuf for output.\n");
+		return (ENOMEM);
+	}
+	sbuf_cat(sb, "\n");
+	sbuf_printf(sb, "GITS_TRKCTLR: 0x%08X\n",
+	    gic_its_read_4(sc, GITS_TRKCTLR));
+	sbuf_printf(sb, "GITS_TRKR:    0x%08X\n",
+	    gic_its_read_4(sc, GITS_TRKR));
+	sbuf_printf(sb, "GITS_TRKDIDR: 0x%08X\n",
+	    gic_its_read_4(sc, GITS_TRKDIDR));
+	sbuf_printf(sb, "GITS_TRKPIDR: 0x%08X\n",
+	    gic_its_read_4(sc, GITS_TRKPIDR));
+	sbuf_printf(sb, "GITS_TRKVIDR: 0x%08X\n",
+	    gic_its_read_4(sc, GITS_TRKVIDR));
+	sbuf_printf(sb, "GITS_TRKTGTR: 0x%08X\n",
+	   gic_its_read_4(sc, GITS_TRKTGTR));
+
+	err = sbuf_finish(sb);
+	if (err)
+		device_printf(sc->dev, "Error finishing sbuf: %d\n", err);
+	sbuf_delete(sb);
+	return(err);
+}
+
+static int
+gicv3_its_init_sysctl(struct gicv3_its_softc *sc)
+{
+	struct sysctl_oid *oid, *child;
+	struct sysctl_ctx_list *ctx_list;
+
+	ctx_list = device_get_sysctl_ctx(sc->dev);
+	child = device_get_sysctl_tree(sc->dev);
+	oid = SYSCTL_ADD_NODE(ctx_list,
+	    SYSCTL_CHILDREN(child), OID_AUTO, "tracing",
+	    CTLFLAG_RD| CTLFLAG_MPSAFE, NULL, "Messages tracing");
+	if (oid == NULL)
+		return (ENXIO);
+
+	/* Add registers */
+	SYSCTL_ADD_PROC(ctx_list,
+	    SYSCTL_CHILDREN(oid), OID_AUTO, "enable",
+	    CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    gicv3_its_sysctl_trace_enable, "CU", "Enable tracing");
+	SYSCTL_ADD_PROC(ctx_list,
+	    SYSCTL_CHILDREN(oid), OID_AUTO, "capture",
+	    CTLTYPE_STRING | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    gicv3_its_sysctl_trace_regs, "", "Captured tracing registers.");
+
+	return (0);
+}
+
+static int
 gicv3_its_attach(device_t dev)
 {
 	struct gicv3_its_softc *sc;
-	const char *name;
-	uint32_t iidr;
 	int domain, err, i, rid;
+	uint64_t phys;
+	uint32_t iidr;
 
 	sc = device_get_softc(dev);
 
@@ -733,6 +838,11 @@ gicv3_its_attach(device_t dev)
 		device_printf(dev, "Could not allocate memory\n");
 		return (ENXIO);
 	}
+
+	phys = rounddown2(vtophys(rman_get_virtual(sc->sc_its_res)) +
+	    GITS_TRANSLATER, PAGE_SIZE);
+	sc->ma = malloc(sizeof(struct vm_page), M_DEVBUF, M_WAITOK | M_ZERO);
+	vm_page_initfake(sc->ma, phys, VM_MEMATTR_DEFAULT);
 
 	iidr = gic_its_read_4(sc, GITS_IIDR);
 	for (i = 0; i < nitems(its_quirks); i++) {
@@ -791,6 +901,7 @@ gicv3_its_attach(device_t dev)
 	its_init_cpu(dev, sc);
 
 	TAILQ_INIT(&sc->sc_its_dev_list);
+	TAILQ_INIT(&sc->sc_free_irqs);
 
 	/*
 	 * Create the vmem object to allocate INTRNG IRQs from. We try to
@@ -803,13 +914,11 @@ gicv3_its_attach(device_t dev)
 
 	sc->sc_irqs = malloc(sizeof(*sc->sc_irqs) * sc->sc_irq_length,
 	    M_GICV3_ITS, M_WAITOK | M_ZERO);
-	name = device_get_nameunit(dev);
-	for (i = 0; i < sc->sc_irq_length; i++) {
-		sc->sc_irqs[i].gi_id = -1;
-		sc->sc_irqs[i].gi_lpi = i + sc->sc_irq_base - GIC_FIRST_LPI;
-		err = intr_isrc_register(&sc->sc_irqs[i].gi_isrc, dev, 0,
-		    "%s,%u", name, i);
-	}
+
+	/* For GIC-500 install tracking sysctls. */
+	if ((iidr & (GITS_IIDR_PRODUCT_MASK | GITS_IIDR_IMPLEMENTOR_MASK)) ==
+	    GITS_IIDR_RAW(GITS_IIDR_IMPL_ARM, GITS_IIDR_PROD_GIC500, 0, 0))
+		gicv3_its_init_sysctl(sc);
 
 	return (0);
 }
@@ -886,7 +995,7 @@ gicv3_its_intr(void *arg, uintptr_t irq)
 	struct trapframe *tf;
 
 	irq -= sc->sc_irq_base;
-	girq = &sc->sc_irqs[irq];
+	girq = sc->sc_irqs[irq];
 	if (girq == NULL)
 		panic("gicv3_its_intr: Invalid interrupt %ld",
 		    irq + sc->sc_irq_base);
@@ -1112,6 +1221,53 @@ its_device_release(device_t dev, struct its_dev *its_dev)
 	free(its_dev, M_GICV3_ITS);
 }
 
+static struct gicv3_its_irqsrc *
+gicv3_its_alloc_irqsrc(device_t dev, struct gicv3_its_softc *sc, u_int irq)
+{
+	struct gicv3_its_irqsrc *girq = NULL;
+
+	KASSERT(sc->sc_irqs[irq] == NULL,
+	    ("%s: Interrupt %u already allocated", __func__, irq));
+	mtx_lock_spin(&sc->sc_its_dev_lock);
+	if (!TAILQ_EMPTY(&sc->sc_free_irqs)) {
+		girq = TAILQ_FIRST(&sc->sc_free_irqs);
+		TAILQ_REMOVE(&sc->sc_free_irqs, girq, gi_link);
+	}
+	mtx_unlock_spin(&sc->sc_its_dev_lock);
+	if (girq == NULL) {
+		girq = malloc(sizeof(*girq), M_GICV3_ITS,
+		    M_NOWAIT | M_ZERO);
+		if (girq == NULL)
+			return (NULL);
+		girq->gi_id = -1;
+		if (intr_isrc_register(&girq->gi_isrc, dev, 0,
+		    "%s,%u", device_get_nameunit(dev), irq) != 0) {
+			free(girq, M_GICV3_ITS);
+			return (NULL);
+		}
+	}
+	girq->gi_lpi = irq + sc->sc_irq_base - GIC_FIRST_LPI;
+	sc->sc_irqs[irq] = girq;
+
+	return (girq);
+}
+
+static void
+gicv3_its_release_irqsrc(struct gicv3_its_softc *sc,
+    struct gicv3_its_irqsrc *girq)
+{
+	u_int irq;
+
+	mtx_assert(&sc->sc_its_dev_lock, MA_OWNED);
+
+	irq = girq->gi_lpi + GIC_FIRST_LPI - sc->sc_irq_base;
+	sc->sc_irqs[irq] = NULL;
+
+	girq->gi_id = -1;
+	girq->gi_its_dev = NULL;
+	TAILQ_INSERT_TAIL(&sc->sc_free_irqs, girq, gi_link);
+}
+
 static int
 gicv3_its_alloc_msi(device_t dev, device_t child, int count, int maxcount,
     device_t *pic, struct intr_irqsrc **srcs)
@@ -1131,12 +1287,35 @@ gicv3_its_alloc_msi(device_t dev, device_t child, int count, int maxcount,
 	sc = device_get_softc(dev);
 	irq = its_dev->lpis.lpi_base + its_dev->lpis.lpi_num -
 	    its_dev->lpis.lpi_free;
+
+	/* Allocate the irqsrc for each MSI */
 	for (i = 0; i < count; i++, irq++) {
 		its_dev->lpis.lpi_free--;
-		girq = &sc->sc_irqs[irq];
+		srcs[i] = (struct intr_irqsrc *)gicv3_its_alloc_irqsrc(dev,
+		    sc, irq);
+		if (srcs[i] == NULL)
+			break;
+	}
+
+	/* The allocation failed, release them */
+	if (i != count) {
+		mtx_lock_spin(&sc->sc_its_dev_lock);
+		for (i = 0; i < count; i++) {
+			girq = (struct gicv3_its_irqsrc *)srcs[i];
+			if (girq == NULL)
+				break;
+			gicv3_its_release_irqsrc(sc, girq);
+			srcs[i] = NULL;
+		}
+		mtx_unlock_spin(&sc->sc_its_dev_lock);
+		return (ENXIO);
+	}
+
+	/* Finish the allocation now we have all MSI irqsrcs */
+	for (i = 0; i < count; i++) {
+		girq = (struct gicv3_its_irqsrc *)srcs[i];
 		girq->gi_id = i;
 		girq->gi_its_dev = its_dev;
-		srcs[i] = (struct intr_irqsrc *)girq;
 
 		/* Map the message to the given IRQ */
 		gicv3_its_select_cpu(dev, (struct intr_irqsrc *)girq);
@@ -1152,6 +1331,7 @@ static int
 gicv3_its_release_msi(device_t dev, device_t child, int count,
     struct intr_irqsrc **isrc)
 {
+	struct gicv3_its_softc *sc;
 	struct gicv3_its_irqsrc *girq;
 	struct its_dev *its_dev;
 	int i;
@@ -1165,11 +1345,14 @@ gicv3_its_release_msi(device_t dev, device_t child, int count,
 	    ("gicv3_its_release_msi: Releasing more interrupts than "
 	     "were allocated: releasing %d, allocated %d", count,
 	     its_dev->lpis.lpi_busy));
+
+	sc = device_get_softc(dev);
+	mtx_lock_spin(&sc->sc_its_dev_lock);
 	for (i = 0; i < count; i++) {
 		girq = (struct gicv3_its_irqsrc *)isrc[i];
-		girq->gi_id = -1;
-		girq->gi_its_dev = NULL;
+		gicv3_its_release_irqsrc(sc, girq);
 	}
+	mtx_unlock_spin(&sc->sc_its_dev_lock);
 	its_dev->lpis.lpi_busy -= count;
 
 	if (its_dev->lpis.lpi_busy == 0)
@@ -1197,7 +1380,10 @@ gicv3_its_alloc_msix(device_t dev, device_t child, device_t *pic,
 	sc = device_get_softc(dev);
 	irq = its_dev->lpis.lpi_base + its_dev->lpis.lpi_num -
 	    its_dev->lpis.lpi_free;
-	girq = &sc->sc_irqs[irq];
+
+	girq = gicv3_its_alloc_irqsrc(dev, sc, irq);
+	if (girq == NULL)
+		return (ENXIO);
 	girq->gi_id = its_dev->lpis.lpi_busy;
 	girq->gi_its_dev = its_dev;
 
@@ -1217,6 +1403,7 @@ gicv3_its_alloc_msix(device_t dev, device_t child, device_t *pic,
 static int
 gicv3_its_release_msix(device_t dev, device_t child, struct intr_irqsrc *isrc)
 {
+	struct gicv3_its_softc *sc;
 	struct gicv3_its_irqsrc *girq;
 	struct its_dev *its_dev;
 
@@ -1228,9 +1415,12 @@ gicv3_its_release_msix(device_t dev, device_t child, struct intr_irqsrc *isrc)
 	KASSERT(its_dev->lpis.lpi_busy > 0,
 	    ("gicv3_its_release_msix: Releasing more interrupts than "
 	     "were allocated: allocated %d", its_dev->lpis.lpi_busy));
+
+	sc = device_get_softc(dev);
 	girq = (struct gicv3_its_irqsrc *)isrc;
-	girq->gi_its_dev = NULL;
-	girq->gi_id = -1;
+	mtx_lock_spin(&sc->sc_its_dev_lock);
+	gicv3_its_release_irqsrc(sc, girq);
+	mtx_unlock_spin(&sc->sc_its_dev_lock);
 	its_dev->lpis.lpi_busy--;
 
 	if (its_dev->lpis.lpi_busy == 0)
@@ -1254,6 +1444,33 @@ gicv3_its_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
 
 	return (0);
 }
+
+#ifdef IOMMU
+static int
+gicv3_iommu_init(device_t dev, device_t child, struct iommu_domain **domain)
+{
+	struct gicv3_its_softc *sc;
+	struct iommu_ctx *ctx;
+	int error;
+
+	sc = device_get_softc(dev);
+	ctx = iommu_get_dev_ctx(child);
+	error = iommu_map_msi(ctx, PAGE_SIZE, GITS_TRANSLATER,
+	    IOMMU_MAP_ENTRY_WRITE, IOMMU_MF_CANWAIT, &sc->ma);
+	*domain = iommu_get_ctx_domain(ctx);
+
+	return (error);
+}
+
+static void
+gicv3_iommu_deinit(device_t dev, device_t child)
+{
+	struct iommu_ctx *ctx;
+
+	ctx = iommu_get_dev_ctx(child);
+	iommu_unmap_msi(ctx);
+}
+#endif
 
 /*
  * Commands handling.
@@ -1410,7 +1627,6 @@ its_cmd_wait_completion(device_t dev, struct its_cmd *cmd_first,
 		DELAY(1);
 	}
 }
-
 
 static struct its_cmd *
 its_cmd_alloc_locked(device_t dev)
@@ -1717,6 +1933,7 @@ gicv3_its_fdt_attach(device_t dev)
 	int err;
 
 	sc = device_get_softc(dev);
+	sc->dev = dev;
 	err = gicv3_its_attach(dev);
 	if (err != 0)
 		return (err);
@@ -1778,6 +1995,7 @@ gicv3_its_acpi_attach(device_t dev)
 	int err;
 
 	sc = device_get_softc(dev);
+	sc->dev = dev;
 	err = gicv3_its_attach(dev);
 	if (err != 0)
 		return (err);
