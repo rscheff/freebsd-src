@@ -1655,13 +1655,13 @@ skip_alloc:
 	win = imin(win, TCP_MAXWIN);
 	sc->sc_wnd = win;
 
-	if (V_tcp_do_rfc1323) {
+	if (V_tcp_do_rfc1323 &&
+	    !(ltflags & TF_NOOPT)) {
 		/*
 		 * A timestamp received in a SYN makes
 		 * it ok to send timestamp requests and replies.
 		 */
-		if ((to->to_flags & TOF_TS) &&
-		    !(ltflags & TF_NOOPT)) {
+		if (to->to_flags & TOF_TS) {
 			sc->sc_tsreflect = to->to_tsval;
 			sc->sc_flags |= SCF_TIMESTAMP;
 			sc->sc_tsoff = tcp_new_ts_offset(inc);
