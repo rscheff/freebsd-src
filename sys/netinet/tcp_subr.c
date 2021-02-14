@@ -1763,7 +1763,7 @@ tcp_newtcpcb(struct inpcb *inp)
 	callout_init(&tp->t_timers->tt_2msl, 1);
 	callout_init(&tp->t_timers->tt_delack, 1);
 
-	if !(tp->t_flags & TF_NOOPT) {
+	if (!(tp->t_flags & TF_NOOPT)) {
 		if (V_tcp_do_rfc1323)
 			tp->t_flags = (TF_REQ_SCALE|TF_REQ_TSTMP);
 		if (V_tcp_do_sack)
