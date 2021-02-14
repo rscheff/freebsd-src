@@ -1674,9 +1674,9 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		    (!(to.to_flags & TOF_SACKPERM) ||
 		    (tp->t_flags & TF_NOOPT)))
 			tp->t_flags &= ~TF_SACK_PERMIT;
-		if (IS_FASTOPEN(tp->t_flags) &&
-		    !(tp->t_flags & TF_NOOPT)) {
-			if (to.to_flags & TOF_FASTOPEN) {
+		if (IS_FASTOPEN(tp->t_flags)) {
+			if ((to.to_flags & TOF_FASTOPEN) &&
+			    !(tp->t_flags & TF_NOOPT)) {
 				uint16_t mss;
 
 				if (to.to_flags & TOF_MSS)
