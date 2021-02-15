@@ -1331,6 +1331,12 @@ syncache_tfo_expand(struct syncache *sc, struct socket **lsop, struct mbuf *m,
 	unsigned int *pending_counter;
 
 	NET_EPOCH_ASSERT();
+	
+log(LOG_CRIT, "%s#%d-tfo: "
+//    "state:%d max:%d una:%d nxt:%d\n"
+    ,__func__, __LINE__
+    );
+
 
 	pending_counter = intotcpcb(sotoinpcb(*lsop))->t_tfo_pending;
 	*lsop = syncache_socket(sc, *lsop, m);
@@ -1436,9 +1442,22 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 	win = so->sol_sbrcv_hiwat;
 	ltflags = (tp->t_flags & (TF_NOOPT | TF_SIGNATURE));
 
+
+if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) || IS_FASTOPEN(tp->t_flags)) {
+    log(LOG_CRIT, "%s#%d: "
+	"enable:%d tfo:%d pend:%d foopt:%d\n",
+	__func__, __LINE__,
+	(V_tcp_fastopen_server_enable) ? 1:0,
+	IS_FASTOPEN(tp->t_flags) ? 1:0,
+	tp->t_tfo_pending != NULL ? 1:0,
+	to->to_flags & TOF_FASTOPEN ? 1:0
+    );
+}
+
 	if (V_tcp_fastopen_server_enable && IS_FASTOPEN(tp->t_flags) &&
 	    (tp->t_tfo_pending != NULL) &&
 	    (to->to_flags & TOF_FASTOPEN)) {
+
 		/*
 		 * Limit the number of pending TFO connections to
 		 * approximately half of the queue limit.  This prevents TFO
@@ -1454,7 +1473,20 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 			    &tfo_response_cookie);
 			tfo_cookie_valid = (result > 0);
 			tfo_response_cookie_valid = (result >= 0);
+log(LOG_CRIT, "%s#%d-tfo: "
+    "result:%d\n"
+    ,__func__, __LINE__,
+    result
+    );
 		}
+log(LOG_CRIT, "%s#%d-tfo: "
+    "cookie_valid:%d valid_response:%d pending:%d qlimit:%d\n"
+    ,__func__, __LINE__,
+    tfo_cookie_valid,
+    tfo_response_cookie_valid,
+    *tp->t_tfo_pending,
+    so->sol_qlimit
+    );
 
 		/*
 		 * Remember the TFO pending counter as it will have to be
@@ -1624,9 +1656,14 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 	}
 
 skip_alloc:
-	if (!tfo_cookie_valid && tfo_response_cookie_valid)
-		sc->sc_tfo_cookie = &tfo_response_cookie;
+	if (!tfo_cookie_valid && tfo_response_cookie_valid) {
+log(LOG_CRIT, "%s#%d-tfo: "
+//    "state:%d max:%d una:%d nxt:%d\n"
+    ,__func__, __LINE__
+    );
 
+		sc->sc_tfo_cookie = &tfo_response_cookie;
+	}
 	/*
 	 * Fill in the syncache values.
 	 */
@@ -1914,6 +1951,11 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 				to.to_flags |= TOF_SIGNATURE;
 #endif
 			if (sc->sc_tfo_cookie) {
+log(LOG_CRIT, "%s#%d-tfo: "
+//    "state:%d max:%d una:%d nxt:%d\n"
+    ,__func__, __LINE__
+    );
+
 				to.to_flags |= TOF_FASTOPEN;
 				to.to_tfo_len = TCP_FASTOPEN_COOKIE_LEN;
 				to.to_tfo_cookie = sc->sc_tfo_cookie;

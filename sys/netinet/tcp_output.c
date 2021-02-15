@@ -60,6 +60,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
+#include <sys/syslog.h>
 #include <sys/stats.h>
 
 #include <net/if.h>
@@ -250,8 +251,18 @@ tcp_output(struct tcpcb *tp)
 	    ((tp->t_state == TCPS_SYN_SENT) ||
 	     (tp->t_state == TCPS_SYN_RECEIVED)) &&
 	    SEQ_GT(tp->snd_max, tp->snd_una) && /* initial SYN or SYN|ACK sent */
-	    (tp->snd_nxt != tp->snd_una))       /* not a retransmit */
+	    (tp->snd_nxt != tp->snd_una)) {       /* not a retransmit */
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 		return (0);
+	}
 
 	/*
 	 * Determine length of data that should be transmitted,
@@ -444,8 +455,18 @@ after_sack_rexmit:
 		 * do not include the SYN bit.
 		 */
 		if (IS_FASTOPEN(tp->t_flags) &&
-		    (tp->t_state == TCPS_SYN_RECEIVED))
+		    (tp->t_state == TCPS_SYN_RECEIVED)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 			flags &= ~TH_SYN;
+		}
 		off--, len++;
 	}
 
@@ -475,8 +496,18 @@ after_sack_rexmit:
 	    (((flags & TH_SYN) && (tp->t_rxtshift > 0)) ||
 	     ((tp->t_state == TCPS_SYN_SENT) &&
 	      (tp->t_tfo_client_cookie_len == 0)) ||
-	     (flags & TH_RST)))
+	     (flags & TH_RST))) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 		len = 0;
+	}
 	if (len <= 0) {
 		/*
 		 * If FIN has been sent but not acked,
@@ -811,6 +842,15 @@ send:
 			 */
 			if (IS_FASTOPEN(tp->t_flags) &&
 			    (tp->t_rxtshift == 0)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 				if (tp->t_state == TCPS_SYN_RECEIVED) {
 					to.to_tfo_len = TCP_FASTOPEN_COOKIE_LEN;
 					to.to_tfo_cookie =
@@ -884,8 +924,18 @@ send:
 		 * to fit, ensure no data is sent.
 		 */
 		if (IS_FASTOPEN(tp->t_flags) && wanted_cookie &&
-		    !(to.to_flags & TOF_FASTOPEN))
+		    !(to.to_flags & TOF_FASTOPEN)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 			len = 0;
+		}
 	}
 
 	/*
@@ -1853,6 +1903,15 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 		case TOF_FASTOPEN:
 			{
 			int total_len;
+
+log(LOG_CRIT, "%s#%d-foopt: "
+    "client:%d server:%d tfolen:%d\n",
+    __func__, __LINE__,
+    (V_tcp_fastopen_client_enable) ? 1:0,
+    (V_tcp_fastopen_server_enable) ? 1:0,
+    to->to_tfo_len
+    );
+
 
 			/* XXX is there any point to aligning this option? */
 			total_len = TCPOLEN_FAST_OPEN_EMPTY + to->to_tfo_len;

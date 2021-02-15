@@ -615,7 +615,17 @@ tcp_fastopen_check_cookie(struct in_conninfo *inc, uint8_t *cookie,
 	int rv;
 	uint64_t cur_cookie;
 
-	if (V_tcp_fastopen_acceptany) {
+log(2, "%s#%d: "
+    "len:%u cookie:%d latest:%ld\n",
+    __func__, __LINE__,
+    len,
+    (cookie != NULL) ? *cookie : -1,
+    (latest_cookie != NULL) ? *latest_cookie : -1
+    );
+
+
+	if (V_tcp_fastopen_acceptany &&
+	    len > 0) {
 		*latest_cookie = 0;
 		return (1);
 	}
@@ -654,6 +664,10 @@ tcp_fastopen_check_cookie(struct in_conninfo *inc, uint8_t *cookie,
 	rv = 0;
 
  out:
+log(2, "%s#%d: "
+    "return: %d\n",
+    __func__, __LINE__,
+    rv);
 	TCP_FASTOPEN_KEYS_RUNLOCK(&tracker);
 	return (rv);
 }

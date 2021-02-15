@@ -1340,6 +1340,16 @@ tfo_socket_result:
 #endif
 		TCP_PROBE3(debug__input, tp, th, m);
 		tcp_dooptions(&to, optp, optlen, TO_SYN);
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG) {
+    log(LOG_CRIT, "%s#%d: "
+       "enable:%d tfo:%d pend:%d foopt:%d\n",
+	__func__, __LINE__,
+       V_tcp_fastopen_server_enable ? 1:0,
+       IS_FASTOPEN(tp->t_flags) ? 1:0,
+       tp->t_tfo_pending != NULL ? 1:0,
+       to.to_flags & TOF_FASTOPEN ? 1:0
+    );
+}
 		if (syncache_add(&inc, &to, th, inp, &so, m, NULL, NULL, iptos))
 			goto tfo_socket_result;
 
@@ -1675,6 +1685,15 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		    (tp->t_flags & TF_NOOPT)))
 			tp->t_flags &= ~TF_SACK_PERMIT;
 		if (IS_FASTOPEN(tp->t_flags)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 			if ((to.to_flags & TOF_FASTOPEN) &&
 			    !(tp->t_flags & TF_NOOPT)) {
 				uint16_t mss;
@@ -1968,6 +1987,15 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				goto dropwithreset;
 		}
 		if (IS_FASTOPEN(tp->t_flags)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 			/*
 			 * When a TFO connection is in SYN_RECEIVED, the
 			 * only valid packets are the initial SYN, a
@@ -2039,6 +2067,15 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			 */
 			if (IS_FASTOPEN(tp->t_flags) &&
 			    (tp->snd_una != tp->snd_max)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 				tp->snd_nxt = th->th_ack;
 				tfo_partial_ack = 1;
 			}
@@ -2403,6 +2440,15 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		    (tp->t_flags & TF_NEEDSYN)) {
 			if (tp->t_state == TCPS_SYN_RECEIVED &&
 			    IS_FASTOPEN(tp->t_flags)) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 				tp->snd_wnd = tiwin;
 				cc_conn_init(tp);
 			}
@@ -2439,6 +2485,15 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 */
 		tp->t_starttime = ticks;
 		if (IS_FASTOPEN(tp->t_flags) && tp->t_tfo_pending) {
+log(LOG_CRIT, "%s#%d-tfo: "
+    "state:%d max:%d una:%d nxt:%d\n",
+    __func__, __LINE__,
+    tp->t_state,
+    tp->snd_max,
+    tp->snd_una,
+    tp->snd_nxt
+    );
+
 			tcp_fastopen_decrement_counter(tp->t_tfo_pending);
 			tp->t_tfo_pending = NULL;
 		}

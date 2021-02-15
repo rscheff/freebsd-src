@@ -2261,6 +2261,15 @@ unlock_and_done:
 		case TCP_FASTOPEN: {
 			struct tcp_fastopen tfo_optval;
 
+log(LOG_CRIT, "%s#%d-settfo: "
+    "client:%d server:%d state:%d\n",
+    __func__, __LINE__,
+    (V_tcp_fastopen_client_enable) ? 1:0,
+    (V_tcp_fastopen_server_enable) ? 1:0,
+    tp->t_state
+    );
+
+
 			INP_WUNLOCK(inp);
 			if (!V_tcp_fastopen_client_enable &&
 			    !V_tcp_fastopen_server_enable)
@@ -2277,6 +2286,17 @@ unlock_and_done:
 				error = EINVAL;
 				goto unlock_and_done;
 			}
+log(LOG_CRIT, "%s#%d-settfo: "
+    "size::%ld enable:%x psk:0x%016lx%016lx soptvalsize:%lu\n",
+    __func__, __LINE__,
+    sizeof(tfo_optval),
+    tfo_optval.enable,
+    (uint64_t)tfo_optval.psk[0],
+    (uint64_t)tfo_optval.psk[8],
+    sopt->sopt_valsize
+    
+    );
+
 			if (tfo_optval.enable) {
 				if (tp->t_state == TCPS_LISTEN) {
 					if (!V_tcp_fastopen_server_enable) {
@@ -2306,6 +2326,12 @@ unlock_and_done:
 				tp->t_flags |= TF_FASTOPEN;
 			} else
 				tp->t_flags &= ~TF_FASTOPEN;
+log(LOG_CRIT, "%s#%d-settfo: "
+    "tfo::%d\n",
+    __func__, __LINE__,
+    (tp->t_flags & TF_FASTOPEN) ? 1:0
+    );
+
 			goto unlock_and_done;
 		}
 
@@ -2490,6 +2516,16 @@ unhold:
 			break;
 #endif
 		case TCP_FASTOPEN:
+log(LOG_CRIT, "%s#%d-gettfo: "
+    "tfo:%d soptvalsize:%lu psk:0x%016lx%016lx\n",
+    __func__, __LINE__,
+    (tp->t_flags & TF_FASTOPEN) ? 1:0,
+    sopt->sopt_valsize,
+    (uint64_t)tp->t_tfo_cookie.client[0],
+    (uint64_t)tp->t_tfo_cookie.client[8]
+
+    
+    );
 			optval = tp->t_flags & TF_FASTOPEN;
 			INP_WUNLOCK(inp);
 			error = sooptcopyout(sopt, &optval, sizeof optval);
