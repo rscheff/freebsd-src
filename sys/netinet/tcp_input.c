@@ -4006,6 +4006,11 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	} else if (IN_CONGRECOVERY(tp->t_flags))
 		tp->snd_cwnd = imax(maxseg, pipe - del_data +
 				    (snd_cnt * maxseg));
+if(tp->snd_cwnd < maxseg) {
+log(2, "PRR low cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%d\n",
+tp->snd_cwnd, tp->snd_nxt - tp->iss, tp->snd_recover-tp->iss,
+tp->sackhint.sack_bytes_rexmit, snd_cnt)
+}
 }
 
 /*
