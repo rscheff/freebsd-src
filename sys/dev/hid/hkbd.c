@@ -598,16 +598,22 @@ static void
 hkbd_timeout(void *arg)
 {
 	struct hkbd_softc *sc = arg;
+#ifdef EVDEV_SUPPORT
 	struct epoch_tracker et;
+#endif
 
 	HKBD_LOCK_ASSERT(sc);
 
 	sc->sc_time_ms += sc->sc_delay;
 	sc->sc_delay = 0;
 
+#ifdef EVDEV_SUPPORT
 	epoch_enter_preempt(INPUT_EPOCH, &et);
+#endif
 	hkbd_interrupt(sc);
+#ifdef EVDEV_SUPPORT
 	epoch_exit_preempt(INPUT_EPOCH, &et);
+#endif
 
 	/* Make sure any leftover key events gets read out */
 	taskqueue_enqueue(taskqueue_swi_giant, &sc->sc_task);
@@ -709,11 +715,16 @@ hkbd_intr_callback(void *context, void *data, hid_size_t len)
 				uint32_t key =
 				    hid_get_data(buf + offset, len - offset,
 				    &sc->sc_loc_key[i]);
+				if (key == KEY_ERROR) {
+					DPRINTF("KEY_ERROR\n");
+					sc->sc_ndata = sc->sc_odata;
+					return;	/* ignore */
+				}
 				if (modifiers & MOD_FN)
 					key = hkbd_apple_fn(key);
 				if (sc->sc_flags & HKBD_FLAG_APPLE_SWAP)
 					key = hkbd_apple_swap(key);
-				if (key == KEY_NONE || key == KEY_ERROR || key >= HKBD_NKEYCODE)
+				if (key == KEY_NONE || key >= HKBD_NKEYCODE)
 					continue;
 				/* set key in bitmap */
 				sc->sc_ndata.bitmap[key / 64] |= 1ULL << (key % 64);
@@ -1023,6 +1034,9 @@ static int
 hkbd_detach(device_t dev)
 {
 	struct hkbd_softc *sc = device_get_softc(dev);
+#ifdef EVDEV_SUPPORT
+	struct epoch_tracker et;
+#endif
 	int error;
 
 	SYSCONS_LOCK_ASSERT();
@@ -1045,7 +1059,13 @@ hkbd_detach(device_t dev)
 
 		/* process releasing of all keys */
 		HKBD_LOCK(sc);
+#ifdef EVDEV_SUPPORT
+		epoch_enter_preempt(INPUT_EPOCH, &et);
+#endif
 		hkbd_interrupt(sc);
+#ifdef EVDEV_SUPPORT
+		epoch_exit_preempt(INPUT_EPOCH, &et);
+#endif
 		HKBD_UNLOCK(sc);
 		taskqueue_drain(taskqueue_swi_giant, &sc->sc_task);
 	}

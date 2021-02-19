@@ -1782,7 +1782,7 @@ cxgbe_probe(device_t dev)
 #define T4_CAP (IFCAP_VLAN_HWTAGGING | IFCAP_VLAN_MTU | IFCAP_HWCSUM | \
     IFCAP_VLAN_HWCSUM | IFCAP_TSO | IFCAP_JUMBO_MTU | IFCAP_LRO | \
     IFCAP_VLAN_HWTSO | IFCAP_LINKSTATE | IFCAP_HWCSUM_IPV6 | IFCAP_HWSTATS | \
-    IFCAP_HWRXTSTMP | IFCAP_NOMAP)
+    IFCAP_HWRXTSTMP | IFCAP_MEXTPG)
 #define T4_CAP_ENABLE (T4_CAP)
 
 static int
@@ -2182,8 +2182,8 @@ cxgbe_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 					rxq->iq.flags &= ~IQ_RX_TIMESTAMP;
 			}
 		}
-		if (mask & IFCAP_NOMAP)
-			ifp->if_capenable ^= IFCAP_NOMAP;
+		if (mask & IFCAP_MEXTPG)
+			ifp->if_capenable ^= IFCAP_MEXTPG;
 
 #ifdef KERN_TLS
 		if (mask & IFCAP_TXTLS)
@@ -4754,13 +4754,19 @@ get_params__post_init(struct adapter *sc)
 		sc->vres.key.size = val[1] - val[0] + 1;
 	}
 
-	t4_init_sge_params(sc);
-
 	/*
-	 * We've got the params we wanted to query via the firmware.  Now grab
-	 * some others directly from the chip.
+	 * We've got the params we wanted to query directly from the firmware.
+	 * Grab some others via other means.
 	 */
-	rc = t4_read_chip_settings(sc);
+	t4_init_sge_params(sc);
+	t4_init_tp_params(sc);
+	t4_read_mtu_tbl(sc, sc->params.mtus, NULL);
+	t4_load_mtus(sc, sc->params.mtus, sc->params.a_wnd, sc->params.b_wnd);
+
+	rc = t4_verify_chip_settings(sc);
+	if (rc != 0)
+		return (rc);
+	t4_init_rx_buf_info(sc);
 
 	return (rc);
 }
@@ -10718,6 +10724,7 @@ clear_stats(struct adapter *sc, u_int port_id)
 				txq->txpkts1_wrs = 0;
 				txq->txpkts0_pkts = 0;
 				txq->txpkts1_pkts = 0;
+				txq->txpkts_flush = 0;
 				txq->raw_wrs = 0;
 				txq->vxlan_tso_wrs = 0;
 				txq->vxlan_txcsum = 0;

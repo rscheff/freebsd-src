@@ -278,6 +278,7 @@ typedef int (if_snd_tag_alloc_t)(struct ifnet *, union if_snd_tag_alloc_params *
 typedef int (if_snd_tag_modify_t)(struct m_snd_tag *, union if_snd_tag_modify_params *);
 typedef int (if_snd_tag_query_t)(struct m_snd_tag *, union if_snd_tag_query_params *);
 typedef void (if_snd_tag_free_t)(struct m_snd_tag *);
+typedef struct m_snd_tag *(if_next_send_tag_t)(struct m_snd_tag *);
 typedef void (if_ratelimit_query_t)(struct ifnet *,
     struct if_ratelimit_query_results *);
 typedef int (if_ratelimit_setup_t)(struct ifnet *, uint64_t, uint32_t);
@@ -422,6 +423,7 @@ struct ifnet {
 	if_snd_tag_modify_t *if_snd_tag_modify;
 	if_snd_tag_query_t *if_snd_tag_query;
 	if_snd_tag_free_t *if_snd_tag_free;
+	if_next_send_tag_t *if_next_snd_tag;
 	if_ratelimit_query_t *if_ratelimit_query;
 	if_ratelimit_setup_t *if_ratelimit_setup;
 
@@ -575,6 +577,7 @@ struct ifaddr {
 struct ifaddr *	ifa_alloc(size_t size, int flags);
 void	ifa_free(struct ifaddr *ifa);
 void	ifa_ref(struct ifaddr *ifa);
+int	ifa_try_ref(struct ifaddr *ifa);
 
 /*
  * Multicast address structure.  This is analogous to the ifaddr

@@ -66,6 +66,7 @@ enum vgetstate	{ VGET_NONE, VGET_HOLDCNT, VGET_USECOUNT };
  */
 
 struct namecache;
+struct cache_fpl;
 
 struct vpollinfo {
 	struct	mtx vpi_lock;		/* lock to protect below */
@@ -253,6 +254,8 @@ struct xvnode {
 #define	VI_DOINGINACT	0x0004	/* VOP_INACTIVE is in progress */
 #define	VI_OWEINACT	0x0008	/* Need to call inactive */
 #define	VI_DEFINACT	0x0010	/* deferred inactive */
+#define	VI_FOPENING	0x0020	/* In open, with opening process having the
+				   first right to advlock file */
 
 #define	VV_ROOT		0x0001	/* root of its filesystem */
 #define	VV_ISTTY	0x0002	/* vnode represents a tty */
@@ -268,6 +271,7 @@ struct xvnode {
 #define	VV_MD		0x0800	/* vnode backs the md device */
 #define	VV_FORCEINSMQ	0x1000	/* force the insmntque to succeed */
 #define	VV_READLINK	0x2000	/* fdescfs linux vnode */
+#define	VV_UNREF	0x4000	/* vunref, do not drop lock in inactive() */
 
 #define	VMP_LAZYLIST	0x0001	/* Vnode is on mnt's lazy list */
 
@@ -646,6 +650,10 @@ void	cache_purge(struct vnode *vp);
 void	cache_purge_vgone(struct vnode *vp);
 void	cache_purge_negative(struct vnode *vp);
 void	cache_purgevfs(struct mount *mp);
+char	*cache_symlink_alloc(size_t size, int flags);
+void	cache_symlink_free(char *string, size_t size);
+int	cache_symlink_resolve(struct cache_fpl *fpl, const char *string,
+	    size_t len);
 void	cache_vop_rename(struct vnode *fdvp, struct vnode *fvp, struct vnode *tdvp,
     struct vnode *tvp, struct componentname *fcnp, struct componentname *tcnp);
 void	cache_vop_rmdir(struct vnode *dvp, struct vnode *vp);
@@ -705,7 +713,7 @@ void	vgone(struct vnode *vp);
 void	vhold(struct vnode *);
 void	vholdnz(struct vnode *);
 bool	vhold_smr(struct vnode *);
-void	vinactive(struct vnode *vp);
+int	vinactive(struct vnode *vp);
 int	vinvalbuf(struct vnode *vp, int save, int slpflag, int slptimeo);
 int	vtruncbuf(struct vnode *vp, off_t length, int blksize);
 void	v_inval_buf_range(struct vnode *vp, daddr_t startlbn, daddr_t endlbn,
@@ -900,6 +908,8 @@ int	vop_sigdefer(struct vop_vector *vop, struct vop_generic_args *a);
 #ifdef DEBUG_VFS_LOCKS
 void	vop_fplookup_vexec_debugpre(void *a);
 void	vop_fplookup_vexec_debugpost(void *a, int rc);
+void	vop_fplookup_symlink_debugpre(void *a);
+void	vop_fplookup_symlink_debugpost(void *a, int rc);
 void	vop_strategy_debugpre(void *a);
 void	vop_lock_debugpre(void *a);
 void	vop_lock_debugpost(void *a, int rc);
@@ -910,6 +920,8 @@ void	vop_mkdir_debugpost(void *a, int rc);
 #else
 #define	vop_fplookup_vexec_debugpre(x)		do { } while (0)
 #define	vop_fplookup_vexec_debugpost(x, y)	do { } while (0)
+#define	vop_fplookup_symlink_debugpre(x)	do { } while (0)
+#define	vop_fplookup_symlink_debugpost(x, y)	do { } while (0)
 #define	vop_strategy_debugpre(x)		do { } while (0)
 #define	vop_lock_debugpre(x)			do { } while (0)
 #define	vop_lock_debugpost(x, y)		do { } while (0)
@@ -1103,7 +1115,7 @@ int vn_dir_check_exec(struct vnode *vp, struct componentname *cnp);
 	struct vnode *_vp = (vp);		\
 						\
 	VFS_SMR_ASSERT_ENTERED();		\
-	atomic_load_ptr(&(_vp)->v_data);	\
+	atomic_load_consume_ptr(&(_vp)->v_data);\
 })
 
 #endif /* _KERNEL */

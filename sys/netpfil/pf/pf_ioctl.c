@@ -213,8 +213,8 @@ static pfil_return_t pf_check6_out(struct mbuf **m, struct ifnet *ifp,
     int flags, void *ruleset __unused, struct inpcb *inp);
 #endif
 
-static int		hook_pf(void);
-static int		dehook_pf(void);
+static void		hook_pf(void);
+static void		dehook_pf(void);
 static int		shutdown_pf(void);
 static int		pf_load(void);
 static void		pf_unload(void);
@@ -1557,9 +1557,51 @@ pf_krule_to_rule(const struct pf_krule *krule, struct pf_rule *rule)
 	rule->u_src_nodes = counter_u64_fetch(krule->src_nodes);
 }
 
-static void
+static int
+pf_check_rule_addr(const struct pf_rule_addr *addr)
+{
+
+	switch (addr->addr.type) {
+	case PF_ADDR_ADDRMASK:
+	case PF_ADDR_NOROUTE:
+	case PF_ADDR_DYNIFTL:
+	case PF_ADDR_TABLE:
+	case PF_ADDR_URPFFAILED:
+	case PF_ADDR_RANGE:
+		break;
+	default:
+		return (EINVAL);
+	}
+
+	if (addr->addr.p.dyn != NULL) {
+		return (EINVAL);
+	}
+
+	return (0);
+}
+
+static int
 pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 {
+	int ret;
+
+#ifndef INET
+	if (rule->af == AF_INET) {
+		return (EAFNOSUPPORT);
+	}
+#endif /* INET */
+#ifndef INET6
+	if (rule->af == AF_INET6) {
+		return (EAFNOSUPPORT);
+	}
+#endif /* INET6 */
+
+	ret = pf_check_rule_addr(&rule->src);
+	if (ret != 0)
+		return (ret);
+	ret = pf_check_rule_addr(&rule->dst);
+	if (ret != 0)
+		return (ret);
 
 	bzero(krule, sizeof(*krule));
 
@@ -1581,7 +1623,7 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	/* Don't allow userspace to set evaulations, packets or bytes. */
 	/* kif, anchor, overload_tbl are not copied over. */
 
-	krule->os_fingerprint = krule->os_fingerprint;
+	krule->os_fingerprint = rule->os_fingerprint;
 
 	krule->rtableid = rule->rtableid;
 	bcopy(rule->timeout, krule->timeout, sizeof(krule->timeout));
@@ -1641,6 +1683,8 @@ pf_rule_to_krule(const struct pf_rule *rule, struct pf_krule *krule)
 	krule->set_prio[1] = rule->set_prio[1];
 
 	bcopy(&rule->divert, &krule->divert, sizeof(krule->divert));
+
+	return (0);
 }
 
 static int
@@ -1770,12 +1814,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 		else {
 			int cpu;
 
-			error = hook_pf();
-			if (error) {
-				DPFPRINTF(PF_DEBUG_MISC,
-				    ("pf: pfil registration failed\n"));
-				break;
-			}
+			hook_pf();
 			V_pf_status.running = 1;
 			V_pf_status.since = time_second;
 
@@ -1792,12 +1831,7 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 			error = ENOENT;
 		else {
 			V_pf_status.running = 0;
-			error = dehook_pf();
-			if (error) {
-				V_pf_status.running = 1;
-				DPFPRINTF(PF_DEBUG_MISC,
-				    ("pf: pfil unregistration failed\n"));
-			}
+			dehook_pf();
 			V_pf_status.since = time_second;
 			DPFPRINTF(PF_DEBUG_MISC, ("pf: stopped\n"));
 		}
@@ -1815,26 +1849,13 @@ pfioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags, struct thread *td
 			error = EINVAL;
 			break;
 		}
-		if (pr->rule.src.addr.p.dyn != NULL ||
-		    pr->rule.dst.addr.p.dyn != NULL) {
-			error = EINVAL;
-			break;
-		}
-#ifndef INET
-		if (pr->rule.af == AF_INET) {
-			error = EAFNOSUPPORT;
-			break;
-		}
-#endif /* INET */
-#ifndef INET6
-		if (pr->rule.af == AF_INET6) {
-			error = EAFNOSUPPORT;
-			break;
-		}
-#endif /* INET6 */
 
 		rule = malloc(sizeof(*rule), M_PFRULE, M_WAITOK);
-		pf_rule_to_krule(&pr->rule, rule);
+		error = pf_rule_to_krule(&pr->rule, rule);
+		if (error != 0) {
+			free(rule, M_PFRULE);
+			break;
+		}
 
 		if (rule->ifname[0])
 			kif = pf_kkif_create(M_WAITOK);
@@ -2090,20 +2111,12 @@ DIOCADDRULE_error:
 		}
 
 		if (pcr->action != PF_CHANGE_REMOVE) {
-#ifndef INET
-			if (pcr->rule.af == AF_INET) {
-				error = EAFNOSUPPORT;
-				break;
-			}
-#endif /* INET */
-#ifndef INET6
-			if (pcr->rule.af == AF_INET6) {
-				error = EAFNOSUPPORT;
-				break;
-			}
-#endif /* INET6 */
 			newrule = malloc(sizeof(*newrule), M_PFRULE, M_WAITOK);
-			pf_rule_to_krule(&pcr->rule, newrule);
+			error = pf_rule_to_krule(&pcr->rule, newrule);
+			if (error != 0) {
+				free(newrule, M_PFRULE);
+				break;
+			}
 
 			if (newrule->ifname[0])
 				kif = pf_kkif_create(M_WAITOK);
@@ -3363,36 +3376,35 @@ DIOCCHANGEADDR_error:
 		struct pfioc_table *io = (struct pfioc_table *)addr;
 		struct pfr_table *pfrts;
 		size_t totlen;
-		int n;
 
 		if (io->pfrio_esize != sizeof(struct pfr_table)) {
 			error = ENODEV;
 			break;
 		}
 
-		PF_RULES_WLOCK();
-		n = pfr_table_count(&io->pfrio_table, io->pfrio_flags);
-		if (n < 0) {
-			PF_RULES_WUNLOCK();
-			error = EINVAL;
+		if (io->pfrio_size < 0 || io->pfrio_size > pf_ioctl_maxcount ||
+		    WOULD_OVERFLOW(io->pfrio_size, sizeof(struct pfr_table))) {
+			/* We used to count tables and use the minimum required
+			 * size, so we didn't fail on overly large requests.
+			 * Keep doing so. */
+			io->pfrio_size = pf_ioctl_maxcount;
 			break;
 		}
-		io->pfrio_size = min(io->pfrio_size, n);
 
 		totlen = io->pfrio_size * sizeof(struct pfr_table);
 		pfrts = mallocarray(io->pfrio_size, sizeof(struct pfr_table),
 		    M_TEMP, M_NOWAIT);
 		if (pfrts == NULL) {
 			error = ENOMEM;
-			PF_RULES_WUNLOCK();
 			break;
 		}
 		error = copyin(io->pfrio_buffer, pfrts, totlen);
 		if (error) {
 			free(pfrts, M_TEMP);
-			PF_RULES_WUNLOCK();
 			break;
 		}
+
+		PF_RULES_WLOCK();
 		error = pfr_clr_tstats(pfrts, io->pfrio_size,
 		    &io->pfrio_nzero, io->pfrio_flags | PFR_FLAG_USERIOCTL);
 		PF_RULES_WUNLOCK();
@@ -4543,14 +4555,15 @@ VNET_DEFINE_STATIC(pfil_hook_t, pf_ip6_out_hook);
 #define	V_pf_ip6_out_hook	VNET(pf_ip6_out_hook)
 #endif
 
-static int
+static void
 hook_pf(void)
 {
 	struct pfil_hook_args pha;
 	struct pfil_link_args pla;
+	int ret;
 
 	if (V_pf_pfil_hooked)
-		return (0);
+		return;
 
 	pha.pa_version = PFIL_VERSION;
 	pha.pa_modname = "pf";
@@ -4567,7 +4580,8 @@ hook_pf(void)
 	pla.pa_flags = PFIL_IN | PFIL_HEADPTR | PFIL_HOOKPTR;
 	pla.pa_head = V_inet_pfil_head;
 	pla.pa_hook = V_pf_ip4_in_hook;
-	(void)pfil_link(&pla);
+	ret = pfil_link(&pla);
+	MPASS(ret == 0);
 	pha.pa_func = pf_check_out;
 	pha.pa_flags = PFIL_OUT;
 	pha.pa_rulname = "default-out";
@@ -4575,7 +4589,8 @@ hook_pf(void)
 	pla.pa_flags = PFIL_OUT | PFIL_HEADPTR | PFIL_HOOKPTR;
 	pla.pa_head = V_inet_pfil_head;
 	pla.pa_hook = V_pf_ip4_out_hook;
-	(void)pfil_link(&pla);
+	ret = pfil_link(&pla);
+	MPASS(ret == 0);
 #endif
 #ifdef INET6
 	pha.pa_type = PFIL_TYPE_IP6;
@@ -4586,7 +4601,8 @@ hook_pf(void)
 	pla.pa_flags = PFIL_IN | PFIL_HEADPTR | PFIL_HOOKPTR;
 	pla.pa_head = V_inet6_pfil_head;
 	pla.pa_hook = V_pf_ip6_in_hook;
-	(void)pfil_link(&pla);
+	ret = pfil_link(&pla);
+	MPASS(ret == 0);
 	pha.pa_func = pf_check6_out;
 	pha.pa_rulname = "default-out6";
 	pha.pa_flags = PFIL_OUT;
@@ -4594,19 +4610,19 @@ hook_pf(void)
 	pla.pa_flags = PFIL_OUT | PFIL_HEADPTR | PFIL_HOOKPTR;
 	pla.pa_head = V_inet6_pfil_head;
 	pla.pa_hook = V_pf_ip6_out_hook;
-	(void)pfil_link(&pla);
+	ret = pfil_link(&pla);
+	MPASS(ret == 0);
 #endif
 
 	V_pf_pfil_hooked = 1;
-	return (0);
 }
 
-static int
+static void
 dehook_pf(void)
 {
 
 	if (V_pf_pfil_hooked == 0)
-		return (0);
+		return;
 
 #ifdef INET
 	pfil_remove_hook(V_pf_ip4_in_hook);
@@ -4618,7 +4634,6 @@ dehook_pf(void)
 #endif
 
 	V_pf_pfil_hooked = 0;
-	return (0);
 }
 
 static void
@@ -4666,20 +4681,10 @@ pf_load(void)
 static void
 pf_unload_vnet(void)
 {
-	int error;
 
 	V_pf_vnet_active = 0;
 	V_pf_status.running = 0;
-	error = dehook_pf();
-	if (error) {
-		/*
-		 * Should not happen!
-		 * XXX Due to error code ESRCH, kldunload will show
-		 * a message like 'No such process'.
-		 */
-		printf("%s : pfil unregisteration fail\n", __FUNCTION__);
-		return;
-	}
+	dehook_pf();
 
 	PF_RULES_WLOCK();
 	shutdown_pf();

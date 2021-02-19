@@ -212,6 +212,22 @@ static counter_u64_t defrags;
 SYSCTL_COUNTER_U64(_hw_cxgbe, OID_AUTO, defrags, CTLFLAG_RD, &defrags,
     "Number of mbuf defrags performed");
 
+static int t4_tx_coalesce = 1;
+SYSCTL_INT(_hw_cxgbe, OID_AUTO, tx_coalesce, CTLFLAG_RWTUN, &t4_tx_coalesce, 0,
+    "tx coalescing allowed");
+
+/*
+ * The driver will make aggressive attempts at tx coalescing if it sees these
+ * many packets eligible for coalescing in quick succession, with no more than
+ * the specified gap in between the eth_tx calls that delivered the packets.
+ */
+static int t4_tx_coalesce_pkts = 32;
+SYSCTL_INT(_hw_cxgbe, OID_AUTO, tx_coalesce_pkts, CTLFLAG_RWTUN,
+    &t4_tx_coalesce_pkts, 0,
+    "# of consecutive packets (1 - 255) that will trigger tx coalescing");
+static int t4_tx_coalesce_gap = 5;
+SYSCTL_INT(_hw_cxgbe, OID_AUTO, tx_coalesce_gap, CTLFLAG_RWTUN,
+    &t4_tx_coalesce_gap, 0, "tx gap (in microseconds)");
 
 static int service_iq(struct sge_iq *, int);
 static int service_iq_fl(struct sge_iq *, int);
@@ -810,16 +826,15 @@ hwsz_ok(struct adapter *sc, int hwsz)
 }
 
 /*
- * XXX: driver really should be able to deal with unexpected settings.
+ * Initialize the rx buffer sizes and figure out which zones the buffers will
+ * be allocated from.
  */
-int
-t4_read_chip_settings(struct adapter *sc)
+void
+t4_init_rx_buf_info(struct adapter *sc)
 {
 	struct sge *s = &sc->sge;
 	struct sge_params *sp = &sc->params.sge;
-	int i, j, n, rc = 0;
-	uint32_t m, v, r;
-	uint16_t indsz = min(RX_COPY_THRESHOLD - 1, M_INDICATESIZE);
+	int i, j, n;
 	static int sw_buf_sizes[] = {	/* Sorted by size */
 		MCLBYTES,
 #if MJUMPAGESIZE != MCLBYTES
@@ -829,23 +844,6 @@ t4_read_chip_settings(struct adapter *sc)
 		MJUM16BYTES
 	};
 	struct rx_buf_info *rxb;
-
-	m = F_RXPKTCPLMODE;
-	v = F_RXPKTCPLMODE;
-	r = sc->params.sge.sge_control;
-	if ((r & m) != v) {
-		device_printf(sc->dev, "invalid SGE_CONTROL(0x%x)\n", r);
-		rc = EINVAL;
-	}
-
-	/*
-	 * If this changes then every single use of PAGE_SHIFT in the driver
-	 * needs to be carefully reviewed for PAGE_SHIFT vs sp->page_shift.
-	 */
-	if (sp->page_shift != PAGE_SHIFT) {
-		device_printf(sc->dev, "invalid SGE_HOST_PAGE_SIZE(0x%x)\n", r);
-		rc = EINVAL;
-	}
 
 	s->safe_zidx = -1;
 	rxb = &s->rx_buf_info[0];
@@ -891,6 +889,36 @@ t4_read_chip_settings(struct adapter *sc)
 		if (s->safe_zidx == -1 && rxb->size1 == safest_rx_cluster)
 			s->safe_zidx = i;
 	}
+}
+
+/*
+ * Verify some basic SGE settings for the PF and VF driver, and other
+ * miscellaneous settings for the PF driver.
+ */
+int
+t4_verify_chip_settings(struct adapter *sc)
+{
+	struct sge_params *sp = &sc->params.sge;
+	uint32_t m, v, r;
+	int rc = 0;
+	const uint16_t indsz = min(RX_COPY_THRESHOLD - 1, M_INDICATESIZE);
+
+	m = F_RXPKTCPLMODE;
+	v = F_RXPKTCPLMODE;
+	r = sp->sge_control;
+	if ((r & m) != v) {
+		device_printf(sc->dev, "invalid SGE_CONTROL(0x%x)\n", r);
+		rc = EINVAL;
+	}
+
+	/*
+	 * If this changes then every single use of PAGE_SHIFT in the driver
+	 * needs to be carefully reviewed for PAGE_SHIFT vs sp->page_shift.
+	 */
+	if (sp->page_shift != PAGE_SHIFT) {
+		device_printf(sc->dev, "invalid SGE_HOST_PAGE_SIZE(0x%x)\n", r);
+		rc = EINVAL;
+	}
 
 	if (sc->flags & IS_VF)
 		return (0);
@@ -899,14 +927,16 @@ t4_read_chip_settings(struct adapter *sc)
 	r = t4_read_reg(sc, A_ULP_RX_TDDP_PSZ);
 	if (r != v) {
 		device_printf(sc->dev, "invalid ULP_RX_TDDP_PSZ(0x%x)\n", r);
-		rc = EINVAL;
+		if (sc->vres.ddp.size != 0)
+			rc = EINVAL;
 	}
 
 	m = v = F_TDDPTAGTCB;
 	r = t4_read_reg(sc, A_ULP_RX_CTL);
 	if ((r & m) != v) {
 		device_printf(sc->dev, "invalid ULP_RX_CTL(0x%x)\n", r);
-		rc = EINVAL;
+		if (sc->vres.ddp.size != 0)
+			rc = EINVAL;
 	}
 
 	m = V_INDICATESIZE(M_INDICATESIZE) | F_REARMDDPOFFSET |
@@ -915,13 +945,9 @@ t4_read_chip_settings(struct adapter *sc)
 	r = t4_read_reg(sc, A_TP_PARA_REG5);
 	if ((r & m) != v) {
 		device_printf(sc->dev, "invalid TP_PARA_REG5(0x%x)\n", r);
-		rc = EINVAL;
+		if (sc->vres.ddp.size != 0)
+			rc = EINVAL;
 	}
-
-	t4_init_tp_params(sc, 1);
-
-	t4_read_mtu_tbl(sc, sc->params.mtus, NULL);
-	t4_load_mtus(sc, sc->params.mtus, sc->params.a_wnd, sc->params.b_wnd);
 
 	return (rc);
 }
@@ -3120,6 +3146,26 @@ set_txupdate_flags(struct sge_txq *txq, u_int avail,
 	}
 }
 
+#if defined(__i386__) || defined(__amd64__)
+extern uint64_t tsc_freq;
+#endif
+
+static inline bool
+record_eth_tx_time(struct sge_txq *txq)
+{
+	const uint64_t cycles = get_cyclecount();
+	const uint64_t last_tx = txq->last_tx;
+#if defined(__i386__) || defined(__amd64__)
+	const uint64_t itg = tsc_freq * t4_tx_coalesce_gap / 1000000;
+#else
+	const uint64_t itg = 0;
+#endif
+
+	MPASS(cycles >= last_tx);
+	txq->last_tx = cycles;
+	return (cycles - last_tx < itg);
+}
+
 /*
  * r->items[cidx] to r->items[pidx], with a wraparound at r->size, are ready to
  * be consumed.  Return the actual number consumed.  0 indicates a stall.
@@ -3137,10 +3183,11 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx, bool *coalescing)
 	u_int n, avail, dbdiff;		/* # of hardware descriptors */
 	int i, rc;
 	struct mbuf *m0;
-	bool snd;
+	bool snd, recent_tx;
 	void *wr;	/* start of the last WR written to the ring */
 
 	TXQ_LOCK_ASSERT_OWNED(txq);
+	recent_tx = record_eth_tx_time(txq);
 
 	remaining = IDXDIFF(pidx, cidx, r->size);
 	if (__predict_false(discard_tx(eq))) {
@@ -3159,17 +3206,15 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx, bool *coalescing)
 	}
 
 	/* How many hardware descriptors do we have readily available. */
-	if (eq->pidx == eq->cidx) {
+	if (eq->pidx == eq->cidx)
 		avail = eq->sidx - 1;
-		if (txp->score++ >= 5)
-			txp->score = 5;	/* tx is completely idle, reset. */
-	} else
+	else
 		avail = IDXDIFF(eq->cidx, eq->pidx, eq->sidx) - 1;
 
 	total = 0;
 	if (remaining == 0) {
-		if (txp->score-- == 1)	/* egr_update had to drain txpkts */
-			txp->score = 1;
+		txp->score = 0;
+		txq->txpkts_flush++;
 		goto send_txpkts;
 	}
 
@@ -3183,7 +3228,17 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx, bool *coalescing)
 		if (avail < 2 * SGE_MAX_WR_NDESC)
 			avail += reclaim_tx_descs(txq, 64);
 
-		if (txp->npkt > 0 || remaining > 1 || txp->score > 3 ||
+		if (t4_tx_coalesce == 0 && txp->npkt == 0)
+			goto skip_coalescing;
+		if (cannot_use_txpkts(m0))
+			txp->score = 0;
+		else if (recent_tx) {
+			if (++txp->score == 0)
+				txp->score = UINT8_MAX;
+		} else
+			txp->score = 1;
+		if (txp->npkt > 0 || remaining > 1 ||
+		    txp->score >= t4_tx_coalesce_pkts ||
 		    atomic_load_int(&txq->eq.equiq) != 0) {
 			if (vi->flags & TX_USES_VM_WR)
 				rc = add_to_txpkts_vf(sc, txq, m0, avail, &snd);
@@ -3198,8 +3253,6 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx, bool *coalescing)
 			for (i = 0; i < txp->npkt; i++)
 				ETHER_BPF_MTAP(ifp, txp->mb[i]);
 			if (txp->npkt > 1) {
-				if (txp->score++ >= 10)
-					txp->score = 10;
 				MPASS(avail >= tx_len16_to_desc(txp->len16));
 				if (vi->flags & TX_USES_VM_WR)
 					n = write_txpkts_vm_wr(sc, txq);
@@ -3239,7 +3292,7 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx, bool *coalescing)
 
 		MPASS(rc != 0 && rc != EAGAIN);
 		MPASS(txp->npkt == 0);
-
+skip_coalescing:
 		n = tx_len16_to_desc(mbuf_len16(m0));
 		if (__predict_false(avail < n)) {
 			avail += reclaim_tx_descs(txq, min(n, 32));
@@ -4304,7 +4357,6 @@ alloc_txq(struct vi_info *vi, struct sge_txq *txq, int idx,
 	    M_ZERO | M_WAITOK);
 
 	txp = &txq->txp;
-	txp->score = 5;
 	MPASS(nitems(txp->mb) >= sc->params.max_pkts_per_eth_tx_pkts_wr);
 	txq->txp.max_npkt = min(nitems(txp->mb),
 	    sc->params.max_pkts_per_eth_tx_pkts_wr);
@@ -4363,6 +4415,9 @@ alloc_txq(struct vi_info *vi, struct sge_txq *txq, int idx,
 	SYSCTL_ADD_UQUAD(&vi->ctx, children, OID_AUTO, "txpkts1_pkts",
 	    CTLFLAG_RD, &txq->txpkts1_pkts,
 	    "# of frames tx'd using type1 txpkts work requests");
+	SYSCTL_ADD_UQUAD(&vi->ctx, children, OID_AUTO, "txpkts_flush",
+	    CTLFLAG_RD, &txq->txpkts_flush,
+	    "# of times txpkts had to be flushed out by an egress-update");
 	SYSCTL_ADD_UQUAD(&vi->ctx, children, OID_AUTO, "raw_wrs", CTLFLAG_RD,
 	    &txq->raw_wrs, "# of raw work requests (non-packets)");
 	SYSCTL_ADD_UQUAD(&vi->ctx, children, OID_AUTO, "vxlan_tso_wrs",
@@ -4479,7 +4534,7 @@ refill_fl(struct adapter *sc, struct sge_fl *fl, int n)
 	caddr_t cl;
 	struct rx_buf_info *rxb;
 	struct cluster_metadata *clm;
-	uint16_t max_pidx;
+	uint16_t max_pidx, zidx = fl->zidx;
 	uint16_t hw_cidx = fl->hw_cidx;		/* stable snapshot */
 
 	FL_LOCK_ASSERT_OWNED(fl);
@@ -4495,6 +4550,7 @@ refill_fl(struct adapter *sc, struct sge_fl *fl, int n)
 
 	d = &fl->desc[fl->pidx];
 	sd = &fl->sdesc[fl->pidx];
+	rxb = &sc->sge.rx_buf_info[zidx];
 
 	while (n > 0) {
 
@@ -4528,11 +4584,11 @@ refill_fl(struct adapter *sc, struct sge_fl *fl, int n)
 			sd->cl = NULL;	/* gave up my reference */
 		}
 		MPASS(sd->cl == NULL);
-		rxb = &sc->sge.rx_buf_info[fl->zidx];
 		cl = uma_zalloc(rxb->zone, M_NOWAIT);
 		if (__predict_false(cl == NULL)) {
-			if (fl->zidx != fl->safe_zidx) {
-				rxb = &sc->sge.rx_buf_info[fl->safe_zidx];
+			if (zidx != fl->safe_zidx) {
+				zidx = fl->safe_zidx;
+				rxb = &sc->sge.rx_buf_info[zidx];
 				cl = uma_zalloc(rxb->zone, M_NOWAIT);
 			}
 			if (cl == NULL)
@@ -4543,7 +4599,7 @@ refill_fl(struct adapter *sc, struct sge_fl *fl, int n)
 
 		pa = pmap_kextract((vm_offset_t)cl);
 		sd->cl = cl;
-		sd->zidx = fl->zidx;
+		sd->zidx = zidx;
 
 		if (fl->flags & FL_BUF_PACKING) {
 			*d = htobe64(pa | rxb->hwidx2);

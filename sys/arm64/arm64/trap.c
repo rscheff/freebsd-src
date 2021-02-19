@@ -474,6 +474,7 @@ do_el0_sync(struct thread *td, struct trapframe *frame)
 	case EXCP_UNKNOWN:
 	case EXCP_DATA_ABORT_L:
 	case EXCP_DATA_ABORT:
+	case EXCP_WATCHPT_EL0:
 		far = READ_SPECIALREG(far_el1);
 		break;
 	}
@@ -534,9 +535,20 @@ do_el0_sync(struct thread *td, struct trapframe *frame)
 		    exception);
 		userret(td, frame);
 		break;
-	case EXCP_MSR:
-		call_trapsignal(td, SIGILL, ILL_PRVOPC, (void *)frame->tf_elr,
+	case EXCP_WATCHPT_EL0:
+		call_trapsignal(td, SIGTRAP, TRAP_TRACE, (void *)far,
 		    exception);
+		userret(td, frame);
+		break;
+	case EXCP_MSR:
+		/*
+		 * The CPU can raise EXCP_MSR when userspace executes an mrs
+		 * instruction to access a special register userspace doesn't
+		 * have access to.
+		 */
+		if (!undef_insn(0, frame))
+			call_trapsignal(td, SIGILL, ILL_PRVOPC,
+			    (void *)frame->tf_elr, exception);
 		userret(td, frame);
 		break;
 	case EXCP_SOFTSTP_EL0:

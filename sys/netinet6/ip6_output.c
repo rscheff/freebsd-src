@@ -225,7 +225,7 @@ ip6_output_delayed_csum(struct mbuf *m, struct ifnet *ifp, int csum_flags,
 #if defined(SCTP) || defined(SCTP_SUPPORT)
 	    (csum_flags & CSUM_SCTP_IPV6) ||
 #endif
-	    (!frag && (ifp->if_capenable & IFCAP_NOMAP) == 0)) {
+	    (!frag && (ifp->if_capenable & IFCAP_MEXTPG) == 0)) {
 		m = mb_unmapped_to_ext(m);
 		if (m == NULL) {
 			if (frag)
@@ -1177,7 +1177,6 @@ passout:
 			counter_u64_add(ia6->ia_ifa.ifa_opackets, 1);
 			counter_u64_add(ia6->ia_ifa.ifa_obytes,
 			    m->m_pkthdr.len);
-			ifa_free(&ia6->ia_ifa);
 		}
 		error = ip6_output_send(inp, ifp, origifp, m, dst, ro,
 		    (flags & IP_NO_SND_TAG_RL) ? false : true);

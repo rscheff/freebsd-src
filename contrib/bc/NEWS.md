@@ -1,5 +1,60 @@
 # News
 
+## 3.3.0
+
+This is a production release that changes one behavior and fixes documentation
+bugs.
+
+The changed behavior is the treatment of `-e` and `-f` when given through
+`BC_ENV_ARGS` or `DC_ENV_ARGS`. Now `bc` and `dc` do not exit when those options
+(or their equivalents) are given through those environment variables. However,
+`bc` and `dc` still exit when they or their equivalents are given on the
+command-line.
+
+## 3.2.7
+
+This is a production release that removes a small non-portable shell operation
+in `configure.sh`. This problem was only noticed on OpenBSD, not FreeBSD or
+Linux.
+
+Non-OpenBSD users do ***NOT*** need to upgrade, although NetBSD users may also
+need to upgrade.
+
+## 3.2.6
+
+This is a production release that fixes the build on FreeBSD.
+
+There was a syntax error in `configure.sh` that the Linux shell did not catch,
+and FreeBSD depends on the existence of `tests/all.sh`.
+
+All users that already upgraded to `3.2.5` should update to this release, with
+my apologies for the poor release of `3.2.5`. Other users should skip `3.2.5` in
+favor of this version.
+
+## 3.2.5
+
+This is a production release that fixes several bugs and adds a couple small
+things.
+
+The two most important bugs were bugs that causes `dc` to access memory
+out-of-bounds (crash in debug builds). This was found by upgrading to `afl++`
+from `afl`. Both were caused by a failure to distinguish between the same two
+cases.
+
+Another bug was the failure to put all of the licenses in the `LICENSE.md` file.
+
+Third, some warnings by `scan-build` were found and eliminated. This needed one
+big change: `bc` and `dc` now bail out as fast as possible on fatal errors
+instead of unwinding the stack.
+
+Fourth, the pseudo-random number now attempts to seed itself with `/dev/random`
+if `/dev/urandom` fails.
+
+Finally, this release has a few quality-of-life changes to the build system. The
+usage should not change at all; the only thing that changed was making sure the
+`Makefile.in` was written to rebuild properly when headers changed and to not
+rebuild when not necessary.
+
 ## 3.2.4
 
 This is a production release that fixes a warning on `gcc` 6 or older, which

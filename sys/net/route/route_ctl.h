@@ -52,6 +52,7 @@ int rib_change_route(uint32_t fibnum, struct rt_addrinfo *info,
   struct rib_cmd_info *rc);
 int rib_action(uint32_t fibnum, int action, struct rt_addrinfo *info,
   struct rib_cmd_info *rc);
+int rib_handle_ifaddr_info(uint32_t fibnum, int cmd, struct rt_addrinfo *info);
 
 typedef void route_notification_t(struct rib_cmd_info *rc, void *);
 void rib_decompose_notification(struct rib_cmd_info *rc,
@@ -74,6 +75,8 @@ void rib_walk_ext(uint32_t fibnum, int af, bool wlock, rib_walktree_f_t *wa_f,
     rib_walk_hook_f_t *hook_f, void *arg);
 void rib_walk_ext_internal(struct rib_head *rnh, bool wlock,
     rib_walktree_f_t *wa_f, rib_walk_hook_f_t *hook_f, void *arg);
+void rib_walk_ext_locked(struct rib_head *rnh, rib_walktree_f_t *wa_f,
+    rib_walk_hook_f_t *hook_f, void *arg);
 
 void rib_walk_del(u_int fibnum, int family, rib_filter_f_t *filter_f,
     void *arg, bool report);
@@ -143,6 +146,9 @@ struct rib_subscription *rib_subscribe(uint32_t fibnum, int family,
 struct rib_subscription *rib_subscribe_internal(struct rib_head *rnh,
     rib_subscription_cb_t *f, void *arg, enum rib_subscription_type type,
     bool waitok);
+struct rib_subscription *rib_subscribe_locked(struct rib_head *rnh,
+    rib_subscription_cb_t *f, void *arg, enum rib_subscription_type type);
 void rib_unsibscribe(struct rib_subscription *rs);
+void rib_unsibscribe_locked(struct rib_subscription *rs);
 
 #endif

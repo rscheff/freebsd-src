@@ -309,6 +309,8 @@ device		cpufreq
 # vmx:	VMware VMXNET3 Ethernet (BSD open source)
 # wpi:	Intel 3945ABG Wireless LAN controller
 #	Requires the wpi firmware module
+# axp: AMD EPYC integrated NIC
+#   Requires the miibus module
 
 device		bxe		# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
 options 	ED_3C503
@@ -683,11 +685,6 @@ options 	TIMER_FREQ=((14318182+6)/12)
 options 	VM_KMEM_SIZE
 options 	VM_KMEM_SIZE_MAX
 options 	VM_KMEM_SIZE_SCALE
-
-# Enable NDIS binary driver support
-options 	NDISAPI
-device		ndis
-
 
 # GCOV (code coverage) support
 

@@ -36,6 +36,31 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20210201: bump shared libraries which link against ncurses
+OLD_LIBS+=lib/libedit.so.7
+OLD_LIBS+=usr/lib/libdialog.so.8
+OLD_LIBS+=usr/lib/libdpv.so.1
+OLD_LIBS+=usr/lib/libform.so.5
+OLD_LIBS+=usr/lib/libformw.so.5
+OLD_LIBS+=usr/lib/libmenu.so.5
+OLD_LIBS+=usr/lib/libmenuw.so.5
+OLD_LIBS+=usr/lib/libpanel.so.5
+OLD_LIBS+=usr/lib/libpanelw.so.5
+
+# 20210125: ndis driver support removed
+OLD_FILES+=usr/sbin/ndiscvt
+OLD_FILES+=usr/sbin/ndisgen
+OLD_FILES+=usr/share/man/man4/ndis.4.gz
+OLD_FILES+=usr/share/man/man4/if_ndis.4.gz
+OLD_FILES+=usr/share/man/man8/ndiscvt.8.gz
+OLD_FILES+=usr/share/man/man8/ndisgen.8.gz
+OLD_FILES+=usr/share/misc/windrv_stub.c
+
+# 20210116: if_wl_wavelan.h removed
+.if ${TARGET_ARCH} == "i386"
+OLD_FILES+=usr/include/machine/if_wl_wavelan.h
+.endif
+
 # 20210108: retire cmx, ng_bt3c, wi drivers
 OLD_FILES+=usr/include/dev/wi/if_wireg.h
 OLD_FILES+=usr/include/dev/wi/if_wavelan_ieee.h
@@ -265,6 +290,7 @@ OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-armhf.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-i386.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-powerpc.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-powerpc64.a
+OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-powerpc64le.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.profile-x86_64.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.safestack-aarch64.a
 OLD_FILES+=usr/lib/clang/11.0.0/lib/freebsd/libclang_rt.safestack-i386.a

@@ -561,7 +561,7 @@ struct txpkts {
 	uint8_t wr_type;	/* type 0 or type 1 */
 	uint8_t npkt;		/* # of packets in this work request */
 	uint8_t len16;		/* # of 16B pieces used by this work request */
-	uint8_t score;		/* 1-10. coalescing attempted if score > 3 */
+	uint8_t score;
 	uint8_t max_npkt;	/* maximum number of packets allowed */
 	uint16_t plen;		/* total payload (sum of all packets) */
 
@@ -584,6 +584,7 @@ struct sge_txq {
 	struct sglist *gl;
 	__be32 cpl_ctrl0;	/* for convenience */
 	int tc_idx;		/* traffic class */
+	uint64_t last_tx;	/* cycle count when eth_tx was last called */
 	struct txpkts txp;
 
 	struct task tx_reclaim_task;
@@ -599,6 +600,7 @@ struct sge_txq {
 	uint64_t txpkts1_wrs;	/* # of type1 coalesced tx work requests */
 	uint64_t txpkts0_pkts;	/* # of frames in type0 coalesced tx WRs */
 	uint64_t txpkts1_pkts;	/* # of frames in type1 coalesced tx WRs */
+	uint64_t txpkts_flush;	/* # of times txp had to be sent by tx_update */
 	uint64_t raw_wrs;	/* # of raw work requests (alloc_wr_mbuf) */
 	uint64_t vxlan_tso_wrs;	/* # of VXLAN TSO work requests */
 	uint64_t vxlan_txcsum;
@@ -1260,7 +1262,8 @@ void t4_sge_modload(void);
 void t4_sge_modunload(void);
 uint64_t t4_sge_extfree_refs(void);
 void t4_tweak_chip_settings(struct adapter *);
-int t4_read_chip_settings(struct adapter *);
+int t4_verify_chip_settings(struct adapter *);
+void t4_init_rx_buf_info(struct adapter *);
 int t4_create_dma_tag(struct adapter *);
 void t4_sge_sysctls(struct adapter *, struct sysctl_ctx_list *,
     struct sysctl_oid_list *);

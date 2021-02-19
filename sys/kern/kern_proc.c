@@ -2088,12 +2088,16 @@ sysctl_kern_proc_args(SYSCTL_HANDLER_ARGS)
 	if (namelen != 1)
 		return (EINVAL);
 
+	p = curproc;
 	pid = (pid_t)name[0];
+	if (pid == -1) {
+		pid = p->p_pid;
+	}
+
 	/*
 	 * If the query is for this process and it is single-threaded, there
 	 * is nobody to modify pargs, thus we can just read.
 	 */
-	p = curproc;
 	if (pid == p->p_pid && p->p_numthreads == 1 && req->newptr == NULL &&
 	    (pa = p->p_args) != NULL)
 		return (SYSCTL_OUT(req, pa->ar_args, pa->ar_length));
@@ -2510,7 +2514,7 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 	vm_offset_t addr;
 	unsigned int last_timestamp;
 	int error;
-	bool super;
+	bool guard, super;
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 
@@ -2580,6 +2584,8 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 		if (entry->eflags & MAP_ENTRY_USER_WIRED)
 			kve->kve_flags |= KVME_FLAG_USER_WIRED;
 
+		guard = (entry->eflags & MAP_ENTRY_GUARD) != 0;
+
 		last_timestamp = map->timestamp;
 		vm_map_unlock_read(map);
 
@@ -2616,7 +2622,8 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 				vput(vp);
 			}
 		} else {
-			kve->kve_type = KVME_TYPE_NONE;
+			kve->kve_type = guard ? KVME_TYPE_GUARD :
+			    KVME_TYPE_NONE;
 			kve->kve_ref_count = 0;
 			kve->kve_shadow_count = 0;
 		}
@@ -3182,7 +3189,7 @@ static SYSCTL_NODE(_kern_proc, (KERN_PROC_PID | KERN_PROC_INC_THREAD), pid_td,
 
 static SYSCTL_NODE(_kern_proc, (KERN_PROC_PROC | KERN_PROC_INC_THREAD), proc_td,
 	CTLFLAG_RD | CTLFLAG_MPSAFE, sysctl_kern_proc,
-	"Return process table, no threads");
+	"Return process table, including threads");
 
 #ifdef COMPAT_FREEBSD7
 static SYSCTL_NODE(_kern_proc, KERN_PROC_OVMMAP, ovmmap, CTLFLAG_RD |
