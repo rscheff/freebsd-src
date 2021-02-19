@@ -4015,8 +4015,8 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 				    (snd_cnt * maxseg));
 	if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
 	    (tp->snd_cwnd < maxseg)) {
-		log(LOG_CRIT, "PRR partialack -  cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%ld\n"
-			"del_data:%ld pipe:%ld limit:%ld ack:%d una:%d fack:%d ssthresh:%d recover_fs:%d\n",
+		log(LOG_CRIT, "PRR partialack -	cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%ld del_data:%ld\n"
+				"		pipe:%ld limit:%ld ack:%d una:%d fack:%d ssthresh:%d recover_fs:%d\n",
 		tp->snd_cwnd, tp->snd_nxt - tp->iss, tp->snd_recover-tp->iss,
 		tp->sackhint.sack_bytes_rexmit, snd_cnt, del_data, pipe, limit,
 		th->th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_ssthresh, tp->sackhint.recover_fs);
