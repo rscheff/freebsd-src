@@ -894,7 +894,6 @@ VNET_DECLARE(struct inpcbhead, tcb);
 VNET_DECLARE(struct inpcbinfo, tcbinfo);
 
 #define	V_tcp_do_prr			VNET(tcp_do_prr)
-#define	V_tcp_do_prr_conservative	VNET(tcp_do_prr_conservative)
 #define	V_tcp_do_newcwv			VNET(tcp_do_newcwv)
 #define	V_drop_synfin			VNET(drop_synfin)
 #define	V_path_mtu_discovery		VNET(path_mtu_discovery)
@@ -1090,7 +1089,7 @@ void	 tcp_clean_dsack_blocks(struct tcpcb *tp);
 void	 tcp_clean_sackreport(struct tcpcb *tp);
 void	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
-void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *);
+void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *, int);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
 int	 tcp_newreno(struct tcpcb *, struct tcphdr *);
