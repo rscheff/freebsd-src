@@ -550,7 +550,8 @@ tcp_sackhole_remove(struct tcpcb *tp, struct sackhole *hole)
  * Process cumulative ACK and the TCP SACK option to update the scoreboard.
  * tp->snd_holes is an ordered list of holes (oldest to newest, in terms of
  * the sequence space).
- * Returns 1 if incoming ACK has previously unknown SACK information,
+ * Returns 2 if incoming ACK indicates ongoing loss (hole split, new hole),
+ * 1 if incoming ACK has previously unknown SACK information,
  * 0 otherwise.
  */
 int
@@ -667,7 +668,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			delivered_data += sblkp->end - sblkp->start;
 			tp->snd_fack = sblkp->end;
 			sblkp--;
-			sack_changed = 1;
+			sack_changed = 2;
 		} else {
 			/*
 			 * Append a new SACK hole at the tail.  If the
@@ -698,7 +699,12 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				    SEQ_LT(tp->snd_fack, sblkp->end)) {
 					delivered_data += sblkp->end - tp->snd_fack;
 					tp->snd_fack = sblkp->end;
-					sack_changed = 1;
+					/*
+					 * While the Scoreboard didn't change in
+					 * size, we only ended up here because
+					 * some SACK data had to be dismissed.
+					 */
+					sack_changed = 2;
 				}
 			}
 		}
@@ -768,6 +774,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				 */
 				temp = tcp_sackhole_insert(tp, sblkp->end,
 				    cur->end, cur);
+				sack_changed = 2;
 				if (temp != NULL) {
 					if (SEQ_GT(cur->rxmit, temp->rxmit)) {
 						temp->rxmit = cur->rxmit;

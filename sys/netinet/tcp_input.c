@@ -154,11 +154,6 @@ SYSCTL_INT(_net_inet_tcp, OID_AUTO, drop_synfin, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(drop_synfin), 0,
     "Drop TCP packets with SYN+FIN set");
 
-VNET_DEFINE(int, tcp_do_prr_conservative) = 0;
-SYSCTL_INT(_net_inet_tcp, OID_AUTO, do_prr_conservative, CTLFLAG_VNET | CTLFLAG_RW,
-    &VNET_NAME(tcp_do_prr_conservative), 0,
-    "Do conservative Proportional Rate Reduction");
-
 VNET_DEFINE(int, tcp_do_prr) = 1;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, do_prr, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_prr), 1,
@@ -2605,7 +2600,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					    CC_DUPACK);
 					if (V_tcp_do_prr &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
-						tcp_do_prr_ack(tp, th, &to);
+						tcp_do_prr_ack(tp, th, &to, sack_changed);
 					} else if ((tp->t_flags & TF_SACK_PERMIT) &&
 					    (to.to_flags & TOF_SACK) &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
@@ -2689,7 +2684,7 @@ enter_recovery:
 							    imin(tp->snd_max - tp->snd_una,
 							    tp->t_dupacks * maxseg);
 						}
-						tp->sackhint.recover_fs = max(1,
+						tp->sackhint.recover_fs = imax(1,
 						    tp->snd_nxt - tp->snd_una);
 					}
 					if ((tp->t_flags & TF_SACK_PERMIT) &&
@@ -2813,7 +2808,7 @@ resume_partialack:
 					if (V_tcp_do_prr && to.to_flags & TOF_SACK) {
 						tcp_timer_activate(tp, TT_REXMT, 0);
 						tp->t_rtttime = 0;
-						tcp_do_prr_ack(tp, th, &to);
+						tcp_do_prr_ack(tp, th, &to, sack_changed);
 						tp->t_flags |= TF_ACKNOW;
 						(void) tcp_output(tp);
 					} else
@@ -3958,7 +3953,7 @@ tcp_mssopt(struct in_conninfo *inc)
 }
 
 void
-tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
+tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to, int sack_changed)
 {
 	int snd_cnt = 0, limit = 0, del_data = 0, pipe = 0;
 	int maxseg = tcp_maxseg(tp);
@@ -3999,7 +3994,17 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 			    tp->snd_ssthresh, tp->sackhint.recover_fs) -
 			    tp->sackhint.prr_out;
 	} else {
-		if (V_tcp_do_prr_conservative || (del_data == 0))
+		/*
+		 * 6937bis heuristic:
+		 * - A partial ack without SACK block beneath snd_recover
+		 * indicates further loss. This case is not handled here,
+		 * but in tcp_sack_partialack, do send a rescue
+		 * retransmissions.
+		 * - An SACK scoreboard update adding a new hole indicates
+		 * further loss, so be conservative and send at most one
+		 * segment.
+		 */
+		if ((sack_changed == 2) || (del_data == 0))
 			limit = tp->sackhint.prr_delivered -
 				tp->sackhint.prr_out;
 		else
