@@ -708,6 +708,17 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		tp->snd_fack = sblkp->end;
 		sack_changed = 1;
 	}
+	/*
+	 * Lost Retransmission Detection
+	 * Check is FACK is >= than the end of the leftmost hole.
+	 * if yes, we start sending from still existing holes
+	 */
+	if ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) {
+		if (SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+			temp->rxmit = temp->start;
+			tp->sackhint.nexthole = temp;
+		}
+	}
 	cur = TAILQ_LAST(&tp->snd_holes, sackhole_head); /* Last SACK hole. */
 	/*
 	 * Since the incoming sack blocks are sorted, we can process them
@@ -730,7 +741,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			cur = TAILQ_PREV(cur, sackhole_head, scblink);
 			continue;
 		}
-		tp->sackhint.sack_bytes_rexmit -= (cur->rxmit - cur->start);
+		tp->sackhint.sack_bytes_rexmit -=
+		    (SEQ_MIN(cur->rxmit, cur->end) - cur->start);
 		KASSERT(tp->sackhint.sack_bytes_rexmit >= 0,
 		    ("sackhint bytes rtx >= 0"));
 		sack_changed = 1;
@@ -760,7 +772,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				/* Move end of hole backward. */
 				delivered_data += (cur->end - sblkp->start);
 				cur->end = sblkp->start;
-				cur->rxmit = SEQ_MIN(cur->rxmit, cur->end);
+				if (SEQ_GEQ(cur->rxmit, cur->end))
+					cur->rxmit = tp->snd_recover;
 			} else {
 				/*
 				 * ACKs some data in middle of a hole; need
@@ -772,17 +785,18 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 					if (SEQ_GT(cur->rxmit, temp->rxmit)) {
 						temp->rxmit = cur->rxmit;
 						tp->sackhint.sack_bytes_rexmit
-						    += (temp->rxmit
-						    - temp->start);
+						    += (SEQ_MIN(temp->rxmit,
+						    temp->end) - temp->start);
 					}
 					cur->end = sblkp->start;
-					cur->rxmit = SEQ_MIN(cur->rxmit,
-					    cur->end);
+					if (SEQ_GEQ(cur->rxmit, cur->end))
+						cur->rxmit = tp->snd_recover;
 					delivered_data += (sblkp->end - sblkp->start);
 				}
 			}
 		}
-		tp->sackhint.sack_bytes_rexmit += (cur->rxmit - cur->start);
+		tp->sackhint.sack_bytes_rexmit +=
+		    (SEQ_MIN(cur->rxmit, cur->end) - cur->start);
 		/*
 		 * Testing sblkp->start against cur->start tells us whether
 		 * we're done with the sack block or the sack hole.
@@ -912,7 +926,7 @@ tcp_sack_output_debug(struct tcpcb *tp, int *sack_bytes_rexmt)
 			*sack_bytes_rexmt += (p->rxmit - p->start);
 			break;
 		}
-		*sack_bytes_rexmt += (p->rxmit - p->start);
+		*sack_bytes_rexmt += (SEQ_MIN(p->rxmit, p->end) - p->start);
 	}
 	return (p);
 }
