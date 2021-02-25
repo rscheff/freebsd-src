@@ -1004,6 +1004,7 @@ VNET_DECLARE(int, tcp_do_newsack);
 VNET_DECLARE(int, tcp_do_sack);
 VNET_DECLARE(int, tcp_do_tso);
 VNET_DECLARE(int, tcp_ecn_maxretries);
+VNET_DECLARE(int, tcp_ecn_generalized);
 VNET_DECLARE(int, tcp_initcwnd_segments);
 VNET_DECLARE(int, tcp_insecure_rst);
 VNET_DECLARE(int, tcp_insecure_syn);
@@ -1050,6 +1051,7 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcp_do_sack			VNET(tcp_do_sack)
 #define	V_tcp_do_tso			VNET(tcp_do_tso)
 #define	V_tcp_ecn_maxretries		VNET(tcp_ecn_maxretries)
+#define	V_tcp_ecn_generalized		VNET(tcp_ecn_generalized)
 #define	V_tcp_initcwnd_segments		VNET(tcp_initcwnd_segments)
 #define	V_tcp_insecure_rst		VNET(tcp_insecure_rst)
 #define	V_tcp_insecure_syn		VNET(tcp_insecure_syn)

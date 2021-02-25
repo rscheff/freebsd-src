@@ -711,6 +711,23 @@ Number of retries (SYN or SYN/ACK retransmits) before disabling ECN on a
 specific connection.
 This is needed to help with connection establishment
 when a broken firewall is in the network path.
+.It Va ecn.generalized
+Enable sending all segments as ECN capable transport,
+including SYN, SYN/ACK, and retransmissions.
+This may only be enabled, when ECN support itself is also active.
+Disabling ECN support will disable this feature automatically.
+Settings:
+.Bl -tag -compact
+.It 0
+Regular RFC3168 operation.
+Send only new data segements as ECN capable transport.
+(default)
+.It 1
+Support generalized ECN (ECN++), and send all segments of an ECN-enabled
+session as ECN capable transport.
+Also control packets to non-established and non-listening ports are
+identially marked.
+.El
 .It Va pmtud_blackhole_detection
 Enable automatic path MTU blackhole detection.
 In case of retransmits of MSS sized segments,

@@ -211,14 +211,23 @@ static SYSCTL_NODE(_net_inet_tcp, OID_AUTO, ecn,
     "TCP ECN");
 
 VNET_DEFINE(int, tcp_do_ecn) = 2;
-SYSCTL_INT(_net_inet_tcp_ecn, OID_AUTO, enable, CTLFLAG_VNET | CTLFLAG_RW,
-    &VNET_NAME(tcp_do_ecn), 0,
+static int sysctl_net_inet_tcp_ecn_enable_check(SYSCTL_HANDLER_ARGS);
+SYSCTL_PROC(_net_inet_tcp_ecn, OID_AUTO, enable,
+    CTLFLAG_VNET | CTLFLAG_RW | CTLTYPE_UINT | CTLFLAG_NEEDGIANT,
+    &VNET_NAME(tcp_do_ecn), 0, &sysctl_net_inet_tcp_ecn_enable_check, "IU",
     "TCP ECN support");
 
 VNET_DEFINE(int, tcp_ecn_maxretries) = 1;
 SYSCTL_INT(_net_inet_tcp_ecn, OID_AUTO, maxretries, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_ecn_maxretries), 0,
     "Max retries before giving up on ECN");
+
+VNET_DEFINE(int, tcp_ecn_generalized) = 0;
+static int sysctl_net_inet_tcp_ecn_generalized_check(SYSCTL_HANDLER_ARGS);
+SYSCTL_PROC(_net_inet_tcp_ecn, OID_AUTO, generalized,
+    CTLFLAG_VNET | CTLFLAG_RW | CTLTYPE_UINT | CTLFLAG_NEEDGIANT,
+    &VNET_NAME(tcp_ecn_generalized), 0, &sysctl_net_inet_tcp_ecn_generalized_check, "IU",
+    "Send all packets as ECT");
 
 VNET_DEFINE(int, tcp_insecure_syn) = 0;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, insecure_syn, CTLFLAG_VNET | CTLFLAG_RW,
@@ -4070,4 +4079,46 @@ tcp_compute_initwnd(uint32_t maxseg)
 		else
 			return (4 * maxseg);
 	}
+}
+
+static int
+sysctl_net_inet_tcp_ecn_enable_check(SYSCTL_HANDLER_ARGS)
+{
+	uint32_t new;
+	int error;
+
+	new = V_tcp_do_ecn;
+	error = sysctl_handle_int(oidp, &new, 0, req);
+	if (error == 0 && req->newptr != NULL) {
+		if (new > 2)
+			error = EINVAL;
+		else {
+			V_tcp_do_ecn = new;
+			if (new == 0)
+				V_tcp_ecn_generalized = new;
+		}
+	}
+
+	return (error);
+}
+
+static int
+sysctl_net_inet_tcp_ecn_generalized_check(SYSCTL_HANDLER_ARGS)
+{
+	uint32_t new;
+	int error;
+
+	new = V_tcp_ecn_generalized;
+	error = sysctl_handle_int(oidp, &new, 0, req);
+	if (error == 0 &&  req->newptr != NULL) {
+		if (new > 1)
+			error = EINVAL;
+		else
+			if (!V_tcp_do_ecn && new == 1)
+				error = EINVAL;
+			else
+				V_tcp_ecn_generalized = new;
+	}
+
+	return (error);
 }

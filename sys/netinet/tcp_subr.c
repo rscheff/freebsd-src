@@ -2033,6 +2033,25 @@ tcp_respond(struct tcpcb *tp, void *ipgen, struct tcphdr *th, struct mbuf *m,
 	}
 #endif
 
+	/*
+	 * Send out control packets with same IP ECN header
+	 * bits, as when an established or listening socket
+	 * would exist.
+	 */
+	if ((V_tcp_do_ecn == 1) && V_tcp_ecn_generalized) {
+#ifdef INET6
+		if (isipv6)
+			ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
+#endif /* INET6 */
+#if defined(INET6) && defined(INET)
+		else
+#endif
+#ifdef INET
+			ip->ip_tos |= IPTOS_ECN_ECT0;
+#endif /* INET */
+	}
+
+	m->m_pkthdr.csum_data = offsetof(struct tcphdr, th_sum);
 #ifdef INET6
 	if (isipv6) {
 		if (port) {

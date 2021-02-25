@@ -18275,6 +18275,7 @@ send:
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}
+<<<<<<< HEAD
 	/* Also handle parallel SYN for ECN */
 	if (TCPS_HAVERCVDSYN(tp->t_state) &&
 	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
@@ -18282,6 +18283,31 @@ send:
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
 			tp->t_flags2 &= ~TF2_ECN_SND_ECE;
+=======
+	if ((tp->t_state == TCPS_ESTABLISHED &&
+	    (tp->t_flags2 & TF2_ECN_PERMIT)) ||
+	   ((tp->t_state > TCPS_ESTABLISHED) &&
+	    (tp->t_flags2 & TF2_ECN_PERMIT) &&
+	    V_tcp_ecn_generalized) ||
+	    /*
+	     * Note that a passive open SYN,ACK
+	     * is actually sent from tcp_syncache
+	     */
+	   (((flags & (TH_SYN|TH_ACK)) == (TH_SYN)) &&
+	    ((flags & (TH_ECE|TH_CWR)) == (TH_ECE|TH_CWR)) &&
+	    V_tcp_ecn_generalized) ||
+	   (((flags & (TH_SYN|TH_ACK)) == (TH_SYN|TH_ACK)) &&
+	    (flags & (TH_CWR|TH_ECE)) &&
+	    V_tcp_ecn_generalized)) {
+		/*
+		 * If the peer has ECN, mark data packets with ECN capable
+		 * transmission (ECT). Ignore pure ack packets,
+		 * retransmissions unless doing generalized ECN.
+		 */
+		if (V_tcp_ecn_generalized ||
+		   ((len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
+		    (sack_rxmit == 0)))) {
+>>>>>>> 1c2dd027d946... rebase
 #ifdef INET6
 		if (isipv6) {
 			ip6->ip6_flow &= ~htonl(IPTOS_ECN_MASK << 20);
@@ -18289,9 +18315,27 @@ send:
 		}
 		else
 #endif
+<<<<<<< HEAD
 		{
 			ip->ip_tos &= ~IPTOS_ECN_MASK;
 			ip->ip_tos |= ect;
+=======
+			{
+				ip->ip_tos &= ~IPTOS_ECN_MASK;
+				ip->ip_tos |= IPTOS_ECN_ECT0;
+			}
+			KMOD_TCPSTAT_INC(tcps_ecn_ect0);
+			/*
+			 * Reply with proper ECN notifications.
+			 * Only set CWR on new data segments.
+			 */
+			if ((tp->t_flags2 & TF2_ECN_SND_CWR) &&
+			    (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
+			    (sack_rxmit == 0))) {
+				flags |= TH_CWR;
+				tp->t_flags2 &= ~TF2_ECN_SND_CWR;
+			}
+>>>>>>> 1c2dd027d946... rebase
 		}
 	}
 	/*

@@ -1940,7 +1940,29 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 	th->th_win = htons(sc->sc_wnd);
 	th->th_urp = 0;
 
+<<<<<<< HEAD
 	flags = tcp_ecn_syncache_respond(flags, sc);
+=======
+	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ECN)) {
+		flags |= TH_ECE;
+		TCPSTAT_INC(tcps_ecn_shs);
+
+		if ((V_tcp_ecn_generalized &&
+		    (flags & TH_ACK))) {
+#ifdef INET6
+			if (sc->sc_inc.inc_flags & INC_ISIPV6)
+				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
+#endif
+#if defined(INET6) && defined(INET)
+			else
+#endif
+#ifdef INET
+				ip->ip_tos |= IPTOS_ECN_ECT0;
+#endif
+			TCPSTAT_INC(tcps_ecn_ect0);
+		}
+	}
+>>>>>>> 1c2dd027d946... rebase
 	tcp_set_flags(th, flags);
 
 	/* Tack on the TCP options. */
