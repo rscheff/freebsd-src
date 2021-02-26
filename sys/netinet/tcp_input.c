@@ -2531,16 +2531,35 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 * If yes, we restart sending from still existing holes,
 				 * and adjust cwnd via the congestion control module.
 				 */
+				
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "sackchanged: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
+
 				struct sackhole *temp;
-				if (((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
-				    (SEQ_GEQ(tp->snd_fack, temp->rxmit))) {
+				if (IN_RECOVERY(tp->t_flags) && 
+				    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
+				    SEQ_GEQ(tp->snd_fack, tp->snd_recover) &&
+				    SEQ_GEQ(temp->rxmit, temp->end) &&
+				    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "sackchanged:%d cwnd:%d ssthresh:%d fack:%d recover:%d\n 1st-start:%d -end:%d -rxmit:%d sackhint:%p first:%p\n", 
+    sack_changed, tp->snd_cwnd, tp->snd_ssthresh, tp->snd_fack-tp->iss, tp->snd_recover-tp->iss, temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss, tp->sackhint.nexthole, temp);
 					tp->sackhint.nexthole = temp;
 					TAILQ_FOREACH(temp, &tp->snd_holes, scblink) {
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "hole start:%d end:%d rxmit:%d\n", 
+    temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss);
 						if (SEQ_GEQ(tp->snd_fack, temp->rxmit))
 							temp->rxmit = temp->start;
 					}
 					EXIT_RECOVERY(tp->t_flags);
 					cc_cong_signal(tp, th, CC_NDUPACK);
+					tp->sackhint.recover_fs = imax(1,
+						    tp->snd_nxt - tp->snd_una);
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "2nd reduction cwnd:%d ssthresh:%d\n", 
+    tp->snd_cwnd, tp->snd_ssthresh);
+
 				}
 			}
 		} else
