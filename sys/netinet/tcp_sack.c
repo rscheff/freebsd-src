@@ -708,17 +708,6 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		tp->snd_fack = sblkp->end;
 		sack_changed = 1;
 	}
-	/*
-	 * Lost Retransmission Detection
-	 * Check is FACK is >= than the end of the leftmost hole.
-	 * if yes, we start sending from still existing holes
-	 */
-	if ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) {
-		if (SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
-			temp->rxmit = temp->start;
-			tp->sackhint.nexthole = temp;
-		}
-	}
 	cur = TAILQ_LAST(&tp->snd_holes, sackhole_head); /* Last SACK hole. */
 	/*
 	 * Since the incoming sack blocks are sorted, we can process them

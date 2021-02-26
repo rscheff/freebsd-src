@@ -2523,8 +2523,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		}
 		if ((tp->t_flags & TF_SACK_PERMIT) &&
 		    ((to.to_flags & TOF_SACK) ||
-		     !TAILQ_EMPTY(&tp->snd_holes))) 
-			if (sack_changed = tcp_sack_doack(tp, &to, th->th_ack)) {
+		     !TAILQ_EMPTY(&tp->snd_holes))) {
+			if ((sack_changed = tcp_sack_doack(tp, &to, th->th_ack)) != 0) {
 				/*
 				 * Lost Retransmission Detection
 				 * Check is FACK is >= than the end of the leftmost hole.
@@ -2543,7 +2543,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					cc_cong_signal(tp, th, CC_NDUPACK);
 				}
 			}
-		else
+		} else
 			/*
 			 * Reset the value so that previous (valid) value
 			 * from the last ack with SACK doesn't get used.
