@@ -2523,8 +2523,26 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		}
 		if ((tp->t_flags & TF_SACK_PERMIT) &&
 		    ((to.to_flags & TOF_SACK) ||
-		     !TAILQ_EMPTY(&tp->snd_holes)))
-			sack_changed = tcp_sack_doack(tp, &to, th->th_ack);
+		     !TAILQ_EMPTY(&tp->snd_holes))) 
+			if (sack_changed = tcp_sack_doack(tp, &to, th->th_ack)) {
+				/*
+				 * Lost Retransmission Detection
+				 * Check is FACK is >= than the end of the leftmost hole.
+				 * If yes, we restart sending from still existing holes,
+				 * and adjust cwnd via the congestion control module.
+				 */
+				struct sackhole *temp;
+				if (((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
+				    (SEQ_GEQ(tp->snd_fack, temp->rxmit))) {
+					tp->sackhint.nexthole = temp;
+					TAILQ_FOREACH(temp, &tp->snd_holes, scblink) {
+						if (SEQ_GEQ(tp->snd_fack, temp->rxmit))
+							temp->rxmit = temp->start;
+					}
+					EXIT_RECOVERY(tp->t_flags);
+					cc_cong_signal(tp, th, CC_NDUPACK);
+				}
+			}
 		else
 			/*
 			 * Reset the value so that previous (valid) value
