@@ -4127,21 +4127,17 @@ if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
 		}
 		/*
 		 * Remember the amount of new data sent in the last window
+		 * and the old ssthresh, to deduct the beta factor used
+		 * by the CC module. Finally, set cwnd to ssthresh just
+		 * prior to invoking another cwnd reduction by the CC
+		 * module, to not shrink it excessively.
 		 */
 		tp->sackhint.prr_out += tp->snd_max - tp->snd_recover;
-		/*
-		 * And the old ssthresh, to deduct the beta factor used
-		 * by the CC module 
-		 */
 		prev_ssthresh = tp->snd_ssthresh;
-		/*
-		 * set cwnd to ssthresh just here, to not shrink ssthresh
-		 * excessively
-		 */
 		tp->snd_cwnd = tp->snd_ssthresh;
 		/*
-		 * Formally exit recovery, so CC module adjusts ssthresh
-		 * as intended.
+		 * Formally exit recovery, and let the CC module adjust
+		 * ssthresh as intended.
 		 */
 		EXIT_RECOVERY(tp->t_flags);
 		cc_cong_signal(tp, th, CC_NDUPACK);
