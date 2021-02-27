@@ -2558,6 +2558,8 @@ if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
 						if (SEQ_GEQ(tp->snd_fack, temp->rxmit))
 							temp->rxmit = temp->start;
 					}
+					tp->sackhint.prr_out +=
+					    tp->snd_max - tp->snd_recover;
 					EXIT_RECOVERY(tp->t_flags);
 					cc_cong_signal(tp, th, CC_NDUPACK);
 					tp->sackhint.recover_fs = imax(1,
