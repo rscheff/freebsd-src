@@ -2531,44 +2531,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		     !TAILQ_EMPTY(&tp->snd_holes))) {
 			if (((sack_changed = tcp_sack_doack(tp, &to, th->th_ack)) != 0) &&
 			    (V_tcp_do_lrd)) {
-				/*
-				 * Lost Retransmission Detection
-				 * Check is FACK is >= than the end of the leftmost hole.
-				 * If yes, we restart sending from still existing holes,
-				 * and adjust cwnd via the congestion control module.
-				 */
-if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-    log(LOG_CRIT, "sackchanged: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
-				struct sackhole *temp;
-				if (IN_RECOVERY(tp->t_flags) &&
-				    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
-				    SEQ_GEQ(tp->snd_fack, tp->snd_recover) &&
-				    SEQ_GEQ(temp->rxmit, temp->end) &&
-				    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
-if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-    log(LOG_CRIT, "sackchanged:%d cwnd:%d ssthresh:%d fack:%d recover:%d\n"
-	"1st-start:%d -end:%d -rxmit:%d sackhint:%p first:%p\n",
-	sack_changed, tp->snd_cwnd, tp->snd_ssthresh, tp->snd_fack-tp->iss, tp->snd_recover-tp->iss,
-	temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss, tp->sackhint.nexthole, temp);
-					tp->sackhint.nexthole = temp;
-					TAILQ_FOREACH(temp, &tp->snd_holes, scblink) {
-if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-    log(LOG_CRIT, "hole start:%d end:%d rxmit:%d\n",
-    temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss);
-						if (SEQ_GEQ(tp->snd_fack, temp->rxmit))
-							temp->rxmit = temp->start;
-					}
-					tp->sackhint.prr_out +=
-					    tp->snd_max - tp->snd_recover;
-					EXIT_RECOVERY(tp->t_flags);
-					cc_cong_signal(tp, th, CC_NDUPACK);
-					tp->sackhint.recover_fs = imax(1,
-						    tp->snd_nxt - tp->snd_una);
-if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-    log(LOG_CRIT, "2nd reduction cwnd:%d ssthresh:%d\n",
-    tp->snd_cwnd, tp->snd_ssthresh);
-
-				}
+				tcp_lost_retransmission(tp, th);
 			}
 		} else
 			/*
@@ -4127,5 +4090,71 @@ tcp_compute_initwnd(uint32_t maxseg)
 			return (3 * maxseg);
 		else
 			return (4 * maxseg);
+	}
+}
+
+void
+tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
+{
+	struct sackhole *temp;
+	uint32_t prev_ssthresh;
+/*
+ * Lost Retransmission Detection
+ * Check is FACK is >= than the end of the leftmost hole.
+ * If yes, we restart sending from still existing holes,
+ * and adjust cwnd via the congestion control module.
+ */
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "lost rexmit: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
+	if (IN_RECOVERY(tp->t_flags) &&
+	    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
+	    SEQ_GEQ(tp->snd_fack, tp->snd_recover) &&
+	    SEQ_GEQ(temp->rxmit, temp->end) &&
+	    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "cwnd:%d ssthresh:%d fack:%d recover:%d\n"
+	"1st-start:%d -end:%d -rxmit:%d sackhint:%p first:%p\n",
+	tp->snd_cwnd, tp->snd_ssthresh, tp->snd_fack-tp->iss, tp->snd_recover-tp->iss,
+	temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss, tp->sackhint.nexthole, temp);
+		tp->sackhint.nexthole = temp;
+		TAILQ_FOREACH(temp, &tp->snd_holes, scblink) {
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "hole start:%d end:%d rxmit:%d\n",
+    temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss);
+			if (SEQ_GEQ(tp->snd_fack, temp->rxmit) &&
+			    SEQ_GEQ(temp->rxmit, temp->end))
+				temp->rxmit = temp->start;
+		}
+		/*
+		 * Remember the amount of new data sent in the last window
+		 */
+		tp->sackhint.prr_out += tp->snd_max - tp->snd_recover;
+		/*
+		 * And the old ssthresh, to deduct the beta factor used
+		 * by the CC module 
+		 */
+		prev_ssthresh = tp->snd_ssthresh;
+		/*
+		 * set cwnd to ssthresh just here, to not shrink ssthresh
+		 * excessively
+		 */
+		tp->snd_cwnd = tp->snd_ssthresh;
+		/*
+		 * Formally exit recovery, so CC module adjusts ssthresh
+		 * as intended.
+		 */
+		EXIT_RECOVERY(tp->t_flags);
+		cc_cong_signal(tp, th, CC_NDUPACK);
+		/*
+		 * Some magic: The ACKs received in the 2nd window already
+		 * arrive at the PRR reduced rate. Thus, on a per-ACK basis,
+		 * keep the same fraction of new segments vs. ACKs.
+		 * This ratio is maintained, by reducing recover_fs by the
+		 * same amount, that got applied to ssthresh by the CC module.
+		 */
+		tp->sackhint.recover_fs = ((long)tp->sackhint.recover_fs * tp->snd_ssthresh) / prev_ssthresh;
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+    log(LOG_CRIT, "2nd reduction cwnd:%d ssthresh:%d\n",
+    tp->snd_cwnd, tp->snd_ssthresh);
 	}
 }

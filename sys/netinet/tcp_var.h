@@ -1092,6 +1092,7 @@ void	 tcp_clean_sackreport(struct tcpcb *tp);
 void	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
 void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *);
+void	 tcp_lost_retransmission(struct tcpcb *, struct tcphdr *);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
 int	 tcp_newreno(struct tcpcb *, struct tcphdr *);
