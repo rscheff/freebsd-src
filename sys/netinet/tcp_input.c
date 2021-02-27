@@ -4086,17 +4086,17 @@ tcp_compute_initwnd(uint32_t maxseg)
 	}
 }
 
-/*
- * Lost Retransmission Detection
- * Check is FACK is >= than the end of the leftmost hole.
- * If yes, we restart sending from still existing holes,
- * and adjust cwnd via the congestion control module.
- */
 void
 tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 {
 	struct sackhole *temp;
 	uint32_t prev_ssthresh;
+	/*
+	 * Lost Retransmission Detection
+	 * Check is FACK is beyond the rexmit of the leftmost hole.
+	 * If yes, we restart sending from still existing holes,
+	 * and adjust cwnd via the congestion control module.
+	 */
 	if (IN_RECOVERY(tp->t_flags) &&
 	    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
 	    SEQ_GEQ(tp->snd_fack, tp->snd_recover) &&
