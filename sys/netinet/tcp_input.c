@@ -3989,8 +3989,11 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	} else {
 		if (tp->sackhint.prr_delivered < tp->t_dupacks*maxseg)
 			del_data = maxseg;
-		pipe = imax(0, SEQ_MAX(tp->snd_recover, tp->snd_nxt) -
-			    tp->snd_una - tp->t_dupacks*maxseg);
+		del_data = imax(0, imin(tp->snd_max - tp->snd_una,
+				tp->sackhint.prr_delivered) -
+				(tp->t_dupacks-1)*maxseg + maxseg);
+		pipe = imax(0, tp->snd_max - tp->snd_una -
+			    tp->t_dupacks*maxseg);
 	}
 	tp->sackhint.prr_delivered += del_data;
 	/*
@@ -4006,7 +4009,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	} else {
 		if (V_tcp_do_prr_conservative)
 			limit = tp->sackhint.prr_delivered -
-			    tp->sackhint.prr_out;
+				tp->sackhint.prr_out;
 		else
 			limit = imax(tp->sackhint.prr_delivered -
 				    tp->sackhint.prr_out, del_data) +
@@ -4014,7 +4017,8 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 		snd_cnt = imin((tp->snd_ssthresh - pipe), limit);
 	}
 	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-		log(LOG_CRIT, "\t\tsnd_cnt:%d\n", snd_cnt);
+		log(LOG_CRIT, "\t\tsnd_cnt:%d prr_out:%d calc_out:%d\n", snd_cnt, tp->sackhint.prr_out,
+				tp->sackhint.sack_bytes_rexmit + (tp->snd_nxt - tp->snd_recover));
 	snd_cnt = imax(snd_cnt, 0) / maxseg;
 	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
 		log(LOG_CRIT, "\t\tsnd_cnt:%d\n", snd_cnt);
@@ -4026,21 +4030,24 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	if (IN_FASTRECOVERY(tp->t_flags)) {
 		if ((tp->t_flags & TF_SACK_PERMIT) &&
 		    (to.to_flags & TOF_SACK)) {
-			tp->snd_cwnd = imax(maxseg, tp->snd_nxt - tp->snd_recover +
-			    tp->sackhint.sack_bytes_rexmit + (snd_cnt * maxseg));
+			tp->snd_cwnd = tp->snd_nxt - tp->snd_recover +
+					    tp->sackhint.sack_bytes_rexmit +
+					    (snd_cnt * maxseg);
 		} else {
-			tp->snd_cwnd += (snd_cnt * maxseg);
+			tp->snd_cwnd = (tp->snd_max - tp->snd_una) +
+					    (snd_cnt * maxseg);
 		}
 	} else if (IN_CONGRECOVERY(tp->t_flags))
-		tp->snd_cwnd = imax(maxseg, pipe - del_data +
+		tp->snd_cwnd = pipe - del_data +
 				    (snd_cnt * maxseg));
+	tp->snd_cwnd = imax(maxseg, tp->snd_cwnd);
 	if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
 	    (tp->snd_cwnd < maxseg)) {
-		log(LOG_CRIT, "PRR partialack:	cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%d del_data:%d\n"
-				"		pipe:%d limit:%d ack:%d una:%d fack:%d ssthresh:%d recover_fs:%d prr_delivered:%d\n",
+		log(LOG_CRIT, "PRR dupacks -	cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%d del_data:%d sacked:%d\n"
+				"		pipe:%d limit:%d ack:%d una:%d fack:%d max:%d ssthresh:%d recover_fs:%d prr_delivered:%d\n",
 		tp->snd_cwnd, tp->snd_nxt - tp->iss, tp->snd_recover-tp->iss,
-		tp->sackhint.sack_bytes_rexmit, snd_cnt, del_data, pipe, limit,
-		th->th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_ssthresh, tp->sackhint.recover_fs, tp->sackhint.prr_delivered);
+		tp->sackhint.sack_bytes_rexmit, snd_cnt, del_data, tp->sackhint.sacked_bytes, pipe, limit,
+		th->th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_max-tp->iss, tp->snd_ssthresh, tp->sackhint.recover_fs, tp->sackhint.prr_delivered);
 	}
 }
 
