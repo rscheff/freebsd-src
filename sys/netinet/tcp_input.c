@@ -163,6 +163,11 @@ SYSCTL_INT(_net_inet_tcp, OID_AUTO, do_prr, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_prr), 1,
     "Enable Proportional Rate Reduction per RFC 6937");
 
+VNET_DEFINE(int, tcp_do_prr_lt) = 0;
+SYSCTL_INT(_net_inet_tcp, OID_AUTO, do_prr_lt, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(tcp_do_prr_lt), 0,
+    "Include Limited Transmit packets in prr_out");
+
 VNET_DEFINE(int, tcp_do_newcwv) = 0;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, newcwv, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_newcwv), 0,
@@ -2570,6 +2575,9 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					tp->t_dupacks = 0;
 				else if (++tp->t_dupacks > tcprexmtthresh ||
 				     IN_FASTRECOVERY(tp->t_flags)) {
+                                       if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                           log(LOG_CRIT, ">dupthresh: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
+ 
 					cc_ack_received(tp, th, nsegs,
 					    CC_DUPACK);
 					if (V_tcp_do_prr &&
@@ -2607,7 +2615,13 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 									    del_data) + maxseg;
 							snd_cnt = imin(tp->snd_ssthresh - pipe, limit);
 						}
+						if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                               log(LOG_CRIT, "\t\tsnd_cnt:%d prr_out:%d calc_out:%d\n", snd_cnt, tp->sackhint.prr_out,
+                                               tp->sackhint.sack_bytes_rexmit + (tp->snd_nxt - tp->snd_recover));
+
 						snd_cnt = imax(snd_cnt, 0) / maxseg;
+						if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                               log(LOG_CRIT, "\t\tsnd_cnt:%d\n", snd_cnt);
 						/*
 						 * Send snd_cnt new data into the network in
 						 * response to this ACK. If there is a going
@@ -2616,6 +2630,14 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						 */
 						tp->snd_cwnd = imax(maxseg, tp->snd_nxt - tp->snd_recover +
 						    tp->sackhint.sack_bytes_rexmit + (snd_cnt * maxseg));
+if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
+           (tp->snd_cwnd < maxseg)) {
+               log(LOG_CRIT, "PRR dupacks -    cwnd:%d nxt:%d recover:%d sackrexmit:%d snd_cnt:%d del_data:%d sacked:%d\n"
+                               "               pipe:%d limit:%d ack:%d una:%d fack:%d max:%d ssthresh:%d recover_fs:%d prr_delivered:%d\n",
+               tp->snd_cwnd, tp->snd_nxt - tp->iss, tp->snd_recover-tp->iss,
+               tp->sackhint.sack_bytes_rexmit, snd_cnt, del_data, tp->sackhint.sacked_bytes, pipe, limit,
+               th->th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_max-tp->iss, tp->snd_ssthresh, tp->sackhint.recover_fs, tp->sackhint.prr_delivered);
+       }
 					} else if ((tp->t_flags & TF_SACK_PERMIT) &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
 						int awnd;
@@ -2647,6 +2669,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					     tp->sackhint.sacked_bytes >
 					     (tcprexmtthresh - 1) * maxseg)) {
 enter_recovery:
+					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					    log(LOG_CRIT, "==dupthresh: %d dupacks\n", tp->t_dupacks);
 					/*
 					 * Above is the RFC6675 trigger condition of
 					 * more than (dupthresh-1)*maxseg sacked data.
@@ -2693,12 +2717,14 @@ enter_recovery:
 						    tp->sackhint.sacked_bytes;
 						tp->sackhint.recover_fs = max(1,
 						    tp->snd_nxt - tp->snd_una);
+						tp->sackhint.prr_out += maxseg;
 					}
 					if (tp->t_flags & TF_SACK_PERMIT) {
 						TCPSTAT_INC(
 						    tcps_sack_recovery_episode);
 						tp->snd_recover = tp->snd_nxt;
 						tp->snd_cwnd = maxseg;
+						
 						(void) tp->t_fb->tfb_tcp_output(tp);
 						if (SEQ_GT(th->th_ack, tp->snd_una))
 							goto resume_partialack;
@@ -2727,6 +2753,8 @@ enter_recovery:
 					 * segment. Restore the original
 					 * snd_cwnd after packet transmission.
 					 */
+					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					    log(LOG_CRIT, "<dupthresh: %d dupacks\n", tp->t_dupacks);
 					cc_ack_received(tp, th, nsegs,
 					    CC_DUPACK);
 					uint32_t oldcwnd = tp->snd_cwnd;
@@ -2756,6 +2784,9 @@ enter_recovery:
 					if (avail > 0)
 						(void) tp->t_fb->tfb_tcp_output(tp);
 					sent = tp->snd_max - oldsndmax;
+					if (V_tcp_do_prr_lt) {
+						tp->sackhint.prr_out += sent;
+					}
 					if (sent > maxseg) {
 						KASSERT((tp->t_dupacks == 2 &&
 						    tp->snd_limited == 0) ||

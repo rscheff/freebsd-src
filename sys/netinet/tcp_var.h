@@ -838,6 +838,9 @@ VNET_DECLARE(int, tcp_delack_enabled);
 VNET_DECLARE(int, tcp_do_autorcvbuf);
 VNET_DECLARE(int, tcp_do_autosndbuf);
 VNET_DECLARE(int, tcp_do_ecn);
+VNET_DECLARE(int, tcp_do_prr);
+VNET_DECLARE(int, tcp_do_prr_conservative);
+VNET_DECLARE(int, tcp_do_prr_lt);
 VNET_DECLARE(int, tcp_do_newcwv);
 VNET_DECLARE(int, tcp_do_rfc1323);
 VNET_DECLARE(int, tcp_tolerate_missing_ts);
@@ -869,6 +872,7 @@ VNET_DECLARE(struct inpcbhead, tcb);
 VNET_DECLARE(struct inpcbinfo, tcbinfo);
 
 #define	V_tcp_do_prr			VNET(tcp_do_prr)
+#define	V_tcp_do_prr_lt			VNET(tcp_do_prr_lt)
 #define	V_tcp_do_prr_conservative	VNET(tcp_do_prr_conservative)
 #define	V_tcp_do_newcwv			VNET(tcp_do_newcwv)
 #define	V_drop_synfin			VNET(drop_synfin)
