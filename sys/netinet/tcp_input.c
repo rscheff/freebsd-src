@@ -2576,7 +2576,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				else if (++tp->t_dupacks > tcprexmtthresh ||
 				     IN_FASTRECOVERY(tp->t_flags)) {
                                        if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-                                           log(LOG_CRIT, ">dupthresh: %d dupacks, %d recover_fs\n", tp->t_dupacks, tp->sackhint.recover_fs);
+                                           log(LOG_CRIT, ">dupthresh: %d dupacks, %d recover_fs prr_out:%d\n",
+                                           tp->t_dupacks, tp->sackhint.recover_fs,tp->sackhint.prr_out);
  
 					cc_ack_received(tp, th, nsegs,
 					    CC_DUPACK);
@@ -2670,7 +2671,7 @@ if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
 					     (tcprexmtthresh - 1) * maxseg)) {
 enter_recovery:
 					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-					    log(LOG_CRIT, "==dupthresh: %d dupacks\n", tp->t_dupacks);
+					    log(LOG_CRIT, "==dupthresh: %d dupacks prr_out:%d\n", tp->t_dupacks, tp->sackhint.prr_out);
 					/*
 					 * Above is the RFC6675 trigger condition of
 					 * more than (dupthresh-1)*maxseg sacked data.
@@ -2713,11 +2714,14 @@ enter_recovery:
 						 * snd_ssthresh is already updated by
 						 * cc_cong_signal.
 						 */
+						if (V_tcp_do_prr_lt & 2 ) {
 						tp->sackhint.prr_delivered =
 						    tp->sackhint.sacked_bytes;
+						} else {
+						tp->sackhint.prr_delivered = 0;
+						}
 						tp->sackhint.recover_fs = max(1,
 						    tp->snd_nxt - tp->snd_una);
-						tp->sackhint.prr_out += maxseg;
 					}
 					if (tp->t_flags & TF_SACK_PERMIT) {
 						TCPSTAT_INC(
@@ -2754,7 +2758,7 @@ enter_recovery:
 					 * snd_cwnd after packet transmission.
 					 */
 					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-					    log(LOG_CRIT, "<dupthresh: %d dupacks\n", tp->t_dupacks);
+					    log(LOG_CRIT, "<dupthresh: %d dupacks prr_out:%d\n", tp->t_dupacks, tp->sackhint.prr_out);
 					cc_ack_received(tp, th, nsegs,
 					    CC_DUPACK);
 					uint32_t oldcwnd = tp->snd_cwnd;
@@ -2784,7 +2788,7 @@ enter_recovery:
 					if (avail > 0)
 						(void) tp->t_fb->tfb_tcp_output(tp);
 					sent = tp->snd_max - oldsndmax;
-					if (V_tcp_do_prr_lt) {
+					if (V_tcp_do_prr_lt & 1) {
 						tp->sackhint.prr_out += sent;
 					}
 					if (sent > maxseg) {
