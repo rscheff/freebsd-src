@@ -2671,7 +2671,8 @@ if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
 					     (tcprexmtthresh - 1) * maxseg)) {
 enter_recovery:
 					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-					    log(LOG_CRIT, "==dupthresh: %d dupacks prr_out:%d\n", tp->t_dupacks, tp->sackhint.prr_out);
+					    log(LOG_CRIT, "==dupthresh: %d dupacks prr_out:%d sackxmit:%d\n", 
+					    tp->t_dupacks, tp->sackhint.prr_out, tp->sackhint.sack_bytes_rexmit);
 					/*
 					 * Above is the RFC6675 trigger condition of
 					 * more than (dupthresh-1)*maxseg sacked data.
@@ -2720,8 +2721,15 @@ enter_recovery:
 						} else {
 						tp->sackhint.prr_delivered = 0;
 						}
+						if (tp->sackhint.sack_bytes_rexmit > 0)
+						log(2, "reinit sack_bytes_rexmit: %d\n",
+						    tp->sackhint.sack_bytes_rexmit);
 						tp->sackhint.recover_fs = max(1,
 						    tp->snd_nxt - tp->snd_una);
+						if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+						    log(LOG_CRIT, "==: prr_delivered:%d  sackxmit:%d recover_fs:%d\n", 
+						    tp->sackhint.prr_delivered, tp->sackhint.sack_bytes_rexmit, tp->sackhint.recover_fs);
+
 					}
 					if (tp->t_flags & TF_SACK_PERMIT) {
 						TCPSTAT_INC(

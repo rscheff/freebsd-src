@@ -1243,8 +1243,9 @@ send:
 		 * Lost Retransmit Detection
 		 */
 		if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-			log(2, "tcp_output - seq:%d len:%d\n",
-			    ntohl(th->th_seq) - tp->iss, len);
+			log(2, "tcp_output - seq:%d len:%d sackrxmit:%d\n",
+			    ntohl(th->th_seq) - tp->iss, len,
+			    tp->sackhint.sack_bytes_rexmit);
 		tp->sackhint.prr_out += len;
 	}
 	th->th_ack = htonl(tp->rcv_nxt);
