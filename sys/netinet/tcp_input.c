@@ -2600,6 +2600,9 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 								tp->sackhint.sack_bytes_rexmit;
 						tp->sackhint.prr_delivered += del_data;
 						if (pipe >= tp->snd_ssthresh) {
+						    if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                           log(LOG_CRIT, "pipe>ssthresh\n")
+                                    
 							if (tp->sackhint.recover_fs == 0)
 								tp->sackhint.recover_fs =
 								    imax(1, tp->snd_nxt - tp->snd_una);
@@ -2607,13 +2610,18 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 							    tp->snd_ssthresh, tp->sackhint.recover_fs) -
 							    tp->sackhint.prr_out;
 						} else {
-							if (V_tcp_do_prr_conservative)
+							if (V_tcp_do_prr_conservative) {
+							if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                           log(LOG_CRIT, "PRR-CRB\n")
 								limit = tp->sackhint.prr_delivered -
 									tp->sackhint.prr_out;
-							else
+							} else {
+							if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+                                           log(LOG_CRIT, "PRR-SSRB\n")
 								limit = imax(tp->sackhint.prr_delivered -
 									    tp->sackhint.prr_out,
 									    del_data) + maxseg;
+							}
 							snd_cnt = imin(tp->snd_ssthresh - pipe, limit);
 						}
 						if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
