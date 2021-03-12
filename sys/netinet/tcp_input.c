@@ -4098,8 +4098,8 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 	 * and adjust cwnd via the congestion control module.
 	 */
 	if (IN_RECOVERY(tp->t_flags) &&
+	    SEQ_GT(tp->snd_fack, tp->snd_recover) &&
 	    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
-	    SEQ_GEQ(tp->snd_fack, tp->snd_recover) &&
 	    SEQ_GEQ(temp->rxmit, temp->end) &&
 	    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
 		/*
@@ -4134,7 +4134,7 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 		 * This ratio is maintained, by reducing recover_fs by the
 		 * same amount, that got applied to ssthresh by the CC module.
 		 */
-		tp->sackhint.recover_fs = ((long)tp->sackhint.recover_fs *
-					    tp->snd_ssthresh) / prev_ssthresh;
+//		tp->sackhint.recover_fs = ((long)tp->sackhint.recover_fs *
+//					    tp->snd_ssthresh) / prev_ssthresh;
 	}
 }
