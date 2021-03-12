@@ -4114,13 +4114,11 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 				temp->rxmit = temp->start;
 		}
 		/*
-		 * Remember the amount of new data sent in the last window
-		 * and the old ssthresh, to deduct the beta factor used
+		 * Remember the old ssthresh, to deduct the beta factor used
 		 * by the CC module. Finally, set cwnd to ssthresh just
 		 * prior to invoking another cwnd reduction by the CC
 		 * module, to not shrink it excessively.
 		 */
-		tp->sackhint.prr_out += tp->snd_max - tp->snd_recover;
 		prev_ssthresh = tp->snd_ssthresh;
 		tp->snd_cwnd = tp->snd_ssthresh;
 		/*
