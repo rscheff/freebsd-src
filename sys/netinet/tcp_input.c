@@ -4090,7 +4090,8 @@ void
 tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 {
 	struct sackhole *temp;
-	uint32_t prev_ssthresh;
+//	uint32_t prev_ssthresh;
+	uint32_t prev_cwnd;
 	/*
 	 * Lost Retransmission Detection
 	 * Check is FACK is beyond the rexmit of the leftmost hole.
@@ -4119,7 +4120,8 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 		 * prior to invoking another cwnd reduction by the CC
 		 * module, to not shrink it excessively.
 		 */
-		prev_ssthresh = tp->snd_ssthresh;
+//		prev_ssthresh = tp->snd_ssthresh;
+		prev_cwnd = tp->snd_cwnd;
 		tp->snd_cwnd = tp->snd_ssthresh;
 		/*
 		 * Formally exit recovery, and let the CC module adjust
@@ -4130,11 +4132,26 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 		/*
 		 * Some magic: The ACKs received in the 2nd window already
 		 * arrive at the PRR reduced rate. Thus, on a per-ACK basis,
-		 * keep the same fraction of new segments vs. ACKs.
-		 * This ratio is maintained, by reducing recover_fs by the
-		 * same amount, that got applied to ssthresh by the CC module.
+		 * keep about the same fraction of new segments vs. ACKs.
+		 * To approximately maintain this ratio, calculating recover_fs 
+		 * from the current (snd_max - snd_una), reduced twice (thus the square)
+		 * by the cc beta factor (ssthresh/prev_ssthresh)
 		 */
-//		tp->sackhint.recover_fs = ((long)tp->sackhint.recover_fs *
-//					    tp->snd_ssthresh) / prev_ssthresh;
+//		tp->sackhint.recover_fs = (((long)tp->snd_max - tp->snd_una) *
+//					    tp->snd_ssthresh * tp->snd_ssthresh) / 
+//					    ((long)prev_ssthresh * prev_ssthresh);
+//		tp->snd_cwnd = prev_cwnd / 2;
+		tp->snd_cwnd = tcp_maxseg(tp);
+//		tp->snd_cwnd = howmany(tp->snd_ssthresh / 2, tcp_maxseg(tp));
+		tp->sackhint.recover_fs = (tp->snd_max - tp->snd_una) -
+					    tp->sackhint.recover_fs;
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG) {
+                log(LOG_CRIT, "tcp lrd\tcwnd:%d nxt:%d recover:%d sackrexmit:%d sacked:%d prr_out:%d\n"
+                                     "\tack:%d una:%d fack:%d max:%d ssthresh:%d recover_fs:%d prr_delivered:%d\n",
+                tp->snd_cwnd, tp->snd_nxt - tp->iss, tp->snd_recover-tp->iss,
+                tp->sackhint.sack_bytes_rexmit, tp->sackhint.sacked_bytes, tp->sackhint.prr_out,
+                th->th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_max-tp->iss, tp->snd_ssthresh, tp->sackhint.recover_fs, tp->sackhint.prr_delivered);
+        }
+
 	}
 }
