@@ -3980,7 +3980,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	if (((tp->t_flags & TF_SACK_PERMIT) &&
 	    (to->to_flags & TOF_SACK)) ||
 	    (IN_CONGRECOVERY(tp->t_flags) &&
-	     !IN_FASTRECOVERY(tp->t_flags)) {
+	     !IN_FASTRECOVERY(tp->t_flags))) {
 		del_data = tp->sackhint.delivered_data;
 		if (V_tcp_do_rfc6675_pipe)
 			pipe = tcp_compute_pipe(tp);
