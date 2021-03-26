@@ -2638,9 +2638,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 							if (tp->snd_cwnd > tp->snd_ssthresh)
 								tp->snd_cwnd = tp->snd_ssthresh;
 						}
-					} else {
+					} else
 						tp->snd_cwnd += maxseg;
-					}
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh ||
@@ -3982,14 +3981,18 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	 * (del_data) and an estimate of how many bytes are in the
 	 * network.
 	 */
-	if ((tp->t_flags & TF_SACK_PERMIT) &&
-	    (to->to_flags & TOF_SACK)) {
+	if (((tp->t_flags & TF_SACK_PERMIT) &&
+	    (to->to_flags & TOF_SACK)) ||
+	    (IN_CONGRECOVERY(tp->t_flags) &&
+	     !IN_FASTRECOVERY(tp->t_flags)) {
 		del_data = tp->sackhint.delivered_data;
 		if (V_tcp_do_newsack)
 			pipe = tcp_compute_pipe(tp);
 		else
 			pipe = (tp->snd_nxt - tp->snd_fack) +
 				tp->sackhint.sack_bytes_rexmit;
+		if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+			log(LOG_CRIT, "ECN,SACK\tdel_data:%d pipe:%d\n", del_data, pipe);
 	} else {
 		if (tp->sackhint.prr_delivered < tp->t_dupacks*maxseg)
 			del_data = maxseg;
@@ -3998,6 +4001,9 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 				(tp->t_dupacks-1)*maxseg + maxseg);
 		pipe = imax(0, tp->snd_max - tp->snd_una -
 			    tp->t_dupacks*maxseg);
+		if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+			log(LOG_CRIT, "Reno\tdel_data:%d pipe:%d dupacks:%d max:%d una:%d prr_delivered:%d\n",
+			    del_data, pipe,tp->t_dupacks,tp->snd_max-tp->iss, tp->snd_una-tp->iss, tp->sackhint.prr_delivered);
 	}
 	tp->sackhint.prr_delivered += del_data;
 	/*
