@@ -2833,8 +2833,11 @@ resume_partialack:
 						(void) tcp_output(tp);
 					} else
 						tcp_sack_partialack(tp, th);
-				else
+				else {
+					if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					log(LOG_CRIT, "newreno_partialack: %d dupacks\n", tp->t_dupacks);
 					tcp_newreno_partial_ack(tp, th);
+				}
 			} else
 				cc_post_recovery(tp, th);
 		} else if (IN_CONGRECOVERY(tp->t_flags)) {
@@ -2987,8 +2990,13 @@ process_ACK:
 		}
 		tp->snd_una = th->th_ack;
 		if (tp->t_flags & TF_SACK_PERMIT) {
-			if (SEQ_GT(tp->snd_una, tp->snd_recover))
+			if (SEQ_GT(tp->snd_una, tp->snd_recover)) {
+				if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					log(LOG_CRIT, "SACK recover: %d\t", tp->snd_recover);
 				tp->snd_recover = tp->snd_una;
+				if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+					log(LOG_CRIT, "pulled to: %d\n", tp->snd_recover);
+			}
 		}
 		if (SEQ_LT(tp->snd_nxt, tp->snd_una))
 			tp->snd_nxt = tp->snd_una;
@@ -3994,16 +4002,16 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 		if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
 			log(LOG_CRIT, "ECN,SACK\tdel_data:%d pipe:%d\n", del_data, pipe);
 	} else {
-		if (tp->sackhint.prr_delivered < tp->t_dupacks*maxseg)
+		if (tp->sackhint.prr_delivered < (tcprexmtthresh*maxseg + tp->snd_recover - tp->snd_una))
 			del_data = maxseg;
-		del_data = imax(0, imin(tp->snd_max - tp->snd_una,
-				tp->sackhint.prr_delivered) -
-				(tp->t_dupacks-1)*maxseg + maxseg);
+//		del_data = imax(0, imin(tp->snd_max - tp->snd_una,
+//				tp->sackhint.prr_delivered) -
+//				(tp->t_dupacks-1)*maxseg + maxseg);
 		pipe = imax(0, tp->snd_max - tp->snd_una -
 			    tp->t_dupacks*maxseg);
 		if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-			log(LOG_CRIT, "Reno\tdel_data:%d pipe:%d dupacks:%d max:%d una:%d prr_delivered:%d\n",
-			    del_data, pipe,tp->t_dupacks,tp->snd_max-tp->iss, tp->snd_una-tp->iss, tp->sackhint.prr_delivered);
+			log(LOG_CRIT, "Reno\tdel_data:%d pipe:%d dupacks:%d max:%d una:%d prr_delivered:%d prr_out:%d\n",
+			    del_data, pipe,tp->t_dupacks,tp->snd_max-tp->iss, tp->snd_una-tp->iss, tp->sackhint.prr_delivered, tp->sackhint.prr_out);
 	}
 	tp->sackhint.prr_delivered += del_data;
 	/*
@@ -4017,7 +4025,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 			    tp->snd_ssthresh, tp->sackhint.recover_fs) -
 			    tp->sackhint.prr_out;
 	} else {
-		if (V_tcp_do_prr_conservative)
+		if (V_tcp_do_prr_conservative || (del_data == 0))
 			limit = tp->sackhint.prr_delivered -
 				tp->sackhint.prr_out;
 		else
