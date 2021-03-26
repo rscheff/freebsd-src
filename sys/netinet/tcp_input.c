@@ -3979,7 +3979,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	 * network.
 	 */
 	if ((tp->t_flags & TF_SACK_PERMIT) &&
-	    (to.to_flags & TOF_SACK)) {
+	    (to->to_flags & TOF_SACK)) {
 		del_data = tp->sackhint.delivered_data;
 		if (V_tcp_do_rfc6675_pipe)
 			pipe = tcp_compute_pipe(tp);
@@ -4029,7 +4029,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 	 */
 	if (IN_FASTRECOVERY(tp->t_flags)) {
 		if ((tp->t_flags & TF_SACK_PERMIT) &&
-		    (to.to_flags & TOF_SACK)) {
+		    (to->to_flags & TOF_SACK)) {
 			tp->snd_cwnd = tp->snd_nxt - tp->snd_recover +
 					    tp->sackhint.sack_bytes_rexmit +
 					    (snd_cnt * maxseg);
@@ -4038,8 +4038,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 					    (snd_cnt * maxseg);
 		}
 	} else if (IN_CONGRECOVERY(tp->t_flags))
-		tp->snd_cwnd = pipe - del_data +
-				    (snd_cnt * maxseg));
+		tp->snd_cwnd = pipe - del_data + (snd_cnt * maxseg);
 	tp->snd_cwnd = imax(maxseg, tp->snd_cwnd);
 	if ((tp->t_inpcb->inp_socket->so_options & SO_DEBUG) ||
 	    (tp->snd_cwnd < maxseg)) {
