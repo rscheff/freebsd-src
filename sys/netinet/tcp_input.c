@@ -2684,7 +2684,7 @@ enter_recovery:
 							    imin(tp->snd_max - tp->snd_una,
 							    tp->t_dupacks * maxseg);
 						}
-						tp->sackhint.recover_fs = imax(1,
+						tp->sackhint.recover_fs = max(1,
 						    tp->snd_nxt - tp->snd_una);
 					}
 					if ((tp->t_flags & TF_SACK_PERMIT) &&
