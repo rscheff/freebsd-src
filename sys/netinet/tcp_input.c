@@ -2600,7 +2600,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					    CC_DUPACK);
 					if (V_tcp_do_prr &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
-						tcp_do_prr_ack(tp, th, &to, sack_changed);
+						/*
+						 * While dealing with DupAcks,
+						 * always use PRR-CRB
+						 */
+						tcp_do_prr_ack(tp, th, &to, 2);
 					} else if ((tp->t_flags & TF_SACK_PERMIT) &&
 					    (to.to_flags & TOF_SACK) &&
 					    IN_FASTRECOVERY(tp->t_flags)) {
@@ -2822,7 +2826,11 @@ resume_partialack:
 				if (V_tcp_do_prr) {
 					tp->sackhint.delivered_data = BYTES_THIS_ACK(tp, th);
 					tp->snd_fack = th->th_ack;
-					tcp_do_prr_ack(tp, th, &to);
+					/*
+					 * During ECN cwnd reduction
+					 * always use PRR-SSRB
+					 */
+					tcp_do_prr_ack(tp, th, &to, 1);
 					(void) tcp_output(tp);
 				}
 			} else
