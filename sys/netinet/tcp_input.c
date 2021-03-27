@@ -1562,6 +1562,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 #endif
 	TCP_LOG_EVENT(tp, th, &so->so_rcv, &so->so_snd, TCP_LOG_IN, 0,
 	    tlen, NULL, true);
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		if (thflags & TH_ECE) {
+			log(LOG_CRIT, "special ACK\n");
+		}
 
 	if ((thflags & TH_SYN) && (thflags & TH_FIN) && V_drop_synfin) {
 		if ((s = tcp_log_addrs(inc, th, NULL, NULL))) {
