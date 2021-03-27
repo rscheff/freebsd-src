@@ -4005,12 +4005,12 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to, int sack_
 		/*
 		 * PRR 6937bis heuristic:
 		 * - A partial ack without SACK block beneath snd_recover
-		 * indicates further loss. This case is not handled here,
-		 * but in tcp_sack_partialack, to send a rescue
-		 * retransmissions.
+		 * indicates further loss.
 		 * - An SACK scoreboard update adding a new hole indicates
 		 * further loss, so be conservative and send at most one
 		 * segment.
+		 * - Prevent ACK splitting attacks, by being conservative
+		 * when no new data is acked.
 		 */
 		if ((sack_changed == 2) || (del_data == 0))
 			limit = tp->sackhint.prr_delivered -
