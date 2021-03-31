@@ -177,18 +177,15 @@ SYSCTL_PROC(_net_inet_tcp_hostcache, OID_AUTO, purgenow,
 static MALLOC_DEFINE(M_HOSTCACHE, "hostcache", "TCP hostcache");
 
 /* Use jenkins_hash32(), as in other parts of the tcp stack */
+#define HOSTCACHE_HASHSALT 0xb0afb0af;
 #define HOSTCACHE_HASH(ip) \
-	(jenkins_hash32((uint32_t *)(ip), 1, 0xb0afb0af) & \
-/*	(((ip)->s_addr ^ ((ip)->s_addr >> 7) ^ ((ip)->s_addr >> 17)) &	\
-*/	 V_tcp_hostcache.hashmask)
+	(jenkins_hash32((uint32_t *)(ip), 1, HOSTCACHE_HASHSALT) & \
+	 V_tcp_hostcache.hashmask)
 
 #define HOSTCACHE_HASH6(ip6)				\
-	(jenkins_hash32((uint32_t *)&((ip6)->s6_addr32[0]), 4, 0xb0afb0af) & \
-/*	(((ip6)->s6_addr32[0] ^				\
-//	  (ip6)->s6_addr32[1] ^				\
-//	  (ip6)->s6_addr32[2] ^				\
-/	  (ip6)->s6_addr32[3]) &			\
-*/	 V_tcp_hostcache.hashmask)
+	(jenkins_hash32((uint32_t *)&((ip6)->s6_addr32[0]), 4, \
+	 HOSTCACHE_HASHSALT) & \
+	 V_tcp_hostcache.hashmask)
 
 #define THC_LOCK(lp)		mtx_lock(lp)
 #define THC_UNLOCK(lp)		mtx_unlock(lp)
