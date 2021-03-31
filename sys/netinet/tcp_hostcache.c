@@ -122,7 +122,6 @@ VNET_DEFINE_STATIC(struct callout, tcp_hc_callout);
 static struct hc_metrics *tcp_hc_lookup(struct in_conninfo *);
 static struct hc_metrics *tcp_hc_insert(struct in_conninfo *);
 static int sysctl_tcp_hc_list(SYSCTL_HANDLER_ARGS);
-static int sysctl_tcp_hc_histo(SYSCTL_HANDLER_ARGS);
 static int sysctl_tcp_hc_purgenow(SYSCTL_HANDLER_ARGS);
 static void tcp_hc_purge_internal(int);
 static void tcp_hc_purge(void *);
@@ -169,11 +168,6 @@ SYSCTL_PROC(_net_inet_tcp_hostcache, OID_AUTO, list,
     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_SKIP | CTLFLAG_MPSAFE,
     0, 0, sysctl_tcp_hc_list, "A",
     "List of all hostcache entries");
-
-SYSCTL_PROC(_net_inet_tcp_hostcache, OID_AUTO, histo,
-    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_SKIP | CTLFLAG_MPSAFE,
-    0, 0, sysctl_tcp_hc_histo, "A",
-    "Print a histogram of hostcache hashbucket utilization");
 
 SYSCTL_PROC(_net_inet_tcp_hostcache, OID_AUTO, purgenow,
     CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
@@ -791,18 +785,7 @@ tcp_hc_purge_internal(int all)
 			} else
 				hc_entry->rmx_expire -= V_tcp_hostcache.prune;
 		}
-		if (all)
-			V_tcp_hostcache.hashbase[i].hch_length = 0;
 		THC_UNLOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
-	}
-	if (all && V_tcp_hostcache.cache_count != 0) {
-		for (i = 0; i < V_tcp_hostcache.hashsize; i++)
-			THC_LOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
-		V_tcp_hostcache.cache_count = 0;
-		for (--i; i >= 0 ; i--)
-			V_tcp_hostcache.cache_count += V_tcp_hostcache.hashbase[i].hch_length;
-		for (++i; i < V_tcp_hostcache.hashsize; i++)
-			THC_UNLOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
 	}
 }
 
