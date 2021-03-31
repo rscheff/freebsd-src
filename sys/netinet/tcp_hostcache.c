@@ -791,7 +791,18 @@ tcp_hc_purge_internal(int all)
 			} else
 				hc_entry->rmx_expire -= V_tcp_hostcache.prune;
 		}
+		if (all)
+			V_tcp_hostcache.hashbase[i].hch_length = 0;
 		THC_UNLOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
+	}
+	if (all && V_tcp_hostcache.cache_count != 0) {
+		for (i = 0; i < V_tcp_hostcache.hashsize; i++)
+			THC_LOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
+		V_tcp_hostcache.cache_count = 0;
+		for (--i; i >= 0 ; i--)
+			V_tcp_hostcache.cache_count += V_tcp_hostcache.hashbase[i].hch_length;
+		for (++i; i < V_tcp_hostcache.hashsize; i++)
+			THC_UNLOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
 	}
 }
 
