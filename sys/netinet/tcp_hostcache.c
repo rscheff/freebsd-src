@@ -183,7 +183,7 @@ SYSCTL_PROC(_net_inet_tcp_hostcache, OID_AUTO, purgenow,
 static MALLOC_DEFINE(M_HOSTCACHE, "hostcache", "TCP hostcache");
 
 /* Use jenkins_hash32(), as in other parts of the tcp stack */
-#define HOSTCACHE_HASHSALT 0xb0afb0af;
+#define HOSTCACHE_HASHSALT 0xb0afb0af
 #define HOSTCACHE_HASH(ip) \
 	(jenkins_hash32((uint32_t *)(ip), 1, HOSTCACHE_HASHSALT) & \
 	 V_tcp_hostcache.hashmask)
