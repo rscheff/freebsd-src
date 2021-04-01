@@ -440,10 +440,6 @@ tcp_hc_insert(struct in_conninfo *inc)
 		("tcp_hostcache: bucket length too high at %u: %u",
 		hash, V_tcp_hostcache.hashbase[hash].hch_length));
 	atomic_add_int(&V_tcp_hostcache.cache_count, 1);
-	KASSERT(V_tcp_hostcache.hashbase[hash].hch_length <=
-		V_tcp_hostcache.bucket_limit,
-		("tcp_hostcache: bucket length too high at %u: %u",
-		hash, V_tcp_hostcache.hashbase[hash].hch_length));
 	TCPSTAT_INC(tcps_hc_added);
 
 	return hc_entry;
@@ -791,11 +787,6 @@ tcp_hc_purge_internal(int all)
 				atomic_subtract_int(&V_tcp_hostcache.cache_count, 1);
 			} else
 				hc_entry->rmx_expire -= V_tcp_hostcache.prune;
-			KASSERT(V_tcp_hostcache.hashbase[i].hch_length >= 0 &&
-				V_tcp_hostcache.hashbase[i].hch_length <=
-				V_tcp_hostcache.bucket_limit,
-				("tcp_hostcache: bucket langth out of range at %u: %u",
-				i, V_tcp_hostcache.hashbase[i].hch_length));
 		}
 		THC_UNLOCK(&V_tcp_hostcache.hashbase[i].hch_mtx);
 	}
