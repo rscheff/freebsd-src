@@ -2038,7 +2038,8 @@ tcp_respond(struct tcpcb *tp, void *ipgen, struct tcphdr *th, struct mbuf *m,
 	 * bits, as when an established or listening socket
 	 * would exist.
 	 */
-	if ((V_tcp_do_ecn == 1) && V_tcp_ecn_generalized) {
+	if (V_tcp_ecn_generalized && ((V_tcp_do_ecn == 1) ||
+	    ((tp != NULL) && (tp->t_flags2 & TF2_ECN_PERMIT)))) {
 #ifdef INET6
 		if (isipv6)
 			ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
