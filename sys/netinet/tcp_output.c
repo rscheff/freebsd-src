@@ -1216,14 +1216,10 @@ send:
 	if ((TCPS_HAVEESTABLISHED(tp->t_state) &&
 	    (tp->t_flags2 & TF2_ECN_PERMIT)) ||
 	    /*
-	     * Note that a passive open SYN,ACK
-	     * is actually sent from tcp_syncache
+	     * Send all segments as ECN-capable transport
+	     * when ecn.generalized is set.
 	     */
-	    (V_tcp_ecn_generalized &&
-	     ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|       TH_ECE|TH_CWR)) ||
-	     ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|TH_ACK|TH_ECE       )))) {
+	    V_tcp_ecn_generalized) {
 		/*
 		 * If the peer has ECN, mark new data packets
 		 * with ECN capable transmission (ECT).
