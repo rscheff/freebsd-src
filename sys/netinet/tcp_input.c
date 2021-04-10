@@ -1481,8 +1481,13 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 	INP_LOCK_ASSERT(tp->t_inpcb);
 	if (tp->t_flags & TF_WAKESOR) {
 		tp->t_flags &= ~TF_WAKESOR;
-		SOCKBUF_UNLOCK_ASSERT(&so->so_rcv);
-		sorwakeup(so);
+		SOCKBUF_LOCK_ASSERT(&so->so_rcv);
+		sorwakeup_locked(so);
+	}
+	if (tp->t_flags & TF_WAKESOW) {
+		tp->t_flags &= ~TF_WAKESOW;
+		SOCKBUF_LOCK_ASSERT(&so->so_snd);
+		sowwakeup_locked(so);
 	}
 }
 
@@ -1860,7 +1865,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				else if (!tcp_timer_active(tp, TT_PERSIST))
 					tcp_timer_activate(tp, TT_REXMT,
 						      tp->t_rxtcur);
-				sowwakeup(so);
+				SOCKBUF_LOCK(&so->so_snd);
+				tp->t_flags |= TF_WAKESOW;
 				if (sbavail(&so->so_snd))
 					(void) tp->t_fb->tfb_tcp_output(tp);
 				goto check_delack;
@@ -1925,7 +1931,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				m_adj(m, drop_hdrlen);	/* delayed header drop */
 				sbappendstream_locked(&so->so_rcv, m, 0);
 			}
-			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
 			if (DELAY_ACK(tp, tlen)) {
 				tp->t_flags |= TF_DELACK;
@@ -2918,8 +2923,7 @@ process_ACK:
 				tp->snd_wnd = 0;
 			ourfinisacked = 0;
 		}
-		/* NB: sowwakeup_locked() does an implicit unlock. */
-		sowwakeup_locked(so);
+		tp->t_flags |= TF_WAKESOW;
 		m_freem(mfree);
 		/* Detect una wraparound. */
 		if (!IN_RECOVERY(tp->t_flags) &&
@@ -3140,7 +3144,6 @@ dodata:							/* XXX */
 				m_freem(m);
 			else
 				sbappendstream_locked(&so->so_rcv, m, 0);
-			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
 		} else {
 			/*

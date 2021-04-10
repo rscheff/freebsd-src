@@ -8344,8 +8344,7 @@ rack_process_ack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 */
 		ourfinisacked = 1;
 	}
-	/* NB: sowwakeup_locked() does an implicit unlock. */
-	sowwakeup_locked(so);
+	tp->t_flags |= TF_WAKESOW;
 	m_freem(mfree);
 	if (rack->r_ctl.rc_early_recovery == 0) {
 		if (IN_RECOVERY(tp->t_flags)) {
@@ -8665,7 +8664,6 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				appended =
 #endif
 					sbappendstream_locked(&so->so_rcv, m, 0);
-			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 			if (so->so_rcv.sb_shlim && appended != mcnt)
@@ -8926,7 +8924,6 @@ rack_do_fastnewdata(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			sbappendstream_locked(&so->so_rcv, m, 0);
 		ctf_calc_rwin(so, tp);
 	}
-	SOCKBUF_UNLOCK(&so->so_rcv);
 	tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 	if (so->so_rcv.sb_shlim && mcnt != appended)
@@ -9144,7 +9141,8 @@ rack_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		rack_timer_cancel(tp, rack, rack->r_ctl.rc_rcvtime, __LINE__);
 	}
 	/* Wake up the socket if we have room to write more */
-	sowwakeup(so);
+	SOCKBUF_LOCK(&so->so_snd);
+	tp->t_flags |= TF_WAKESOW;
 	if (sbavail(&so->so_snd)) {
 		rack->r_wanted_output = 1;
 	}
