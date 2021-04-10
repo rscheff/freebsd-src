@@ -1484,11 +1484,6 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 		SOCKBUF_UNLOCK_ASSERT(&so->so_rcv);
 		sorwakeup(so);
 	}
-	if (tp->t_flags & TF_WAKESOW) {
-		tp->t_flags &= ~TF_WAKESOW;
-		SOCKBUF_UNLOCK_ASSERT(&so->so_snd);
-		sowwakeup(so);
-	}
 }
 
 void
