@@ -8344,7 +8344,8 @@ rack_process_ack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 */
 		ourfinisacked = 1;
 	}
-	tp->t_flags |= TF_WAKESOW;
+	/* NB: sowwakeup_locked() does an implicit unlock. */
+	sowwakeup_locked(so);
 	m_freem(mfree);
 	if (rack->r_ctl.rc_early_recovery == 0) {
 		if (IN_RECOVERY(tp->t_flags)) {
@@ -9141,8 +9142,7 @@ rack_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		rack_timer_cancel(tp, rack, rack->r_ctl.rc_rcvtime, __LINE__);
 	}
 	/* Wake up the socket if we have room to write more */
-	SOCKBUF_LOCK(&so->so_snd);
-	tp->t_flags |= TF_WAKESOW;
+	sowwakeup(so);
 	if (sbavail(&so->so_snd)) {
 		rack->r_wanted_output = 1;
 	}
