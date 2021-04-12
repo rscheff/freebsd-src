@@ -1466,6 +1466,12 @@ tcp_autorcvbuf(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	return (newsize);
 }
 
+#define lognfsupcall(x)  log(2, (x))
+/*
+if ((tp->t_inpcb->inp_lport == 2049) || \
+    (tp->t_inpcb->inp_fport == 2049)) \
+    log(2, (x))
+*/
 void
 tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 {
@@ -1478,11 +1484,15 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 		return;
 	INP_LOCK_ASSERT(tp->t_inpcb);
 	if (tp->t_flags & TF_WAKESOR) {
+		log(2, "wake sor\n");
+		lognfsupcall("wake so_rcv\n");
 		tp->t_flags &= ~TF_WAKESOR;
 		SOCKBUF_UNLOCK_ASSERT(&so->so_rcv);
 		sorwakeup(so);
 	}
 	if (tp->t_flags & TF_WAKESOW) {
+		log(2, "wake sow\n");
+		lognfsupcall("wake so_snd\n");
 		tp->t_flags &= ~TF_WAKESOW;
 		SOCKBUF_UNLOCK_ASSERT(&so->so_snd);
 		sowwakeup(so);
@@ -1864,6 +1874,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					tcp_timer_activate(tp, TT_REXMT,
 						      tp->t_rxtcur);
 				tp->t_flags |= TF_WAKESOW;
+				lognfsupcall("so_snd 1\n");
 				if (sbavail(&so->so_snd))
 					(void) tp->t_fb->tfb_tcp_output(tp);
 				goto check_delack;
@@ -1930,6 +1941,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			}
 			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
+			lognfsupcall("so_rcv 1\n");
 			if (DELAY_ACK(tp, tlen)) {
 				tp->t_flags |= TF_DELACK;
 			} else {
@@ -2923,6 +2935,7 @@ process_ACK:
 		}
 		SOCKBUF_UNLOCK(&so->so_snd);
 		tp->t_flags |= TF_WAKESOW;
+		lognfsupcall("so_snd 2\n");
 		m_freem(mfree);
 		/* Detect una wraparound. */
 		if (!IN_RECOVERY(tp->t_flags) &&
@@ -3145,6 +3158,7 @@ dodata:							/* XXX */
 				sbappendstream_locked(&so->so_rcv, m, 0);
 			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
+			lognfsupcall("so_rcv 2\n");
 		} else {
 			/*
 			 * XXX: Due to the header drop above "th" is
@@ -3215,6 +3229,7 @@ dodata:							/* XXX */
 			socantrcvmore(so);
 			/* The socket upcall is handled by socantrcvmore. */
 			tp->t_flags &= ~TF_WAKESOR;
+			lognfsupcall("socantrcvmore\n");
 			/*
 			 * If connection is half-synchronized
 			 * (ie NEEDSYN flag on) then delay ACK,

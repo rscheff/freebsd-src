@@ -302,6 +302,7 @@ svc_dg_soupcall(struct socket *so, void *arg, int waitflag)
 {
 	SVCXPRT *xprt = (SVCXPRT *) arg;
 
+	log(2, "svc_dg_soupcall so:%p xprt:%p wait:%d\n", so, arg, waitflag);
 	xprt_active(xprt);
 	return (SU_OK);
 }

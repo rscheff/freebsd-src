@@ -1086,6 +1086,7 @@ svc_vc_soupcall(struct socket *so, void *arg, int waitflag)
 {
 	SVCXPRT *xprt = (SVCXPRT *) arg;
 
+	log(2, "svc_vc_soupcall so:%p xprt:%p wait:%d\n", so, arg, waitflag);
 	if (soreadable(xprt->xp_socket))
 		xprt_active(xprt);
 	return (SU_OK);
