@@ -3207,9 +3207,12 @@ dodata:							/* XXX */
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			socantrcvmore(so);
-			/* The socket upcall is handled by socantrcvmore. */
-			tp->t_flags &= ~TF_WAKESOR;
+			if (tp->t_flags & TF_WAKESOR) {
+				/* The socket upcall is handled by socantrcvmore. */
+				tp->t_flags &= ~TF_WAKESOR;
+				socantrcvmore_locked(so);
+			} else
+				socantrcvmore(so);
 			/*
 			 * If connection is half-synchronized
 			 * (ie NEEDSYN flag on) then delay ACK,
