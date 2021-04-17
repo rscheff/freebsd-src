@@ -1221,7 +1221,7 @@ send:
 	     * futher simplified, as a fall-back to non-ECN
 	     * may occur.
 	     */
-	    (V_tcp_ecn_generalized &&
+	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
 	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
 			(TH_SYN|       TH_ECE|TH_CWR)) ||
 	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
@@ -1234,7 +1234,7 @@ send:
 		 * Ignore pure ack packets, retransmissions and
 		 * window probes unless doing generalized ECN.
 		 */
-		if (V_tcp_ecn_generalized ||
+		if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
 		    (len > 0 && (sack_rxmit == 0) &&
 		    SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
 		    !((tp->t_flags & TF_FORCEDATA) && len == 1 &&

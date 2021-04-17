@@ -1028,7 +1028,15 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 			tp->t_flags |= TF_SACK_PERMIT;
 	}
 
+<<<<<<< HEAD
 	tcp_ecn_syncache_socket(tp, sc);
+=======
+	if (sc->sc_flags & SCF_ECN) {
+		tp->t_flags2 |= TF2_ECN_PERMIT;
+		if (V_tcp_ecn_generalized)
+			tp->t_flags2 |= TF2_ECN_PLUSPLUS;
+	}
+>>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 
 	/*
 	 * Set up MSS and get cached values from tcp_hostcache.

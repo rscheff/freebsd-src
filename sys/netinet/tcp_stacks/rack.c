@@ -11127,9 +11127,19 @@ rack_do_syn_sent(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			tp->t_flags |= TF_ACKNOW;
 			rack->rc_dack_toggle = 0;
 		}
+<<<<<<< HEAD
 
 		tcp_ecn_input_syn_sent(tp, thflags, iptos);
 
+=======
+		if (((thflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
+		    (V_tcp_do_ecn == 1)) {
+			tp->t_flags2 |= TF2_ECN_PERMIT;
+			if (V_tcp_ecn_generalized)
+				tp->t_flags2 |= TF2_ECN_PLUSPLUS;
+			KMOD_TCPSTAT_INC(tcps_ecn_shs);
+		}
+>>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 		if (SEQ_GT(th->th_ack, tp->snd_una)) {
 			/*
 			 * We advance snd_una for the
@@ -14189,7 +14199,19 @@ rack_do_segment_nounlock(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 */
 		if (tp->t_state == TCPS_SYN_SENT && (thflags & TH_SYN)) {
 			/* Handle parallel SYN for ECN */
+<<<<<<< HEAD
 			tcp_ecn_input_parallel_syn(tp, thflags, iptos);
+=======
+			if (!(thflags & TH_ACK) &&
+			    ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) &&
+			    ((V_tcp_do_ecn == 1) || (V_tcp_do_ecn == 2))) {
+				tp->t_flags2 |= TF2_ECN_PERMIT;
+				tp->t_flags2 |= TF2_ECN_SND_ECE;
+				if (V_tcp_ecn_generalized)
+					tp->t_flags2 |= TF2_ECN_PLUSPLUS;
+				TCPSTAT_INC(tcps_ecn_shs);
+			}
+>>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 			if ((to.to_flags & TOF_SCALE) &&
 			    (tp->t_flags & TF_REQ_SCALE)) {
 				tp->t_flags |= TF_RCVD_SCALE;
@@ -18300,7 +18322,7 @@ send:
 	     * futher simplified, as a fall-back to non-ECN
 	     * may occur.
 	     */
-	    (V_tcp_ecn_generalized &&
+	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
 	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
 			(TH_SYN|       TH_ECE|TH_CWR)) ||
 	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
@@ -18312,7 +18334,7 @@ send:
 		 * transmission (ECT). Ignore pure ack packets,
 		 * retransmissions unless doing generalized ECN.
 		 */
-		if (V_tcp_ecn_generalized ||
+		if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
 		   ((len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
 		    (sack_rxmit == 0)))) {
 >>>>>>> 1c2dd027d946... rebase

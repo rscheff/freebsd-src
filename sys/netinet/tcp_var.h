@@ -569,6 +569,7 @@ tcp_unlock_or_drop(struct tcpcb *tp, int tcp_output_retval)
 #define	TF2_ECN_SND_CWR		0x00000040 /* ECN CWR in queue */
 #define	TF2_ECN_SND_ECE		0x00000080 /* ECN ECE in queue */
 #define	TF2_ACE_PERMIT		0x00000100 /* Accurate ECN mode */
+#define	TF2_ECN_PLUSPLUS	0x00000200 /* ECN++ session */
 #define TF2_FBYTES_COMPLETE	0x00000400 /* We have first bytes in and out */
 /*
  * Structure to hold TCP options that are only used during segment
