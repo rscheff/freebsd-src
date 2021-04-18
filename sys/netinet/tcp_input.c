@@ -1515,6 +1515,8 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 	}
 	if (so == NULL) {
 		log(2, "%s#%d: so is NULL\n", __func__, __LINE__);
+		return;
+	}
 	if ((so->so_state & SS_ISCONNECTED) == 0)
 		return;
 	INP_LOCK_ASSERT(tp->t_inpcb);
@@ -1551,7 +1553,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 #endif
 
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s: WAKESOR left over from last invokation\n", __func__);
+	log(2, "%s: WAKESOR left over from last invocation\n", __func__);
 
 	thflags = th->th_flags;
 	inc = &tp->t_inpcb->inp_inc;
@@ -1968,11 +1970,13 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				m_adj(m, drop_hdrlen);	/* delayed header drop */
 				sbappendstream_locked(&so->so_rcv, m, 0);
 			}
-			tp->t_flags |= TF_WAKESOR;
 			if (DELAY_ACK(tp, tlen)) {
 				tp->t_flags |= TF_DELACK;
+				tp->t_flags |= TF_WAKESOR;
 			} else {
 				tp->t_flags |= TF_ACKNOW;
+				/* NB: sorwakeup_locked() does an implicit unlock. */
+				sorwakeup_locked(so);
 				tp->t_fb->tfb_tcp_output(tp);
 			}
 			goto check_delack;
@@ -3024,7 +3028,7 @@ process_ACK:
 			if (ourfinisacked) {
 				tcp_twstart(tp);
 				m_freem(m);
-				if (tp != NULL) && (tp->t_flags & TF_WAKESOR))
+				if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 				log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 				return;
 			}
@@ -3377,7 +3381,7 @@ dropwithreset:
 		INP_WUNLOCK(tp->t_inpcb);
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
-	if (tp != NULL) && (tp->t_flags & TF_WAKESOR))
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
