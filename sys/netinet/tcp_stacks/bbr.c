@@ -7825,8 +7825,8 @@ bbr_process_ack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	acked_amount = min(acked, (int)sbavail(&so->so_snd));
 	tp->snd_wnd -= acked_amount;
 	mfree = sbcut_locked(&so->so_snd, acked_amount);
-	SOCKBUF_UNLOCK(&so->so_snd);
-	tp->t_flags |= TF_WAKESOW;
+	/* NB: sowwakeup_locked() does an implicit unlock. */
+	sowwakeup_locked(so);
 	m_freem(mfree);
 	if (SEQ_GT(th->th_ack, tp->snd_una)) {
 		bbr_collapse_rtt(tp, bbr, TCP_REXMTVAL(tp));
@@ -8302,7 +8302,6 @@ bbr_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				appended =
 #endif
 					sbappendstream_locked(&so->so_rcv, m, 0);
-			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 			if (so->so_rcv.sb_shlim && appended != mcnt)
@@ -8364,9 +8363,12 @@ bbr_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			socantrcvmore(so);
-			/* The socket upcall is handled by socantrcvmore. */
-			tp->t_flags &= ~TF_WAKESOR;
+			if (tp->t_flags & TF_WAKESOR) {
+				/* The socket upcall is handled by socantrcvmore. */
+				tp->t_flags &= ~TF_WAKESOR;
+				socantrcvmore_locked(so);
+			} else
+				socantrcvmore(so);
 			/*
 			 * If connection is half-synchronized (ie NEEDSYN
 			 * flag on) then delay ACK, so it may be piggybacked
@@ -8557,7 +8559,6 @@ bbr_do_fastnewdata(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			sbappendstream_locked(&so->so_rcv, m, 0);
 		ctf_calc_rwin(so, tp);
 	}
-	SOCKBUF_UNLOCK(&so->so_rcv);
 	tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 	if (so->so_rcv.sb_shlim && mcnt != appended)
@@ -8749,7 +8750,7 @@ bbr_fastack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		    &tcp_savetcp, 0);
 #endif
 	/* Wake up the socket if we have room to write more */
-	tp->t_flags |= TF_WAKESOW;
+	sowwakeup(so);
 	if (tp->snd_una == tp->snd_max) {
 		/* Nothing left outstanding */
 		bbr_log_progress_event(bbr, tp, ticks, PROGRESS_CLEAR, __LINE__);

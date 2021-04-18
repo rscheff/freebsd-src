@@ -9857,8 +9857,8 @@ rack_process_ack(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	if (acked_amount && sbavail(&so->so_snd))
 		rack_adjust_sendmap(rack, &so->so_snd, tp->snd_una);
 	rack_log_wakeup(tp,rack, &so->so_snd, acked, 2);
-	SOCKBUF_UNLOCK(&so->so_snd);
-	tp->t_flags |= TF_WAKESOW;
+	/* NB: sowwakeup_locked() does an implicit unlock. */
+	sowwakeup_locked(so);
 	m_freem(mfree);
 	if (SEQ_GT(tp->snd_una, tp->snd_recover))
 		tp->snd_recover = tp->snd_una;
@@ -10208,7 +10208,6 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					sbappendstream_locked(&so->so_rcv, m, 0);
 
 			rack_log_wakeup(tp,rack, &so->so_rcv, tlen, 1);
-			SOCKBUF_UNLOCK(&so->so_rcv);
 			tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 			if (so->so_rcv.sb_shlim && appended != mcnt)
@@ -10276,9 +10275,12 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			socantrcvmore(so);
-			/* The socket upcall is handled by socantrcvmore. */
-			tp->t_flags &= ~TF_WAKESOR;
+			if (tp->t_flags & TF_WAKESOR) {
+				/* The socket upcall is handled by socantrcvmore. */
+				tp->t_flags &= ~TF_WAKESOR;
+				socantrcvmore_locked(so);
+			} else
+				socantrcvmore(so);
 			/*
 			 * If connection is half-synchronized (ie NEEDSYN
 			 * flag on) then delay ACK, so it may be piggybacked
@@ -10471,7 +10473,6 @@ rack_do_fastnewdata(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		ctf_calc_rwin(so, tp);
 	}
 	rack_log_wakeup(tp,rack, &so->so_rcv, tlen, 1);
-	SOCKBUF_UNLOCK(&so->so_rcv);
 	tp->t_flags |= TF_WAKESOR;
 #ifdef NETFLIX_SB_LIMITS
 	if (so->so_rcv.sb_shlim && mcnt != appended)
