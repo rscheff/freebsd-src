@@ -335,8 +335,8 @@ again:
 		} else
 			len = ((int32_t)ulmin(cwin, p->end - p->rxmit));
 		off = p->rxmit - tp->snd_una;
-		KASSERT(off >= 0,("%s: sack block to the left of una : %d",
-		    __func__, off));
+		KASSERT(off >= 0,("%s: sack block to the left of una: %d (%u:%u %u:%u %u:%u)",
+		    __func__, off,TAILQ_LAST(&tp->snd_blocks, scblink)!=NULL?0:1,0,0,0,0,0));
 		if (len > 0) {
 			sack_rxmit = 1;
 			sendalot = 1;
