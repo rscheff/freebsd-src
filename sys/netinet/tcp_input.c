@@ -3313,6 +3313,7 @@ dodata:							/* XXX */
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
 
+	tcp_handle_wakeup(tp, so);
 	/*
 	 * Return any desired output.
 	 */
@@ -3360,9 +3361,9 @@ dropafterack:
 			  &tcp_savetcp, 0);
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
+	tcp_handle_wakeup(tp, so);
 	tp->t_flags |= TF_ACKNOW;
 	(void) tp->t_fb->tfb_tcp_output(tp);
-	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
@@ -3371,8 +3372,8 @@ dropafterack:
 
 dropwithreset:
 	if (tp != NULL) {
-		tcp_dropwithreset(m, th, tp, tlen, rstreason);
 		tcp_handle_wakeup(tp, so);
+		tcp_dropwithreset(m, th, tp, tlen, rstreason);
 		INP_WUNLOCK(tp->t_inpcb);
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
