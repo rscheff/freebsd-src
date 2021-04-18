@@ -8531,6 +8531,7 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	int32_t nsegs;
 	int32_t tfo_syn;
 	struct tcp_rack *rack;
+	bool wakesorcv = false;
 
 	rack = (struct tcp_rack *)tp->t_fb_ptr;
 	INP_WLOCK_ASSERT(tp->t_inpcb);
@@ -8665,7 +8666,7 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				appended =
 #endif
 					sbappendstream_locked(&so->so_rcv, m, 0);
-			tp->t_flags |= TF_WAKESOR;
+			wakesorcv = true;
 #ifdef NETFLIX_SB_LIMITS
 			if (so->so_rcv.sb_shlim && appended != mcnt)
 				counter_fo_release(so->so_rcv.sb_shlim,
@@ -8731,9 +8732,9 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			if (tp->t_flags & TF_WAKESOR) {
+			if (wakesorcv) {
 				/* The socket upcall is handled by socantrcvmore. */
-				tp->t_flags &= ~TF_WAKESOR;
+				wakesorcv = false;
 				socantrcvmore_locked(so);
 			} else
 				socantrcvmore(so);
@@ -8789,6 +8790,8 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			return (1);
 		}
 	}
+	if (wakesorcv)
+		sorwakeup_locked(so);
 	/*
 	 * Return any desired output.
 	 */
@@ -8928,7 +8931,8 @@ rack_do_fastnewdata(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			sbappendstream_locked(&so->so_rcv, m, 0);
 		ctf_calc_rwin(so, tp);
 	}
-	tp->t_flags |= TF_WAKESOR;
+	/* NB: sorwakeup_locked() does an implicit unlock. */
+	sorwakeup_locked(so);
 #ifdef NETFLIX_SB_LIMITS
 	if (so->so_rcv.sb_shlim && mcnt != appended)
 		counter_fo_release(so->so_rcv.sb_shlim, mcnt - appended);

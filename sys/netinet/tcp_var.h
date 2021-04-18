@@ -382,7 +382,7 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF_NEEDFIN	0x00000800	/* send FIN (implicit state) */
 #define	TF_NOPUSH	0x00001000	/* don't push */
 #define	TF_PREVVALID	0x00002000	/* saved values for bad rxmit valid */
-#define	TF_WAKESOR	0x00004000	/* wake up receive socket */
+#define	TF_UNUSED3	0x00004000	/* unused */
 #define	TF_GPUTINPROG	0x00008000	/* Goodput measurement in progress */
 #define	TF_MORETOCOME	0x00010000	/* More data to be appended to sock */
 #define	TF_LQ_OVERFLOW	0x00020000	/* listen queue overflow */

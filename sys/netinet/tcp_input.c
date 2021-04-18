@@ -1469,24 +1469,6 @@ tcp_autorcvbuf(struct mbuf *m, struct tcphdr *th, struct socket *so,
 }
 
 void
-tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
-{
-	/*
-	 * Since tp might be gone if the session entered
-	 * the TIME_WAIT state before coming here, we need
-	 * to check if the socket is still connected.
-	 */
-	if ((so->so_state & SS_ISCONNECTED) == 0)
-		return;
-	INP_LOCK_ASSERT(tp->t_inpcb);
-	if (tp->t_flags & TF_WAKESOR) {
-		tp->t_flags &= ~TF_WAKESOR;
-		SOCKBUF_LOCK_ASSERT(&so->so_rcv);
-		sorwakeup_locked(so);
-	}
-}
-
-void
 tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
     struct tcpcb *tp, int drop_hdrlen, int tlen, uint8_t iptos)
 {
@@ -1500,6 +1482,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	struct tcpopt to;
 	int tfo_syn;
 	u_int maxseg;
+	bool wakesorcv = false;
 
 #ifdef TCPDEBUG
 	/*
@@ -3140,7 +3123,7 @@ dodata:							/* XXX */
 				m_freem(m);
 			else
 				sbappendstream_locked(&so->so_rcv, m, 0);
-			tp->t_flags |= TF_WAKESOR;
+			wakesorcv = true;
 		} else {
 			/*
 			 * XXX: Due to the header drop above "th" is
@@ -3208,9 +3191,9 @@ dodata:							/* XXX */
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			if (tp->t_flags & TF_WAKESOR) {
+			if (wakesorcv) {
 				/* The socket upcall is handled by socantrcvmore. */
-				tp->t_flags &= ~TF_WAKESOR;
+				wakesorcv = false;
 				socantrcvmore_locked(so);
 			} else
 				socantrcvmore(so);
@@ -3264,6 +3247,10 @@ dodata:							/* XXX */
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
 
+	if (wakesorcv) {
+		wakesorcv = false;
+		sorwakeup_locked(so);
+	}
 	/*
 	 * Return any desired output.
 	 */
@@ -3277,7 +3264,6 @@ check_delack:
 		tp->t_flags &= ~TF_DELACK;
 		tcp_timer_activate(tp, TT_DELACK, tcp_delacktime);
 	}
-	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
 	return;
 
