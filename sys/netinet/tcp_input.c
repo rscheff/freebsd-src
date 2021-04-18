@@ -2647,6 +2647,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						}
 					} else
 						tp->snd_cwnd += maxseg;
+//
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh ||
@@ -2708,6 +2709,7 @@ enter_recovery:
 						    tcps_sack_recovery_episode);
 						tp->snd_recover = tp->snd_nxt;
 						tp->snd_cwnd = maxseg;
+//
 						(void) tp->t_fb->tfb_tcp_output(tp);
 						if (SEQ_GT(th->th_ack, tp->snd_una))
 							goto resume_partialack;
@@ -2715,6 +2717,7 @@ enter_recovery:
 					}
 					tp->snd_nxt = th->th_ack;
 					tp->snd_cwnd = maxseg;
+//
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					KASSERT(tp->snd_limited <= 2,
 					    ("%s: tp->snd_limited too big",
@@ -2758,6 +2761,7 @@ enter_recovery:
 					 * is new data available to be sent.
 					 * Otherwise we would send pure ACKs.
 					 */
+//
 					SOCKBUF_LOCK(&so->so_snd);
 					avail = sbavail(&so->so_snd) -
 					    (tp->snd_nxt - tp->snd_una);
@@ -2825,6 +2829,7 @@ resume_partialack:
 						tp->t_rtttime = 0;
 						tcp_do_prr_ack(tp, th, &to);
 						tp->t_flags |= TF_ACKNOW;
+//
 						(void) tcp_output(tp);
 					} else
 						tcp_sack_partialack(tp, th);
@@ -2838,6 +2843,7 @@ resume_partialack:
 					tp->sackhint.delivered_data = BYTES_THIS_ACK(tp, th);
 					tp->snd_fack = th->th_ack;
 					tcp_do_prr_ack(tp, th, &to);
+//
 					(void) tcp_output(tp);
 				}
 			} else
@@ -2949,7 +2955,7 @@ process_ACK:
 		 * the congestion window.
 		 */
 		cc_ack_received(tp, th, nsegs, CC_ACK);
-
+//
 		SOCKBUF_LOCK(&so->so_snd);
 		if (acked > sbavail(&so->so_snd)) {
 			if (tp->snd_wnd >= sbavail(&so->so_snd))
@@ -3083,6 +3089,7 @@ step6:
 		 * soreceive.  It's hard to imagine someone
 		 * actually wanting to send this much urgent data.
 		 */
+//
 		SOCKBUF_LOCK(&so->so_rcv);
 		if (th->th_urp + sbavail(&so->so_rcv) > sb_max) {
 			th->th_urp = 0;			/* XXX */
