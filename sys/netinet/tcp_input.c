@@ -1543,6 +1543,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	struct tcphdr tcp_savetcp;
 	short ostate = 0;
 #endif
+
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s: WAKESOR left over from last invokation\n", __func__);
+
 	thflags = th->th_flags;
 	inc = &tp->t_inpcb->inp_inc;
 	tp->sackhint.last_sack_ack = 0;
@@ -3014,6 +3018,8 @@ process_ACK:
 			if (ourfinisacked) {
 				tcp_twstart(tp);
 				m_freem(m);
+				if (tp->t_flags & TF_WAKESOR)
+				log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 				return;
 			}
 			break;
@@ -3289,6 +3295,8 @@ dodata:							/* XXX */
 		 */
 		case TCPS_FIN_WAIT_2:
 			tcp_twstart(tp);
+			if (tp->t_flags & TF_WAKESOR)
+			log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 			return;
 		}
 	}
@@ -3314,6 +3322,8 @@ check_delack:
 	}
 	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
 dropafterack:
@@ -3349,6 +3359,8 @@ dropafterack:
 	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
 dropwithreset:
@@ -3358,6 +3370,8 @@ dropwithreset:
 		INP_WUNLOCK(tp->t_inpcb);
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
 drop:
@@ -3375,6 +3389,8 @@ drop:
 		INP_WUNLOCK(tp->t_inpcb);
 	}
 	m_freem(m);
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 }
 
 /*
@@ -3439,9 +3455,13 @@ tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
 		tcp_respond(tp, mtod(m, void *), th, m, th->th_seq+tlen,
 		    (tcp_seq)0, TH_RST|TH_ACK);
 	}
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 drop:
 	m_freem(m);
+	if (tp->t_flags & TF_WAKESOR)
+	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 }
 
 /*
