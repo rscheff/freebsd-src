@@ -1509,6 +1509,12 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 	 * the TIME_WAIT state before coming here, we need
 	 * to check if the socket is still connected.
 	 */
+	if (tp == NULL) {
+		log(2, "%s#%d: tp is NULL\n", __func__, __LINE__);
+		return;
+	}
+	if (so == NULL) {
+		log(2, "%s#%d: so is NULL\n", __func__, __LINE__);
 	if ((so->so_state & SS_ISCONNECTED) == 0)
 		return;
 	INP_LOCK_ASSERT(tp->t_inpcb);
@@ -1544,7 +1550,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	short ostate = 0;
 #endif
 
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s: WAKESOR left over from last invokation\n", __func__);
 
 	thflags = th->th_flags;
@@ -3018,7 +3024,7 @@ process_ACK:
 			if (ourfinisacked) {
 				tcp_twstart(tp);
 				m_freem(m);
-				if (tp->t_flags & TF_WAKESOR)
+				if (tp != NULL) && (tp->t_flags & TF_WAKESOR))
 				log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 				return;
 			}
@@ -3295,7 +3301,7 @@ dodata:							/* XXX */
 		 */
 		case TCPS_FIN_WAIT_2:
 			tcp_twstart(tp);
-			if (tp->t_flags & TF_WAKESOR)
+			if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 			log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 			return;
 		}
@@ -3322,7 +3328,7 @@ check_delack:
 	}
 	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
@@ -3359,7 +3365,7 @@ dropafterack:
 	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
@@ -3370,7 +3376,7 @@ dropwithreset:
 		INP_WUNLOCK(tp->t_inpcb);
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
-	if (tp->t_flags & TF_WAKESOR)
+	if (tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 
@@ -3389,7 +3395,7 @@ drop:
 		INP_WUNLOCK(tp->t_inpcb);
 	}
 	m_freem(m);
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL ) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 }
 
@@ -3455,12 +3461,12 @@ tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
 		tcp_respond(tp, mtod(m, void *), th, m, th->th_seq+tlen,
 		    (tcp_seq)0, TH_RST|TH_ACK);
 	}
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 	return;
 drop:
 	m_freem(m);
-	if (tp->t_flags & TF_WAKESOR)
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
 	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 }
 
