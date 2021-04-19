@@ -335,8 +335,37 @@ again:
 		} else
 			len = ((int32_t)ulmin(cwin, p->end - p->rxmit));
 		off = p->rxmit - tp->snd_una;
-		KASSERT(off >= 0,("%s: sack block to the left of una: %d (%u:%u %u:%u %u:%u)",
-		    __func__, off,TAILQ_LAST(&tp->snd_blocks, scblink)!=NULL?0:1,0,0,0,0,0));
+		
+		if (off < 0) {
+			log(2, "%d to %d would KASSERT with sack block (%u-%u) to the left of una %u\n",
+			    ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			    p->start-tp->iss, p->end-tp->iss, tp->snd_una-tp->iss);
+			log(2, "\tscoreboard: ");
+			TAILQ_FOREACH(p, &tp->snd_holes, scblink){
+				log(2, "(%u-%u)!%u ", p->start-tp->iss, p->end-tp->iss, p->rxmit-tp->iss);
+			}
+			log(2, "\n");
+			tcp_clean_sackreport(tp);
+			tcp_free_sackholes(tp);
+			tcp_drop(tp, EFAULT);
+			return (0);
+		}
+
+		
+		KASSERT(off >= 0,("%s: sack block to the left of una: %d %u (%u:%u %u:%u %u:%u)",
+		    __func__, off, tp->snd_una,
+		    (TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 :
+		    ((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 :
+		    TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->start),
+		    (TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 :
+		    ((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 :
+		    TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->end),
+		    (TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 :
+		    TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->start,
+		    (TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 :
+		    TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->end,
+		    TAILQ_LAST(&tp->snd_holes, sackhole_head)->start,
+		    TAILQ_LAST(&tp->snd_holes, sackhole_head)->end));
 		if (len > 0) {
 			sack_rxmit = 1;
 			sendalot = 1;

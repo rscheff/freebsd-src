@@ -577,11 +577,11 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		left_edge_delta = th_ack - tp->snd_una;
 		sack_blocks[num_sack_blks].start = tp->snd_una;
 		sack_blocks[num_sack_blks++].end = th_ack;
-		/*
-		 * Pulling snd_fack forward if we got here
-		 * due to DSACK blocks
-		 */
+		/* Pulling snd_fack forward for DSACK blocks */
 		if (SEQ_LT(tp->snd_fack, th_ack)) {
+			log(2,"%d to %d do_sack, fack pulled th_ack:%u snd_fack:%u\n",
+			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			th_ack-tp->iss,tp->snd_fack-tp->iss);
 			delivered_data += th_ack - tp->snd_una;
 			tp->snd_fack = th_ack;
 			sack_changed = 1;
@@ -671,6 +671,27 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			temp->start = SEQ_MAX(tp->snd_fack, SEQ_MAX(tp->snd_una, th_ack));
 			temp->end = sblkp->start;
 			temp->rxmit = temp->start;
+			log(2, "%d to %d rescue (%u:%u) overlap (%u:%u) detected. extending existing hole\n",
+			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			temp->start-tp->iss, temp->end-tp->iss,
+			tp->snd_fack-tp->iss, sblkp->start-tp->iss
+			);
+			log(2,"%d to %d rescue, SACK rcvd: (%u:%u) th_ack:%u\n",
+			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			sblkp->start-tp->iss, sblkp->end-tp->iss, th_ack-tp->iss);
+			temp->start = tp->snd_fack;
+			temp->end = sblkp->start;
+			temp->rxmit = tp->snd_fack;
+			delivered_data += sblkp->end - sblkp->start;
+			tp->snd_fack = sblkp->end;
+			sblkp--;
+			sack_changed = 1;
+		} else {
+		log(2, "%d to %d do_sack 1 (%u:%u)\n", 
+		ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+		tp->snd_fack-tp->iss, sblkp->start-tp->iss);
+		temp = tcp_sackhole_insert(tp, tp->snd_fack,sblkp->start,NULL);
+		if (temp != NULL) {
 			delivered_data += sblkp->end - sblkp->start;
 			tp->snd_fack = sblkp->end;
 			sblkp--;
@@ -708,6 +729,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 					sack_changed = 1;
 				}
 			}
+		}
 		}
 	} else if (SEQ_LT(tp->snd_fack, sblkp->end)) {
 		/* fack is advanced. */
@@ -776,6 +798,9 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				 * ACKs some data in middle of a hole; need
 				 * to split current hole
 				 */
+				log(2, "%d to %d do_sack 2 (%u:%u)\n", 
+				ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+				sblkp->end-tp->iss, cur->end-tp->iss);
 				temp = tcp_sackhole_insert(tp, sblkp->end,
 				    cur->end, cur);
 				if (temp != NULL) {
@@ -819,6 +844,19 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	tp->sackhint.delivered_data = delivered_data;
 	tp->sackhint.sacked_bytes += delivered_data - left_edge_delta;
 	KASSERT((delivered_data >= 0), ("delivered_data < 0"));
+	if (tp->sackhint.sacked_bytes < 0) {
+		log(2, "%d to %d would KASSERT with sacked_bytes < 0 %d\n",
+			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			tp->sackhint.sacked_bytes);
+		log(2, "\tth_ack:%u snd_una:%u snd_max:%u snd_fack:%u\n",
+			th_ack-tp->iss, tp->snd_una-tp->iss, tp->snd_max-tp->iss, tp->snd_fack-tp->iss);
+		log(2, "\tscoreboard: ");
+		TAILQ_FOREACH(temp, &tp->snd_holes, scblink){
+			log(2, "(%u-%u)!%u ", temp->start-tp->iss, temp->end-tp->iss, temp->rxmit-tp->iss);
+		}
+		log(2, "\n");
+		tp->sackhint.sacked_bytes = 0;
+	}
 	KASSERT((tp->sackhint.sacked_bytes >= 0), ("sacked_bytes < 0"));
 	return (sack_changed);
 }
@@ -897,6 +935,9 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		if (tp->t_flags & TF_SENTFIN)
 			highdata--;
 		if (th->th_ack != highdata) {
+			log(2, "%d to %d sack_partial (%u:%u)\n", 
+			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
+			SEQ_MAX(th->th_ack, highdata - maxseg)-tp->iss, highdata-tp->iss);
 			tp->snd_fack = th->th_ack;
 			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
 			    highdata - maxseg), highdata, NULL);
