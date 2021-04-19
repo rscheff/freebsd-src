@@ -676,12 +676,15 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			temp->start-tp->iss, temp->end-tp->iss,
 			tp->snd_fack-tp->iss, sblkp->start-tp->iss
 			);
-			log(2,"%d to %d rescue, SACK rcvd: (%u:%u) th_ack:%u\n",
+			log(2,"%d to %d rescue, SACK rcvd: (%u:%u) th_ack:%u snd_una:%u snd_fack:%u snd_max:%u\n",
 			ntohs(tp->t_inpcb->inp_lport), ntohs(tp->t_inpcb->inp_fport),
-			sblkp->start-tp->iss, sblkp->end-tp->iss, th_ack-tp->iss);
+			sblkp->start-tp->iss, sblkp->end-tp->iss, th_ack-tp->iss,
+			tp->snd_una-tp->iss, tp->snd_fack-tp->iss, tp->snd_max-tp->iss
+			);
+			tp->snd_fack = SEQ_MAX(tp->snd_fack, SEQ_MAX(tp->snd_una, th_ack));
 			temp->start = tp->snd_fack;
 			temp->end = sblkp->start;
-			temp->rxmit = tp->snd_fack;
+			temp->rxmit = temp->start;
 			delivered_data += sblkp->end - sblkp->start;
 			tp->snd_fack = sblkp->end;
 			sblkp--;
