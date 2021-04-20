@@ -780,10 +780,10 @@ turnstile_wait(struct turnstile *ts, struct thread *owner, int queue)
 		turnstile_setowner(ts, owner);
 		mtx_unlock_spin(&td_contested_lock);
 	} else {
+		mtx_lock_spin(&td_contested_lock);
 		TAILQ_FOREACH(td1, &ts->ts_blocked[queue], td_lockq)
 			if (td1->td_priority > td->td_priority)
 				break;
-		mtx_lock_spin(&td_contested_lock);
 		if (td1 != NULL)
 			TAILQ_INSERT_BEFORE(td1, td, td_lockq);
 		else
