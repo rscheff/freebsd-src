@@ -1970,13 +1970,12 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				m_adj(m, drop_hdrlen);	/* delayed header drop */
 				sbappendstream_locked(&so->so_rcv, m, 0);
 			}
+			/* NB: sorwakeup_locked() does an implicit unlock. */
+			sorwakeup_locked(so);
 			if (DELAY_ACK(tp, tlen)) {
 				tp->t_flags |= TF_DELACK;
-				tp->t_flags |= TF_WAKESOR;
 			} else {
 				tp->t_flags |= TF_ACKNOW;
-				/* NB: sorwakeup_locked() does an implicit unlock. */
-				sorwakeup_locked(so);
 				tp->t_fb->tfb_tcp_output(tp);
 			}
 			goto check_delack;
@@ -2510,9 +2509,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 * If segment contains data or ACK, will call tcp_reass()
 		 * later; if not, do so now to pass queued data to user.
 		 */
-		if (tlen == 0 && (thflags & TH_FIN) == 0)
+		if (tlen == 0 && (thflags & TH_FIN) == 0) {
 			(void) tcp_reass(tp, (struct tcphdr *)0, NULL, 0,
 			    (struct mbuf *)0);
+			tcp_handle_wakeup(tp, so);
+		}
 		tp->snd_wl1 = th->th_seq - 1;
 		/* FALLTHROUGH */
 
@@ -3243,6 +3244,7 @@ dodata:							/* XXX */
 				    save_start + tlen);
 			}
 		}
+		tcp_handle_wakeup(tp, so);
 #if 0
 		/*
 		 * Note the amount of data that peer has sent into
@@ -3323,6 +3325,9 @@ dodata:							/* XXX */
 			  &tcp_savetcp, 0);
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
+
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
+	log(2, "%s#%d: handling WAKESOR finally\n", __func__,__LINE__);
 
 	tcp_handle_wakeup(tp, so);
 	/*
