@@ -859,6 +859,7 @@ VNET_DECLARE(int, tcp_delack_enabled);
 VNET_DECLARE(int, tcp_do_autorcvbuf);
 VNET_DECLARE(int, tcp_do_autosndbuf);
 VNET_DECLARE(int, tcp_do_ecn);
+VNET_DECLARE(int, tcp_do_lrd);
 VNET_DECLARE(int, tcp_do_prr);
 VNET_DECLARE(int, tcp_do_prr_conservative);
 VNET_DECLARE(int, tcp_do_newcwv);

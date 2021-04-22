@@ -761,7 +761,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				/* Move end of hole backward. */
 				delivered_data += (cur->end - sblkp->start);
 				cur->end = sblkp->start;
-				if (SEQ_GEQ(cur->rxmit, cur->end))
+				cur->rxmit = SEQ_MIN(cur->rxmit, cur->end);
+				if (V_tcp_do_lrd && SEQ_GEQ(cur->rxmit, cur->end))
 					cur->rxmit = tp->snd_recover;
 			} else {
 				/*
@@ -778,7 +779,9 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 						    temp->end) - temp->start);
 					}
 					cur->end = sblkp->start;
-					if (SEQ_GEQ(cur->rxmit, cur->end))
+					cur->rxmit = SEQ_MIN(cur->rxmit,
+					    cur->end);
+					if (V_tcp_do_lrd && SEQ_GEQ(cur->rxmit, cur->end))
 						cur->rxmit = tp->snd_recover;
 					delivered_data += (sblkp->end - sblkp->start);
 				}
