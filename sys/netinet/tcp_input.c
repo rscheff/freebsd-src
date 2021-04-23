@@ -1517,8 +1517,10 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 		log(2, "%s#%d: so is NULL\n", __func__, __LINE__);
 		return;
 	}
-	if ((so->so_state & SS_ISCONNECTED) == 0)
+	if ((so->so_state & SS_ISCONNECTED) == 0) {
+		log(2, "%s#%d: socket no longer connected\n", __func__, __LINE__);
 		return;
+	}
 	INP_LOCK_ASSERT(tp->t_inpcb);
 	if (tp->t_flags & TF_WAKESOR) {
 		tp->t_flags &= ~TF_WAKESOR;
@@ -3029,8 +3031,10 @@ process_ACK:
 		 */
 		case TCPS_CLOSING:
 			if (ourfinisacked) {
-				if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
+				if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
 				log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+				tcp_handle_wakeup(tp, so);
+				}
 				tcp_twstart(tp);
 				m_freem(m);
 				return;
@@ -3310,8 +3314,10 @@ dodata:							/* XXX */
 		 * standard timers.
 		 */
 		case TCPS_FIN_WAIT_2:
-			if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
+			if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
 			log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+			tcp_handle_wakeup(tp, so);
+			}
 			tcp_twstart(tp);
 			return;
 		}
