@@ -1522,6 +1522,7 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 	INP_LOCK_ASSERT(tp->t_inpcb);
 	if (tp->t_flags & TF_WAKESOR) {
 		tp->t_flags &= ~TF_WAKESOR;
+		tp->cl4_spare = 0;
 		SOCKBUF_LOCK_ASSERT(&so->so_rcv);
 		sorwakeup_locked(so);
 	}
@@ -1552,8 +1553,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	short ostate = 0;
 #endif
 
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s: WAKESOR left over from last invocation\n", __func__);
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
+	log(2, "%s: WAKESOR left over from last invocation: %d\n", __func__, tp->cl4_spare);
+	tcp_handle_wakeup(tp, so);
+	}
 
 	thflags = th->th_flags;
 	inc = &tp->t_inpcb->inp_inc;
@@ -2648,7 +2651,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						}
 					} else
 						tp->snd_cwnd += maxseg;
-//
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh ||
@@ -2710,7 +2712,6 @@ enter_recovery:
 						    tcps_sack_recovery_episode);
 						tp->snd_recover = tp->snd_nxt;
 						tp->snd_cwnd = maxseg;
-//
 						(void) tp->t_fb->tfb_tcp_output(tp);
 						if (SEQ_GT(th->th_ack, tp->snd_una))
 							goto resume_partialack;
@@ -2718,7 +2719,6 @@ enter_recovery:
 					}
 					tp->snd_nxt = th->th_ack;
 					tp->snd_cwnd = maxseg;
-//
 					(void) tp->t_fb->tfb_tcp_output(tp);
 					KASSERT(tp->snd_limited <= 2,
 					    ("%s: tp->snd_limited too big",
@@ -2762,7 +2762,6 @@ enter_recovery:
 					 * is new data available to be sent.
 					 * Otherwise we would send pure ACKs.
 					 */
-//
 					SOCKBUF_LOCK(&so->so_snd);
 					avail = sbavail(&so->so_snd) -
 					    (tp->snd_nxt - tp->snd_una);
@@ -2830,7 +2829,6 @@ resume_partialack:
 						tp->t_rtttime = 0;
 						tcp_do_prr_ack(tp, th, &to);
 						tp->t_flags |= TF_ACKNOW;
-//
 						(void) tcp_output(tp);
 					} else
 						tcp_sack_partialack(tp, th);
@@ -2844,7 +2842,6 @@ resume_partialack:
 					tp->sackhint.delivered_data = BYTES_THIS_ACK(tp, th);
 					tp->snd_fack = th->th_ack;
 					tcp_do_prr_ack(tp, th, &to);
-//
 					(void) tcp_output(tp);
 				}
 			} else
@@ -2956,7 +2953,6 @@ process_ACK:
 		 * the congestion window.
 		 */
 		cc_ack_received(tp, th, nsegs, CC_ACK);
-//
 		SOCKBUF_LOCK(&so->so_snd);
 		if (acked > sbavail(&so->so_snd)) {
 			if (tp->snd_wnd >= sbavail(&so->so_snd))
@@ -3033,10 +3029,10 @@ process_ACK:
 		 */
 		case TCPS_CLOSING:
 			if (ourfinisacked) {
+				if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
+				log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 				tcp_twstart(tp);
 				m_freem(m);
-				if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-				log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
 				return;
 			}
 			break;
@@ -3090,7 +3086,6 @@ step6:
 		 * soreceive.  It's hard to imagine someone
 		 * actually wanting to send this much urgent data.
 		 */
-//
 		SOCKBUF_LOCK(&so->so_rcv);
 		if (th->th_urp + sbavail(&so->so_rcv) > sb_max) {
 			th->th_urp = 0;			/* XXX */
@@ -3200,6 +3195,7 @@ dodata:							/* XXX */
 			else
 				sbappendstream_locked(&so->so_rcv, m, 0);
 			tp->t_flags |= TF_WAKESOR;
+			tp->cl4_spare = 1;
 		} else {
 			/*
 			 * XXX: Due to the header drop above "th" is
@@ -3271,6 +3267,7 @@ dodata:							/* XXX */
 			if (tp->t_flags & TF_WAKESOR) {
 				/* The socket upcall is handled by socantrcvmore. */
 				tp->t_flags &= ~TF_WAKESOR;
+				tp->cl4_spare = 0;
 				socantrcvmore_locked(so);
 			} else
 				socantrcvmore(so);
@@ -3313,9 +3310,9 @@ dodata:							/* XXX */
 		 * standard timers.
 		 */
 		case TCPS_FIN_WAIT_2:
-			tcp_twstart(tp);
 			if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-			log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+			log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+			tcp_twstart(tp);
 			return;
 		}
 	}
@@ -3327,7 +3324,7 @@ dodata:							/* XXX */
 	TCP_PROBE3(debug__input, tp, th, m);
 
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: handling WAKESOR finally\n", __func__,__LINE__);
+	log(2, "%s#%d: handling WAKESOR finally from %d\n", __func__,__LINE__, tp->cl4_spare);
 
 	tcp_handle_wakeup(tp, so);
 	/*
@@ -3346,7 +3343,7 @@ check_delack:
 	tcp_handle_wakeup(tp, so);
 	INP_WUNLOCK(tp->t_inpcb);
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 dropafterack:
@@ -3383,7 +3380,7 @@ dropafterack:
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 dropwithreset:
@@ -3394,7 +3391,7 @@ dropwithreset:
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 drop:
@@ -3413,7 +3410,7 @@ drop:
 	}
 	m_freem(m);
 	if ((tp != NULL ) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 }
 
 /*
@@ -3479,12 +3476,12 @@ tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
 		    (tcp_seq)0, TH_RST|TH_ACK);
 	}
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 drop:
 	m_freem(m);
 	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over\n", __func__,__LINE__);
+	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 }
 
 /*
