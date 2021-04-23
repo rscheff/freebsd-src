@@ -1518,7 +1518,7 @@ tcp_handle_wakeup(struct tcpcb *tp, struct socket *so)
 		return;
 	}
 	if ((so->so_state & SS_ISCONNECTED) == 0) {
-		log(2, "%s#%d: socket no longer connected, so_rcv is %slocked. called from: %pS, set at %d\n",
+		log(2, "%s#%d: socket no longer connected, so_rcv is %slocked. called from: %p set at %d\n",
 		    __func__, __LINE__, (tp->t_flags & TF_WAKESOR)?"":"not ",
 		    __builtin_return_address(0), tp->cl4_spare);
 	}
