@@ -3330,10 +3330,10 @@ dodata:							/* XXX */
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
 
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: handling WAKESOR finally from %d\n", __func__,__LINE__, tp->cl4_spare);
-
-	tcp_handle_wakeup(tp, so);
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
+		log(2, "%s#%d: handling WAKESOR finally from %d\n", __func__,__LINE__, tp->cl4_spare);
+		tcp_handle_wakeup(tp, so);
+	}
 	/*
 	 * Return any desired output.
 	 */
@@ -3347,10 +3347,11 @@ check_delack:
 		tp->t_flags &= ~TF_DELACK;
 		tcp_timer_activate(tp, TT_DELACK, tcp_delacktime);
 	}
-	tcp_handle_wakeup(tp, so);
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
+		log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+		tcp_handle_wakeup(tp, so);
+	}
 	INP_WUNLOCK(tp->t_inpcb);
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 dropafterack:
@@ -3381,24 +3382,26 @@ dropafterack:
 			  &tcp_savetcp, 0);
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
-	tcp_handle_wakeup(tp, so);
+	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
+		log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+		tcp_handle_wakeup(tp, so);
+	}
 	tp->t_flags |= TF_ACKNOW;
 	(void) tp->t_fb->tfb_tcp_output(tp);
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 dropwithreset:
 	if (tp != NULL) {
-		tcp_handle_wakeup(tp, so);
+		if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
+			log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+			tcp_handle_wakeup(tp, so);
+		}
 		tcp_dropwithreset(m, th, tp, tlen, rstreason);
 		INP_WUNLOCK(tp->t_inpcb);
 	} else
 		tcp_dropwithreset(m, th, NULL, tlen, rstreason);
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 	return;
 
 drop:
@@ -3412,12 +3415,13 @@ drop:
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
 	if (tp != NULL) {
-		tcp_handle_wakeup(tp, so);
+		if ((tp != NULL ) && (tp->t_flags & TF_WAKESOR)) {
+			log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
+			tcp_handle_wakeup(tp, so);
+		}
 		INP_WUNLOCK(tp->t_inpcb);
 	}
 	m_freem(m);
-	if ((tp != NULL ) && (tp->t_flags & TF_WAKESOR))
-	log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
 }
 
 /*
