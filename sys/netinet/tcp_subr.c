@@ -2261,9 +2261,6 @@ tcp_drop(struct tcpcb *tp, int errno)
 	INP_INFO_LOCK_ASSERT(&V_tcbinfo);
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
-		log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
-	tcp_handle_wakeup(tp, so);
 	if (TCPS_HAVERCVDSYN(tp->t_state)) {
 		tcp_state_change(tp, TCPS_CLOSED);
 		(void) tp->t_fb->tfb_tcp_output(tp);
@@ -2495,9 +2492,6 @@ tcp_close(struct tcpcb *tp)
 		tcp_state_change(tp, TCPS_CLOSED);
 	KASSERT(inp->inp_socket != NULL, ("tcp_close: inp_socket NULL"));
 	so = inp->inp_socket;
-	if ((tp != NULL) && (tp->t_flags & TF_WAKESOR)) {
-		log(2, "%s#%d: WAKESOR left over from: %d\n", __func__,__LINE__, tp->cl4_spare);
-	tcp_handle_wakeup(tp, so);
 	soisdisconnected(so);
 	if (inp->inp_flags & INP_SOCKREF) {
 		KASSERT(so->so_state & SS_PROTOREF,
