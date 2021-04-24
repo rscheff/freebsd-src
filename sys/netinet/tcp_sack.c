@@ -158,23 +158,29 @@ SYSCTL_INT(_net_inet_tcp_sack, OID_AUTO, globalholes, CTLFLAG_VNET | CTLFLAG_RD,
 
 int V_tcp_sack_log = 0;
 #define tcp_log_sack(tp, ack) do {\
-	if (V_tcp_sack_log) { \
+	if (V_tcp_sack_log || (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)) { \
 	log(2, "%s#%d: ack:%u fack:%u recover:%u max:%u fin:%d s_dd:%d [%u:%u %u:%u %u:%u)\n", \
 	__func__, __LINE__, \
 	(ack)-tp->iss, tp->snd_fack-tp->iss, tp->snd_recover-tp->iss, tp->snd_max-tp->iss, (tp->t_flags & TF_SENTFIN)?1:0, \
 	tp->sackhint.delivered_data, \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
 	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
 	((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 : \
-	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->start), \
+	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->start-tp->iss), \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
 	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
 	((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 : \
-	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->end), \
+	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->end-tp->iss), \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
 	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
-	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->start, \
+	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->start-tp->iss, \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
 	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
-	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->end, \
-	TAILQ_LAST(&tp->snd_holes, sackhole_head)->start, \
-	TAILQ_LAST(&tp->snd_holes, sackhole_head)->end); \
+	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->end-tp->iss, \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
+	TAILQ_LAST(&tp->snd_holes, sackhole_head)->start-tp->iss, \
+	(TAILQ_LAST(&tp->snd_holes, sackhole_head) == NULL) ? 0 : \
+	TAILQ_LAST(&tp->snd_holes, sackhole_head)->end-tp->iss); \
     } \
 } while(0)
 
@@ -881,6 +887,14 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	 * the trailing packets of a window are lost and no further data
 	 * is available for sending.
 	 */
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG) {
+	   log(2, "newsack:%d ack:%u recover:%u max:%u, holes empty:%d delivered_data:%d\n",
+	   V_tcp_do_newsack,
+	   th->th_ack, tp->snd_recover,
+	   tp->snd_max,
+	   TAILQ_EMPTY(&tp->snd_holes)?1:0,
+	   tp->sackhint.delivered_data);
+	}
 	if ((V_tcp_do_newsack) &&
 	    SEQ_LT(th->th_ack, tp->snd_recover) &&
 	    (tp->snd_recover == tp->snd_max) &&
