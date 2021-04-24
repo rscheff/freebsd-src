@@ -156,7 +156,27 @@ SYSCTL_INT(_net_inet_tcp_sack, OID_AUTO, globalholes, CTLFLAG_VNET | CTLFLAG_RD,
     &VNET_NAME(tcp_sack_globalholes), 0,
     "Global number of TCP SACK holes currently allocated");
 
-VNET_DEFINE(int, tcp_sack_log) = 0;
+int V_tcp_sack_log = 0;
+#define tcp_log_sack(tp, ack) do {\
+	if (V_tcp_sack_log) { \
+	log(2, "%s#%d: ack:%u fack:%u recover:%u max:%u fin:%d s_dd:%d [%u:%u %u:%u %u:%u)\n", \
+	__func__, __LINE__, \
+	(ack)-tp->iss, tp->snd_fack-tp->iss, tp->snd_recover-tp->iss, tp->snd_max-tp->iss, (tp->t_flags & TF_SENTFIN)?1:0, \
+	tp->sackhint.delivered_data, \
+	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
+	((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 : \
+	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->start), \
+	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
+	((TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink) == NULL) ? 0 : \
+	TAILQ_PREV(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink),sackhole_head, scblink)->end), \
+	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
+	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->start, \
+	(TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink) == NULL) ? 0 : \
+	TAILQ_PREV(TAILQ_LAST(&tp->snd_holes, sackhole_head),sackhole_head, scblink)->end, \
+	TAILQ_LAST(&tp->snd_holes, sackhole_head)->start, \
+	TAILQ_LAST(&tp->snd_holes, sackhole_head)->end); \
+    } \
+} while(0)
 
 /*
  * This function will find overlaps with the currently stored sackblocks
@@ -563,6 +583,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	 * treat [SND.UNA, SEG.ACK) as if it is a SACK block.
 	 * Account changes to SND.UNA always in delivered data.
 	 */
+	tcp_log_sack(tp, th_ack);
 	if (SEQ_LT(tp->snd_una, th_ack) && !TAILQ_EMPTY(&tp->snd_holes)) {
 		left_edge_delta = th_ack - tp->snd_una;
 		sack_blocks[num_sack_blks].start = tp->snd_una;
@@ -877,12 +898,7 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		if (th->th_ack != highdata) {
 			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
 			    highdata - maxseg), highdata, NULL);
-			tcp_sack_log = 1;
-			if (tcp_sack_log)
-			    log(2, "%s#%d: ack:%u recover:%u max:%u s_dd:%d
-			    __func__, __LINE__, th->th_ack-tp->iss, tp->snd_recover-tp->iss, tp->snd_max-tp->iss, 
-			    tp->sackhint.delivered_data, 
-			
+			tcp_log_sack(tp, th->th_ack);
 		}
 	}
 	(void) tp->t_fb->tfb_tcp_output(tp);
