@@ -156,6 +156,8 @@ SYSCTL_INT(_net_inet_tcp_sack, OID_AUTO, globalholes, CTLFLAG_VNET | CTLFLAG_RD,
     &VNET_NAME(tcp_sack_globalholes), 0,
     "Global number of TCP SACK holes currently allocated");
 
+VNET_DEFINE(int, tcp_sack_log) = 0;
+
 /*
  * This function will find overlaps with the currently stored sackblocks
  * and add any overlap as a dsack block upfront
@@ -872,9 +874,16 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		tcp_seq highdata = tp->snd_max;
 		if (tp->t_flags & TF_SENTFIN)
 			highdata--;
-		if (th->th_ack != highdata)
+		if (th->th_ack != highdata) {
 			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
 			    highdata - maxseg), highdata, NULL);
+			tcp_sack_log = 1;
+			if (tcp_sack_log)
+			    log(2, "%s#%d: ack:%u recover:%u max:%u s_dd:%d
+			    __func__, __LINE__, th->th_ack-tp->iss, tp->snd_recover-tp->iss, tp->snd_max-tp->iss, 
+			    tp->sackhint.delivered_data, 
+			
+		}
 	}
 	(void) tp->t_fb->tfb_tcp_output(tp);
 }
