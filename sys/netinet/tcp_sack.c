@@ -569,11 +569,9 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		 * Pulling snd_fack forward if we got here
 		 * due to DSACK blocks
 		 */
-		if (SEQ_LT(tp->snd_fack, th_ack)) {
-			delivered_data += th_ack - tp->snd_una;
-			tp->snd_fack = th_ack;
-			sack_changed = 1;
-		}
+		delivered_data += th_ack - tp->snd_una;
+		tp->snd_fack = SEQ_MAX(tp->snd_fack, th_ack);
+		sack_changed = 1;
 	}
 	/*
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
