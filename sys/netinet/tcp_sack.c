@@ -569,9 +569,11 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		 * Pulling snd_fack forward if we got here
 		 * due to DSACK blocks
 		 */
-		delivered_data += th_ack - tp->snd_una;
-		tp->snd_fack = SEQ_MAX(tp->snd_fack, th_ack);
-		sack_changed = 1;
+		if (SEQ_LT(tp->snd_fack, th_ack)) {
+			delivered_data += th_ack - tp->snd_una;
+			tp->snd_fack = th_ack;
+			sack_changed = 1;
+		}
 	}
 	/*
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
@@ -870,9 +872,11 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 		tcp_seq highdata = tp->snd_max;
 		if (tp->t_flags & TF_SENTFIN)
 			highdata--;
-		if (th->th_ack != highdata)
+		if (th->th_ack != highdata) {
+			tp->snd_fack = th->th_ack;
 			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
 			    highdata - maxseg), highdata, NULL);
+		}
 	}
 	(void) tp->t_fb->tfb_tcp_output(tp);
 }
