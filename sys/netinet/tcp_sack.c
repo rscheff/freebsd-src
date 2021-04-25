@@ -584,6 +584,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	sack_changed = 0;
 	delivered_data = 0;
 	left_edge_delta = 0;
+	if (V_tcp_sack_log && (tp->t_inpcb->inp_socket->so_options & SO_DEBUG))
+		log(2, "debug point\n");
 	/*
 	 * If SND.UNA will be advanced by SEG.ACK, and if SACK holes exist,
 	 * treat [SND.UNA, SEG.ACK) as if it is a SACK block.
