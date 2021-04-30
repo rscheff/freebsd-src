@@ -10264,6 +10264,7 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				    save_start + tlen);
 			}
 		}
+		tcp_handle_wakeup(tp, so);
 	} else {
 		m_freem(m);
 		thflags &= ~TH_FIN;
@@ -10275,12 +10276,8 @@ rack_process_data(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 */
 	if (thflags & TH_FIN) {
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			if (tp->t_flags & TF_WAKESOR) {
-				/* The socket upcall is handled by socantrcvmore. */
-				tp->t_flags &= ~TF_WAKESOR;
-				socantrcvmore_locked(so);
-			} else
-				socantrcvmore(so);
+			/* The socket upcall is handled by socantrcvmore. */
+			socantrcvmore(so);
 			/*
 			 * If connection is half-synchronized (ie NEEDSYN
 			 * flag on) then delay ACK, so it may be piggybacked
@@ -11071,9 +11068,11 @@ rack_do_syn_recv(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 * If segment contains data or ACK, will call tcp_reass() later; if
 	 * not, do so now to pass queued data to user.
 	 */
-	if (tlen == 0 && (thflags & TH_FIN) == 0)
+	if (tlen == 0 && (thflags & TH_FIN) == 0) {
 		(void) tcp_reass(tp, (struct tcphdr *)0, NULL, 0,
 		    (struct mbuf *)0);
+		tcp_handle_wakeup(tp, so);
+	}
 	tp->snd_wl1 = th->th_seq - 1;
 	/* For syn-recv we need to possibly update the rtt */
 	if ((to->to_flags & TOF_TS) != 0 && to->to_tsecr) {

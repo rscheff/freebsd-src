@@ -960,7 +960,6 @@ new_entry:
 			sbappendstream_locked(&so->so_rcv, m, 0);
 		}
 		tp->t_flags |= TF_WAKESOR;
-		tp->cl4_spare = 11;
 		return (flags);
 	}
 	if (tcp_new_limits) {
@@ -1109,6 +1108,5 @@ present:
 	tcp_reass_log_dump(tp);
 #endif
 	tp->t_flags |= TF_WAKESOR;
-	tp->cl4_spare = 12;
 	return (flags);
 }
