@@ -550,9 +550,9 @@ tcp_sackhole_remove(struct tcpcb *tp, struct sackhole *hole)
  * Process cumulative ACK and the TCP SACK option to update the scoreboard.
  * tp->snd_holes is an ordered list of holes (oldest to newest, in terms of
  * the sequence space).
- * Returns 2 if incoming ACK indicates ongoing loss (hole split, new hole),
- * 1 if incoming ACK has previously unknown SACK information,
- * 0 otherwise.
+ * Returns SACK_NEWLOSS if incoming ACK indicates ongoing loss (hole split, new hole),
+ * SACK_CHANGE if incoming ACK has previously unknown SACK information,
+ * SACK_NOCHANGE otherwise.
  */
 int
 tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
@@ -565,7 +565,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 
 	num_sack_blks = 0;
-	sack_changed = 0;
+	sack_changed = SACK_NOCHANGE;
 	delivered_data = 0;
 	left_edge_delta = 0;
 	/*
@@ -584,7 +584,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		if (SEQ_LT(tp->snd_fack, th_ack)) {
 			delivered_data += th_ack - tp->snd_una;
 			tp->snd_fack = th_ack;
-			sack_changed = 1;
+			sack_changed = SACK_CHANGE;
 		}
 	}
 	/*
@@ -668,7 +668,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			delivered_data += sblkp->end - sblkp->start;
 			tp->snd_fack = sblkp->end;
 			sblkp--;
-			sack_changed = 2;
+			sack_changed = SACK_NEWLOSS;
 		} else {
 			/*
 			 * Append a new SACK hole at the tail.  If the
@@ -682,7 +682,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				tp->snd_fack = sblkp->end;
 				/* Go to the previous sack block. */
 				sblkp--;
-				sack_changed = 1;
+				sack_changed = SACK_CHANGE;
 			} else {
 				/*
 				 * We failed to add a new hole based on the current
@@ -704,7 +704,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 					 * size, we only ended up here because
 					 * some SACK data had to be dismissed.
 					 */
-					sack_changed = 2;
+					sack_changed = SACK_NEWLOSS;
 				}
 			}
 		}
@@ -712,7 +712,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		/* fack is advanced. */
 		delivered_data += sblkp->end - tp->snd_fack;
 		tp->snd_fack = sblkp->end;
-		sack_changed = 1;
+		sack_changed = SACK_CHANGE;
 	}
 	cur = TAILQ_LAST(&tp->snd_holes, sackhole_head); /* Last SACK hole. */
 	/*
@@ -739,7 +739,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		tp->sackhint.sack_bytes_rexmit -= (cur->rxmit - cur->start);
 		KASSERT(tp->sackhint.sack_bytes_rexmit >= 0,
 		    ("sackhint bytes rtx >= 0"));
-		sack_changed = 1;
+		sack_changed = SACK_CHANGE;
 		if (SEQ_LEQ(sblkp->start, cur->start)) {
 			/* Data acks at least the beginning of hole. */
 			if (SEQ_GEQ(sblkp->end, cur->end)) {
@@ -774,7 +774,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 				 */
 				temp = tcp_sackhole_insert(tp, sblkp->end,
 				    cur->end, cur);
-				sack_changed = 2;
+				sack_changed = SACK_NEWLOSS;
 				if (temp != NULL) {
 					if (SEQ_GT(cur->rxmit, temp->rxmit)) {
 						temp->rxmit = cur->rxmit;
@@ -809,7 +809,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		 * DupAck for this. Also required
 		 * for RFC6675 rescue retransmission.
 		 */
-		sack_changed = 0;
+		sack_changed = SACK_NOCHANGE;
 	tp->sackhint.delivered_data = delivered_data;
 	tp->sackhint.sacked_bytes += delivered_data - left_edge_delta;
 	KASSERT((delivered_data >= 0), ("delivered_data < 0"));

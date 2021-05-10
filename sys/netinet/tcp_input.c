@@ -2590,7 +2590,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				if (th->th_ack != tp->snd_una ||
 				    ((tp->t_flags & TF_SACK_PERMIT) &&
 				    (to.to_flags & TOF_SACK) &&
-				    !sack_changed))
+				    (sack_changed == SACK_NOCHANGE))
 					break;
 				else if (!tcp_timer_active(tp, TT_REXMT))
 					tp->t_dupacks = 0;
@@ -2780,7 +2780,7 @@ enter_recovery:
 			 */
 			if ((tp->t_flags & TF_SACK_PERMIT) &&
 			    (to.to_flags & TOF_SACK) &&
-			    sack_changed) {
+			    !(sack_changed == SACK_NOCHANGE) {
 				tp->t_dupacks++;
 				/* limit overhead by setting maxseg last */
 				if (!IN_FASTRECOVERY(tp->t_flags) &&
@@ -3995,7 +3995,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to, int sack_
 		 * - Prevent ACK splitting attacks, by being conservative
 		 * when no new data is acked.
 		 */
-		if ((sack_changed == 2) || (del_data == 0))
+		if ((sack_changed == SACK_NEWLOSS) || (del_data == 0))
 			limit = tp->sackhint.prr_delivered -
 				tp->sackhint.prr_out;
 		else

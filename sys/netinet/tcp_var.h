@@ -286,6 +286,11 @@ struct tcptemp {
 	struct	tcphdr tt_t;
 };
 
+/* SACK scoreboard update status */
+#define SACK_NOCHANGE			0
+#define SACK_CHANGE			1
+#define SACK_NEWLOSS			2
+
 /* Enable TCP/UDP tunneling port */
 #define TCP_TUNNELING_PORT_MIN		0
 #define TCP_TUNNELING_PORT_MAX		65535
