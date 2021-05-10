@@ -1270,7 +1270,7 @@ send:
 		 * still existing) hole, when
 		 * fack acks recoverypoint.
 		 */
-		if (V_tcp_do_lrd && SEQ_GEQ(p->rxmit, p->end))
+		if ((tp->t_flags & TF_LRD) && SEQ_GEQ(p->rxmit, p->end))
 			p->rxmit = tp->snd_recover;
 		tp->sackhint.sack_bytes_rexmit += len;
 	}

@@ -410,7 +410,7 @@ TAILQ_HEAD(tcp_funchead, tcp_function);
 #define	TF_TOE		0x02000000	/* this connection is offloaded */
 #define	TF_WAKESOW	0x04000000	/* wake up send socket */
 #define	TF_UNUSED1	0x08000000	/* unused */
-#define	TF_UNUSED2	0x10000000	/* unused */
+#define	TF_LRD		0x10000000	/* Lost Retransmission Detection */
 #define	TF_CONGRECOVERY	0x20000000	/* congestion recovery mode */
 #define	TF_WASCRECOVERY	0x40000000	/* was in congestion recovery */
 #define	TF_FASTOPEN	0x80000000	/* TCP Fast Open indication */
