@@ -2531,7 +2531,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		     !TAILQ_EMPTY(&tp->snd_holes))) {
 			if (((sack_changed = tcp_sack_doack(tp, &to, th->th_ack)) != 0) &&
 			    (V_tcp_do_lrd)) {
-				tcp_lost_retransmission(tp, th);
+				tcp_sack_lost_retransmission(tp, th);
 			}
 		} else
 			/*
@@ -4102,6 +4102,7 @@ tcp_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
 	    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
 	    SEQ_GEQ(temp->rxmit, temp->end) &&
 	    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+		TCPSTAT_INC(tcps_sack_lostrexmt);
 		/*
 		 * Start retransmissions from the first hole, and
 		 * subsequently all other remaining holes, including

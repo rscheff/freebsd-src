@@ -673,6 +673,7 @@ struct	tcpstat {
 	uint64_t tcps_sack_rexmit_bytes;    /* SACK rexmit bytes      */
 	uint64_t tcps_sack_rcv_blocks;	    /* SACK blocks (options) received */
 	uint64_t tcps_sack_send_blocks;	    /* SACK blocks (options) sent     */
+	uint64_t tcps_sack_lostrexmt;	    /* SACK lost retransmission recovered */
 	uint64_t tcps_sack_sboverflow;	    /* times scoreboard overflowed */
 
 	/* ECN related stats */
@@ -697,7 +698,7 @@ struct	tcpstat {
 	uint64_t tcps_tunneled_pkts;	/* Packets encap's in UDP received */
 	uint64_t tcps_tunneled_errs;	/* Packets that had errors that were UDP encaped */
 
-	uint64_t _pad[10];		/* 6 UTO, 6 TBD */
+	uint64_t _pad[9];		/* 6 UTO, 3 TBD */
 };
 
 #define	tcps_rcvmemdrop	tcps_rcvreassfull	/* compat */
@@ -1096,6 +1097,7 @@ void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *);
 void	 tcp_lost_retransmission(struct tcpcb *, struct tcphdr *);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
+void	 tcp_sack_lost_retransmission(struct tcpcb *, struct tcphdr *);
 int	 tcp_newreno(struct tcpcb *, struct tcphdr *);
 int	 tcp_compute_pipe(struct tcpcb *);
 uint32_t tcp_compute_initwnd(uint32_t);

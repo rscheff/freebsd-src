@@ -995,3 +995,57 @@ tcp_sack_adjust(struct tcpcb *tp)
 		return;
 	tp->snd_nxt = tp->snd_fack;
 }
+
+/*
+ * Lost Retransmission Detection
+ * Check is FACK is beyond the rexmit of the leftmost hole.
+ * If yes, we restart sending from still existing holes,
+ * and adjust cwnd via the congestion control module.
+ */
+void
+tcp_sack_lost_retransmission(struct tcpcb *tp, struct tcphdr *th)
+{
+	struct sackhole *temp;
+	uint32_t prev_cwnd;
+	if (IN_RECOVERY(tp->t_flags) &&
+	    SEQ_GT(tp->snd_fack, tp->snd_recover) &&
+	    ((temp = TAILQ_FIRST(&tp->snd_holes)) != NULL) &&
+	    SEQ_GEQ(temp->rxmit, temp->end) &&
+	    SEQ_GEQ(tp->snd_fack, temp->rxmit)) {
+		TCPSTAT_INC(tcps_sack_lostrexmt);
+		/*
+		 * Start retransmissions from the first hole, and
+		 * subsequently all other remaining holes, including
+		 * those, which had been sent completely before.
+		 */
+		tp->sackhint.nexthole = temp;
+		TAILQ_FOREACH(temp, &tp->snd_holes, scblink) {
+			if (SEQ_GEQ(tp->snd_fack, temp->rxmit) &&
+			    SEQ_GEQ(temp->rxmit, temp->end))
+				temp->rxmit = temp->start;
+		}
+		/*
+		 * Remember the old ssthresh, to deduct the beta factor used
+		 * by the CC module. Finally, set cwnd to ssthresh just
+		 * prior to invoking another cwnd reduction by the CC
+		 * module, to not shrink it excessively.
+		 */
+		prev_cwnd = tp->snd_cwnd;
+		tp->snd_cwnd = tp->snd_ssthresh;
+		/*
+		 * Formally exit recovery, and let the CC module adjust
+		 * ssthresh as intended.
+		 */
+		EXIT_RECOVERY(tp->t_flags);
+		cc_cong_signal(tp, th, CC_NDUPACK);
+		/*
+		 * For PRR, adjust recover_fs as if this new reduction
+		 * initialized this variable.
+		 * cwnd will be adjusted by SACK or PRR processing
+		 * subsequently, only set it to a safe value here.
+		 */
+		tp->snd_cwnd = tcp_maxseg(tp);
+		tp->sackhint.recover_fs = (tp->snd_max - tp->snd_una) -
+					    tp->sackhint.recover_fs;
+	}
+}
