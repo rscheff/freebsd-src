@@ -2695,7 +2695,7 @@ enter_recovery:
 						} else {
 							tp->sackhint.prr_delivered =
 							    imin(tp->snd_max - tp->snd_una,
-							    imin(MAX_INT / maxseg,
+							    imin(INT_MAX / 65536,
 								tp->t_dupacks) * maxseg);
 						}
 						tp->sackhint.recover_fs = max(1,
@@ -3990,7 +3990,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 					     tp->snd_recover - tp->snd_una))
 			del_data = maxseg;
 		pipe = imax(0, tp->snd_max - tp->snd_una -
-			    imin(INT_MAX / maxseg, tp->t_dupacks) * maxseg);
+			    imin(INT_MAX / 65536, tp->t_dupacks) * maxseg);
 	}
 	tp->sackhint.prr_delivered += del_data;
 	/*
