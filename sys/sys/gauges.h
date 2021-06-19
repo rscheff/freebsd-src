@@ -41,7 +41,7 @@
 #define	_SYS_GAUGES_H_
 
 /* Machine type dependent parameters. */
-#include <machine/endian.h>
+#include <machine/atomic.h>
 
 #if __BSD_VISIBLE
 
@@ -113,6 +113,21 @@ typedef	uint64_t	gauge64_t;
  */
 #define SUBFLOOR(x,v) \
     ((x) >= (v)) ? (x)-(v) : 0
+
+static inline int
+atomic_fetch_add_unless(atomic_t *v, int a, int u)
+{
+        int c = atomic_read(v);
+
+        for (;;) {
+                if (unlikely(c == u))
+                        break;
+                if (likely(atomic_fcmpset_int(&v->counter, &c, c + a)))
+                        break;
+        }
+        return (c);
+}
+
 
 #endif /* __BSD_VISIBLE */
 
