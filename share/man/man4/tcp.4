@@ -34,7 +34,7 @@
 .\"     From: @(#)tcp.4	8.1 (Berkeley) 6/5/93
 .\" $FreeBSD$
 .\"
-.Dd January 28, 2022
+.Dd January 31, 2022
 .Dt TCP 4
 .Os
 .Sh NAME
@@ -714,13 +714,13 @@ when a broken firewall is in the network path.
 .It Va ecn.generalized
 Enable sending all segments as ECN capable transport,
 including SYN, SYN/ACK, and retransmissions.
-This may only be enabled, when ECN support itself is also active.
+This may only be enabled when ECN support itself is also active.
 Disabling ECN support will disable this feature automatically.
 Settings:
 .Bl -tag -compact
 .It 0
 Regular RFC3168 operation.
-Send only new data segements as ECN capable transport.
+Send only new data segments as ECN capable transport.
 (default)
 .It 1
 Support generalized ECN (ECN++), and send all segments of an ECN-enabled
