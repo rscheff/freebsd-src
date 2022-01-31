@@ -2169,7 +2169,7 @@ tcp_respond(struct tcpcb *tp, void *ipgen, struct tcphdr *th, struct mbuf *m,
 			    (tp->t_state > TCPS_LISTEN && tp->t_port != port)),
 			    ("%s: Logging of TCP segment with flags 0x%b and "
 			    "UDP encapsulation port %u skipped in state %s",
-			    __func__, thflags, PRINT_TH_FLAGS,
+			    __func__, (th->th_x2 << 8) | thflags, PRINT_TH_FLAGS,
 			    ntohs(port), tcpstates[tp->t_state]));
 		}
 	}
