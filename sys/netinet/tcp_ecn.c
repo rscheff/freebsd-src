@@ -629,7 +629,7 @@ tcp_ecn_syncache_respond(uint16_t thflags, struct syncache *sc)
 }
 
 int
-tcp_ecn_get_ace(uint16_t thflags)
+tcp_ecn_get_ace(uint16_t flags)
 {
 	int ace = 0;
 
