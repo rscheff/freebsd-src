@@ -400,7 +400,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 		}
 
 		/* Process a packet differently from RFC3168. */
-		cc_ecnpkt_handler(tp, flags, iptos);
+		cc_ecnpkt_handler_flags(tp, flags, iptos);
 	}
 
 	return delta_ace;
