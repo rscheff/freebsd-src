@@ -999,7 +999,6 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 			tp->t_flags |= TF_SACK_PERMIT;
 	}
 
-	printf("syncache_socket tcp_ecn\n");
 	tcp_ecn_syncache_socket(tp, sc);
 
 	/*

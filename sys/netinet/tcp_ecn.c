@@ -103,6 +103,8 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_ecn.h>
 
 
+
+
 /*
  * Process incoming SYN,ACK packet
  */
@@ -333,6 +335,10 @@ int
 tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 {
 	int delta_ace = 0;
+	
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+	log(LOG_CRIT, "tcp_ecn_input_segment");
+
 
 	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT)) {
 		switch (iptos & IPTOS_ECN_MASK) {
@@ -441,6 +447,9 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 	int ipecn = IPTOS_ECN_NOTECT;
 	bool newdata;
 
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+	log(LOG_CRIT, "tcp_ecn_output_established");
+
 	/*
 	 * If the peer has ECN, mark data packets with
 	 * ECN capable transmission (ECT).
@@ -498,6 +507,10 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 void
 tcp_ecn_syncache_socket(struct tcpcb *tp, struct syncache *sc)
 {
+
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+	log(LOG_CRIT, "tcp_ecn_syncache_socket");
+
 	if (sc->sc_flags & SCF_ECN_MASK) {
 		switch (sc->sc_flags & SCF_ECN_MASK) {
 		case SCF_ECN:
@@ -593,6 +606,9 @@ tcp_ecn_syncache_add(uint16_t thflags, int iptos)
 uint16_t
 tcp_ecn_syncache_respond(uint16_t thflags, struct syncache *sc)
 {
+if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+	log(LOG_CRIT, "tcp_ecn_syncache_respond");
+
 	if ((thflags & TH_SYN) &&
 	    (sc->sc_flags & SCF_ECN_MASK)) {
 		switch (sc->sc_flags & SCF_ECN_MASK) {
