@@ -74,11 +74,8 @@ struct tcphdr {
 #define	TH_AE	0x100			/* maps into th_x2 */
 #define	TH_FLAGS	(TH_FIN|TH_SYN|TH_RST|TH_PUSH|TH_ACK|TH_URG|TH_ECE|TH_CWR)
 #define	PRINT_TH_FLAGS	"\20\1FIN\2SYN\3RST\4PUSH\5ACK\6URG\7ECE\10CWR\11AE"
-#define	TCP_GET_FLAGS(th)	(((th)->th_x2 << 8) | ((th)->th_flags))
-#define	TCP_SET_FLAGS(th, flags)	do { \
-	(th)->th_x2 = (((flags) >> 8) & 0xF); \
-	(th)->th_flags = ((flags) & 0xFF); \
-} while (0)
+#define	TCP_GET_FLAGS(th)		tcp_get_flags((th))
+#define	TCP_SET_FLAGS(th, flags)	tcp_set_flags((th), (flags))
 
 	u_short	th_win;			/* window */
 	u_short	th_sum;			/* checksum */
