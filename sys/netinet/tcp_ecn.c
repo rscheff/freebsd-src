@@ -71,6 +71,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
+#include <sys/syslog.h>
 
 #include <machine/cpu.h>
 
@@ -101,8 +102,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/tcp6_var.h>
 #include <netinet/tcpip.h>
 #include <netinet/tcp_ecn.h>
-
-
 
 
 /*
@@ -340,6 +339,8 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 void
 tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t flags, int iptos)
 {
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
 	if (flags & TH_ACK)
 		return;
 	if (V_tcp_do_ecn == 0)
@@ -399,6 +400,8 @@ int
 tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 {
 	int delta_ace = 0;
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
 
 	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT)) {
 		switch (iptos & IPTOS_ECN_MASK) {
@@ -506,6 +509,8 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 	int ipecn = IPTOS_ECN_NOTECT;
 	bool newdata;
 
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "tcp_ecn_output_established\n");
 	/*
 	 * If the peer has ECN, mark data packets with
 	 * ECN capable transmission (ECT).
