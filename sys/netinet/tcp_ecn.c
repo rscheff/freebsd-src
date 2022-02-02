@@ -493,7 +493,7 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 			*thflags |= TH_ECE;
 	}
 	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-		log(LOG_CRIT, "ipecn:%x newdata:%d\n", ipecn, newdata);
+		log(LOG_CRIT, "thflags:%b ipecn:%x newdata:%d\n", (int)*thflags, PRINT_TH_FLAGS, ipecn, newdata);
 
 	return ipecn;
 }
@@ -636,7 +636,7 @@ tcp_ecn_syncache_respond(uint16_t thflags, struct syncache *sc)
 }
 
 int
-tcp_ecn_get_ace(uint16_t flags)
+tcp_ecn_get_ace(uint16_t thflags)
 {
 	int ace = 0;
 
