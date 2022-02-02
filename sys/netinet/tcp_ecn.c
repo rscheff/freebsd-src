@@ -337,17 +337,17 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
  * Handle parallel SYN for ECN
  */
 void
-tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t flags, int iptos)
+tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t thflags, int iptos)
 {
 	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
 		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
-	if (flags & TH_ACK)
+	if (thflags & TH_ACK)
 		return;
 	if (V_tcp_do_ecn == 0)
 		return;
 	if ((V_tcp_do_ecn == 1) || (V_tcp_do_ecn == 2)) {
 		/* RFC3168 ECN handling */
-		if ((flags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) {
+		if ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) {
 			tp->t_flags2 |= TF2_ECN_PERMIT;
 			tp->t_flags2 |= TF2_ECN_SND_ECE;
 			KMOD_TCPSTAT_INC(tcps_ecn_shs);
@@ -355,7 +355,7 @@ tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t flags, int iptos)
 	} else
 	if ((V_tcp_do_ecn == 3) || (V_tcp_do_ecn == 4)) {
 		/* AccECN handling */
-		switch (flags & (TH_AE | TH_CWR | TH_ECE)) {
+		switch (thflags & (TH_AE | TH_CWR | TH_ECE)) {
 		default:
 		case (0|0|0):
 			break;
@@ -397,7 +397,7 @@ tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t flags, int iptos)
  * TCP ECN processing.
  */
 int
-tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
+tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 {
 	int delta_ace = 0;
 	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
@@ -421,7 +421,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
 				tp->r_cep += 1;
 			if (tp->t_flags2 & TF2_ECN_PERMIT) {
-				delta_ace = (tcp_ecn_get_ace(flags) + 8 -
+				delta_ace = (tcp_ecn_get_ace(thflags) + 8 -
 					(tp->s_cep & 0x07)) & 0x07;
 				tp->s_cep += delta_ace;
 			} else {
@@ -429,7 +429,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 				 * process the final ACK of the 3WHS
 				 * see table 3 in draft-ietf-tcpm-accurate-ecn
 				 */
-				switch (tcp_ecn_get_ace(flags)) {
+				switch (tcp_ecn_get_ace(thflags)) {
 				case 0b010:
 					/* non-ECT SYN or SYN,ACK */
 				case 0b011:
@@ -452,9 +452,9 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 			}
 		} else {
 			/* RFC3168 ECN handling */
-			if (flags & TH_ECE)
+			if (thflags & TH_ECE)
 				delta_ace = 1;
-			if (flags & TH_CWR) {
+			if (thflags & TH_CWR) {
 				tp->t_flags2 &= ~TF2_ECN_SND_ECE;
 				tp->t_flags |= TF_ACKNOW;
 			}
@@ -463,7 +463,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 		}
 
 		/* Process a packet differently from RFC3168. */
-		cc_ecnpkt_handler_flags(tp, flags, iptos);
+		cc_ecnpkt_handler_flags(tp, thflags, iptos);
 	}
 
 	return delta_ace;
