@@ -449,7 +449,7 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t flags, int iptos)
 			}
 		} else {
 			/* RFC3168 ECN handling */
-			if (flags & TH_ECE) 
+			if (flags & TH_ECE)
 				delta_ace = 1;
 			if (flags & TH_CWR) {
 				tp->t_flags2 &= ~TF2_ECN_SND_ECE;
