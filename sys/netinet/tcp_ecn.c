@@ -333,6 +333,64 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 }
 
 /*
+ * Handle parallel SYN for ECN
+ */
+void
+tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t flags, int iptos)
+{
+	if (flags & TH_ACK)
+		return;
+	if (V_tcp_do_ecn == 0)
+		return;
+	if ((V_tcp_do_ecn == 1) || (V_tcp_do_ecn == 2)) {
+		/* RFC3168 ECN handling */
+		if ((flags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) {
+			tp->t_flags2 |= TF2_ECN_PERMIT;
+			tp->t_flags2 |= TF2_ECN_SND_ECE;
+			KMOD_TCPSTAT_INC(tcps_ecn_shs);
+		}
+	} else
+	if ((V_tcp_do_ecn == 3) || (V_tcp_do_ecn == 4)) {
+		/* AccECN handling */
+		switch (flags & (TH_AE | TH_CWR | TH_ECE)) {
+		default:
+		case (0|0|0):
+			break;
+		case (0|TH_CWR|TH_ECE):
+			tp->t_flags2 |= TF2_ECN_PERMIT;
+			tp->t_flags2 |= TF2_ECN_SND_ECE;
+			KMOD_TCPSTAT_INC(tcps_ecn_shs);
+			break;
+		case (TH_AE|TH_CWR|TH_ECE):
+			tp->t_flags2 |= TF2_ACE_PERMIT;
+			KMOD_TCPSTAT_INC(tcps_ecn_shs);
+			/*
+			 * Set the AccECN Codepoints on
+			 * the outgoing <ACK> to the ECN
+			 * state of the <SYN,ACK>
+			 * according to table 3 in the
+			 * AccECN draft
+			 */
+			switch (iptos & IPTOS_ECN_MASK) {
+			case (IPTOS_ECN_NOTECT):
+				tp->r_cep = 0b010;
+				break;
+			case (IPTOS_ECN_ECT0):
+				tp->r_cep = 0b100;
+				break;
+			case (IPTOS_ECN_ECT1):
+				tp->r_cep = 0b011;
+				break;
+			case (IPTOS_ECN_CE):
+				tp->r_cep = 0b110;
+				break;
+			}
+			break;
+		}
+	}
+}
+
+/*
  * TCP ECN processing.
  */
 int
