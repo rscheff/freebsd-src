@@ -18507,7 +18507,6 @@ send:
 	 * as per RFC 3168.
 	 */
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
-		printf("rack ecn output_syn-sent\n");
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}
 	/* Also handle parallel SYN for ECN */
