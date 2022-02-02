@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
 #include <sys/systm.h>
+#include <sys/syslog.h>
 #ifdef STATS
 #include <sys/qmath.h>
 #include <sys/tree.h>
@@ -18506,6 +18507,9 @@ send:
 	 * are on a retransmit, we may resend those bits a number of times
 	 * as per RFC 3168.
 	 */
+//	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+	log(LOG_CRIT, "rack.c$%d", __LINE__);
+
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}

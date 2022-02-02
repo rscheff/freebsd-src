@@ -71,6 +71,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
+#include <sys/syslog.h>
 
 #include <machine/cpu.h>
 
@@ -101,8 +102,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/tcp6_var.h>
 #include <netinet/tcpip.h>
 #include <netinet/tcp_ecn.h>
-
-
 
 
 /*
@@ -335,6 +334,8 @@ int
 tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 {
 	int delta_ace = 0;
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
 
 	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT)) {
 		switch (iptos & IPTOS_ECN_MASK) {
@@ -443,6 +444,8 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 	int ipecn = IPTOS_ECN_NOTECT;
 	bool newdata;
 
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "tcp_ecn_output_established\n");
 	/*
 	 * If the peer has ECN, mark data packets with
 	 * ECN capable transmission (ECT).
@@ -489,6 +492,8 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 		if (tp->t_flags2 & TF2_ECN_SND_ECE)
 			*thflags |= TH_ECE;
 	}
+	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
+		log(LOG_CRIT, "ipecn:%x newdata:%d\n", ipecn, newdata);
 
 	return ipecn;
 }
