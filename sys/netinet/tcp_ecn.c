@@ -71,7 +71,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
-#include <sys/syslog.h>
 
 #include <machine/cpu.h>
 
@@ -334,142 +333,6 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 }
 
 /*
- * Handle parallel SYN for ECN
- */
-void
-tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t thflags, int iptos)
-{
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
-	if (thflags & TH_ACK)
-		return;
-	if (V_tcp_do_ecn == 0)
-		return;
-	if ((V_tcp_do_ecn == 1) || (V_tcp_do_ecn == 2)) {
-		/* RFC3168 ECN handling */
-		if ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) {
-			tp->t_flags2 |= TF2_ECN_PERMIT;
-			tp->t_flags2 |= TF2_ECN_SND_ECE;
-			KMOD_TCPSTAT_INC(tcps_ecn_shs);
-		}
-	} else
-	if ((V_tcp_do_ecn == 3) || (V_tcp_do_ecn == 4)) {
-		/* AccECN handling */
-		switch (thflags & (TH_AE | TH_CWR | TH_ECE)) {
-		default:
-		case (0|0|0):
-			break;
-		case (0|TH_CWR|TH_ECE):
-			tp->t_flags2 |= TF2_ECN_PERMIT;
-			tp->t_flags2 |= TF2_ECN_SND_ECE;
-			KMOD_TCPSTAT_INC(tcps_ecn_shs);
-			break;
-		case (TH_AE|TH_CWR|TH_ECE):
-			tp->t_flags2 |= TF2_ACE_PERMIT;
-			KMOD_TCPSTAT_INC(tcps_ecn_shs);
-			/*
-			 * Set the AccECN Codepoints on
-			 * the outgoing <ACK> to the ECN
-			 * state of the <SYN,ACK>
-			 * according to table 3 in the
-			 * AccECN draft
-			 */
-			switch (iptos & IPTOS_ECN_MASK) {
-			case (IPTOS_ECN_NOTECT):
-				tp->r_cep = 0b010;
-				break;
-			case (IPTOS_ECN_ECT0):
-				tp->r_cep = 0b100;
-				break;
-			case (IPTOS_ECN_ECT1):
-				tp->r_cep = 0b011;
-				break;
-			case (IPTOS_ECN_CE):
-				tp->r_cep = 0b110;
-				break;
-			}
-			break;
-		}
-	}
-}
-
-/*
- * TCP ECN processing.
- */
-int
-tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
-{
-	int delta_ace = 0;
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-		log(LOG_CRIT, "tcp_ecn.c$%d\n", __LINE__);
-
-	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT)) {
-		switch (iptos & IPTOS_ECN_MASK) {
-		case IPTOS_ECN_CE:
-			KMOD_TCPSTAT_INC(tcps_ecn_ce);
-			break;
-		case IPTOS_ECN_ECT0:
-			KMOD_TCPSTAT_INC(tcps_ecn_ect0);
-			break;
-		case IPTOS_ECN_ECT1:
-			KMOD_TCPSTAT_INC(tcps_ecn_ect1);
-			break;
-		}
-
-		if (tp->t_flags2 & TF2_ACE_PERMIT) {
-			/* Accurate ECN handling */
-			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
-				tp->r_cep += 1;
-			if (tp->t_flags2 & TF2_ECN_PERMIT) {
-				delta_ace = (tcp_ecn_get_ace(thflags) + 8 -
-					(tp->s_cep & 0x07)) & 0x07;
-				tp->s_cep += delta_ace;
-			} else {
-				/*
-				 * process the final ACK of the 3WHS
-				 * see table 3 in draft-ietf-tcpm-accurate-ecn
-				 */
-				switch (tcp_ecn_get_ace(thflags)) {
-				case 0b010:
-					/* non-ECT SYN or SYN,ACK */
-				case 0b011:
-					/* ECT1 SYN or SYN,ACK */
-				case 0b100:
-					/* ECT0 SYN or SYN,ACK */
-					tp->s_cep = 5;
-					break;
-				case 0b110:
-					/* CE SYN or SYN,ACK */
-					tp->s_cep = 6;
-					tp->snd_cwnd = 2 * tcp_maxseg(tp);
-					break;
-				default:
-					/* missed final pure ACK of 3WHS */
-					tp->s_cep = 5;
-					break;
-				}
-				tp->t_flags2 |= TF2_ECN_PERMIT;
-			}
-		} else {
-			/* RFC3168 ECN handling */
-			if (thflags & TH_ECE)
-				delta_ace = 1;
-			if (thflags & TH_CWR) {
-				tp->t_flags2 &= ~TF2_ECN_SND_ECE;
-				tp->t_flags |= TF_ACKNOW;
-			}
-			if ((iptos & IPTOS_ECN_MASK) == IPTOS_ECN_CE)
-				tp->t_flags2 |= TF2_ECN_SND_ECE;
-		}
-
-		/* Process a packet differently from RFC3168. */
-		cc_ecnpkt_handler_flags(tp, thflags, iptos);
-	}
-
-	return delta_ace;
-}
-
-/*
  * Send ECN setup <SYN> packet header flags
  */
 uint16_t
@@ -509,8 +372,6 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 	int ipecn = IPTOS_ECN_NOTECT;
 	bool newdata;
 
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-		log(LOG_CRIT, "tcp_ecn_output_established\n");
 	/*
 	 * If the peer has ECN, mark data packets with
 	 * ECN capable transmission (ECT).
