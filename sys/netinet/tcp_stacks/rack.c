@@ -15825,7 +15825,8 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 	struct tcpopt to;
 	u_char opt[TCP_MAXOLEN];
 	uint32_t hdrlen, optlen;
-	int32_t slot, segsiz, max_val, tso = 0, error, flags, ulen = 0;
+	int32_t slot, segsiz, max_val, tso = 0, error, ulen = 0;
+	uint16_t flags;
 	uint32_t if_hw_tsomaxsegcount = 0, startseq;
 	uint32_t if_hw_tsomaxsegsize;
 
@@ -16448,7 +16449,6 @@ again:
 	sb_offset = tp->snd_max - tp->snd_una;
 	th->th_seq = htonl(tp->snd_max);
 	th->th_ack = htonl(tp->rcv_nxt);
-	tcp_set_flags(th, flags);
 	th->th_win = htons((u_short)(rack->r_ctl.fsb.recwin >> tp->rcv_scale));
 	if (th->th_win == 0) {
 		tp->t_sndzerowin++;
@@ -16511,6 +16511,7 @@ again:
 			ip->ip_tos |= ect;
 		}
 	}
+	tcp_set_flags(th, flags);
 	m->m_pkthdr.len = hdrlen + len;	/* in6_cksum() need this */
 #ifdef INET6
 	if (rack->r_is_v6) {
