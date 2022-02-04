@@ -38,9 +38,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/linker.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <sys/capsicum.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <assert.h>
 #include <capsicum_helpers.h>
 #include <errno.h>
@@ -383,6 +385,32 @@ connection_new(int iscsi_fd, const struct iscsi_daemon_request *request)
 				    from_addr);
 		}
 	}
+	/*
+	 * Reduce TCP SYN_SENT timeout while
+	 * no connectivity exists, to allow
+	 * rapid reuse of the available slots.
+	 */
+	int keepinit = 0;
+	if (conn->conn_conf.isc_login_timeout > 0) {
+		keepinit = (conn->conn_conf.isc_login_timeout + 9) / 10;
+		log_debugx("session specific login_timeout at %d sec",
+			keepinit);
+	}
+	if (conn->conn_conf.isc_login_timeout == -1) {
+		char value[8];
+		size_t size = sizeof(value);
+		sysctlbyname("kern.iscsi.login_timeout", &value, &size,
+			NULL, 0);
+		keepinit = strtol(value, NULL, 10);
+		log_debugx("global login_timeout at %d sec", keepinit);
+	}
+	if (keepinit > 0) {
+		if (setsockopt(conn->conn.conn_socket,
+		    IPPROTO_TCP, TCP_KEEPINIT,
+		    &keepinit, sizeof(keepinit)) == -1)
+			log_warnx("setsockopt(TCP_KEEPINIT) "
+			    "failed for %s", to_addr);
+	}
 	if (from_ai != NULL) {
 		error = bind(conn->conn.conn_socket, from_ai->ai_addr,
 		    from_ai->ai_addrlen);
@@ -432,6 +460,8 @@ handoff(struct iscsid_connection *conn)
 	    conn->conn.conn_max_send_data_segment_length;
 	idh.idh_max_burst_length = conn->conn.conn_max_burst_length;
 	idh.idh_first_burst_length = conn->conn.conn_first_burst_length;
+	idh.idh_ping_timeout = conn->conn_conf.isc_ping_timeout;
+	idh.idh_login_timeout = conn->conn_conf.isc_login_timeout;
 
 	error = ioctl(conn->conn_iscsi_fd, ISCSIDHANDOFF, &idh);
 	if (error != 0)

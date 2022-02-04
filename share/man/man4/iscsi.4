@@ -22,7 +22,7 @@
 .\" SUCH DAMAGE.
 .\"
 .\" $FreeBSD$
-.Dd May 28, 2017
+.Dd February 4, 2022
 .Dt ISCSI 4
 .Os
 .Sh NAME
@@ -74,6 +74,7 @@ In the event that there is no response within that time the session gets
 forcibly restarted.
 Set to 0 to disable sending NOP-Out PDUs.
 Defaults to 5.
+This can be set in increments of 0.1 seconds.
 .It Va kern.iscsi.iscsid_timeout
 The number of seconds to wait for
 .Xr iscsid 8
@@ -81,13 +82,13 @@ to establish a session.
 After that time
 .Nm
 will abort and retry.
-Defaults to 60.
+Defaults to 60 and accepts increments of 0.1.
 .It Va kern.iscsi.login_timeout
 The number of seconds to wait for a login attempt to succeed.
 After that time
 .Nm
 will abort and retry.
-Defaults to 60.
+Defaults to 60 and accepts increments of 0.1.
 .It Va kern.iscsi.maxtags
 The maximum number of outstanding IO requests.
 Defaults to 255.

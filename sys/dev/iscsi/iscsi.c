@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/module.h>
 #include <sys/socket.h>
+#include <sys/sockopt.h>
 #include <sys/sysctl.h>
 #include <sys/systm.h>
 #include <sys/sx.h>
@@ -80,21 +81,27 @@ FEATURE(iscsi_kernel_proxy, "iSCSI initiator built with ICL_KERNEL_PROXY");
  * 	Think about how to do this properly.
  */
 static struct iscsi_softc	*sc;
+static int
+sysctl_handle_deciint(SYSCTL_HANDLER_ARGS);
 
 SYSCTL_NODE(_kern, OID_AUTO, iscsi, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "iSCSI initiator");
 static int debug = 1;
 SYSCTL_INT(_kern_iscsi, OID_AUTO, debug, CTLFLAG_RWTUN,
     &debug, 0, "Enable debug messages");
-static int ping_timeout = 5;
-SYSCTL_INT(_kern_iscsi, OID_AUTO, ping_timeout, CTLFLAG_RWTUN, &ping_timeout,
-    0, "Timeout for ping (NOP-Out) requests, in seconds");
-static int iscsid_timeout = 60;
-SYSCTL_INT(_kern_iscsi, OID_AUTO, iscsid_timeout, CTLFLAG_RWTUN, &iscsid_timeout,
-    0, "Time to wait for iscsid(8) to handle reconnection, in seconds");
-static int login_timeout = 60;
-SYSCTL_INT(_kern_iscsi, OID_AUTO, login_timeout, CTLFLAG_RWTUN, &login_timeout,
-    0, "Time to wait for iscsid(8) to finish Login Phase, in seconds");
+
+static int ping_timeout = 50;
+SYSCTL_PROC(_kern_iscsi, OID_AUTO, ping_timeout,
+    CTLFLAG_RWTUN | CTLTYPE_STRING, &ping_timeout, 0, sysctl_handle_deciint,
+    "A", "Timeout for ping (NOP-Out) requests, in seconds");
+static int iscsid_timeout = 600;
+SYSCTL_PROC(_kern_iscsi, OID_AUTO, iscsid_timeout,
+    CTLFLAG_RWTUN | CTLTYPE_STRING, &iscsid_timeout, 0, sysctl_handle_deciint,
+    "A", "Time to wait for iscsid(8) to handle reconnection, in seconds");
+static int login_timeout = 600;
+SYSCTL_PROC(_kern_iscsi, OID_AUTO, login_timeout,
+    CTLFLAG_RWTUN | CTLTYPE_STRING, &login_timeout, 0, sysctl_handle_deciint,
+    "A", "Time to wait for iscsid(8) to finish Login Phase, in seconds");
 static int maxtags = 255;
 SYSCTL_INT(_kern_iscsi, OID_AUTO, maxtags, CTLFLAG_RWTUN, &maxtags,
     0, "Max number of IO requests queued");
@@ -178,6 +185,86 @@ static struct iscsi_outstanding	*iscsi_outstanding_add(struct iscsi_session *is,
 		    uint32_t *initiator_task_tagp);
 static void	iscsi_outstanding_remove(struct iscsi_session *is,
 		    struct iscsi_outstanding *io);
+static int
+sysctl_handle_deciint(SYSCTL_HANDLER_ARGS)
+{
+	int error;
+	char oldstr[10], newstr[10];
+	char *s, c;
+	int newval = 0;
+	bool havesign = false;
+	bool havenumber = false;
+	bool havedot = false;
+	bool havedecimal = false;
+	bool isnegative = false;
+
+	if ((*(int *)arg1 % 10) == 0)
+		snprintf(oldstr, sizeof(oldstr), "%d", *(int *)arg1/10);
+	else
+		snprintf(oldstr, sizeof(oldstr), "%d.%d", *(int *)arg1/10, *(int *)arg1%10);
+	strncpy(newstr, oldstr, sizeof(newstr));
+	error = sysctl_handle_string(oidp, newstr, sizeof(newstr), req);
+	s = &newstr[0];
+	while ((c=*s++)) {
+		if (c == ' ' || c == '\t') {
+			if (!havenumber) {
+				continue;
+			} else {
+				break;
+			}
+		}
+		if (c == '+') {
+			if (!havesign) {
+				havesign = true;
+			} else {
+				error = EINVAL;
+				break;
+			}
+		}
+		if (c == '-') {
+			if (!havesign) {
+				havesign = true;
+				isnegative = true;
+			} else {
+				error = EINVAL;
+				break;
+			}
+		}
+		if (c == '.') {
+			if (!havedot) {
+				havedot = true;
+			} else {
+				error = EINVAL;
+				break;
+			}
+		}
+		if (c >= '0' && c <= '9') {
+			havenumber = true;
+			if (havedot && havedecimal) {
+				if (c >= '5') /* Round up */
+					newval += 1;
+				break;
+			}
+			if (havedot && !havedecimal)
+				havedecimal = true;
+			newval = newval * 10 + (c - '0');
+		}
+	}
+	if (!havenumber) {
+		error = EINVAL;
+	} else {
+		if (isnegative)
+			newval = -newval;
+		if (!havedot)
+			newval *= 10;
+		*(int *)arg1 = newval;
+	}
+
+	if (newval < 0)
+		error = EINVAL;
+
+	return(error);
+}
 
 static bool
 iscsi_pdu_prepare(struct icl_pdu *request)
@@ -380,6 +467,22 @@ iscsi_session_cleanup(struct iscsi_session *is, bool destroy_sim)
 static void
 iscsi_maintenance_thread_reconnect(struct iscsi_session *is)
 {
+	/*
+	 * As we will be reconnecting shortly,
+	 * discard outstanding data immediately on
+	 * close(), also notify peer via RST if
+	 * any packets come in.
+	 */
+	struct sockopt sopt;
+	struct linger sl;
+	sopt.sopt_dir     = SOPT_SET;
+	sopt.sopt_level   = SOL_SOCKET;
+	sopt.sopt_name    = SO_LINGER;
+	sopt.sopt_val     = &sl;
+	sopt.sopt_valsize = sizeof(sl);
+	sl.l_onoff        = 1;	/* non-zero value enables linger option in kernel */
+	sl.l_linger       = 0;	/* timeout interval in seconds */
+	sosetopt(is->is_conn->ic_socket, &sopt);
 
 	icl_conn_close(is->is_conn);
 
@@ -546,6 +649,8 @@ iscsi_callout(void *context)
 	struct iscsi_bhs_nop_out *bhsno;
 	struct iscsi_session *is;
 	bool reconnect_needed = false;
+	bool fast_timer = false;
+	char tmpstr[4];
 
 	is = context;
 
@@ -555,18 +660,25 @@ iscsi_callout(void *context)
 		return;
 	}
 
-	callout_schedule(&is->is_callout, 1 * hz);
+	fast_timer = ((is->is_ping_timeout <= 20) ||
+			(is->is_login_timeout <= 20));
+
+	callout_schedule(&is->is_callout, (fast_timer ? hz / 10 : 1 * hz));
 
 	if (is->is_conf.isc_enable == 0)
 		goto out;
 
-	is->is_timeout++;
+	is->is_timeout += (fast_timer ? 1 : 10);
 
+	tmpstr[0] = '\0';
 	if (is->is_waiting_for_iscsid) {
 		if (iscsid_timeout > 0 && is->is_timeout > iscsid_timeout) {
+			if (fast_timer)
+				snprintf(tmpstr, sizof(tmpstr), ".%d",
+					is->is_timeout % 10);
 			ISCSI_SESSION_WARN(is, "timed out waiting for iscsid(8) "
-			    "for %d seconds; reconnecting",
-			    is->is_timeout);
+			    "for %d%s seconds; reconnecting",
+			    is->is_timeout/10, tmpstr);
 			reconnect_needed = true;
 		}
 		goto out;
@@ -574,14 +686,17 @@ iscsi_callout(void *context)
 
 	if (is->is_login_phase) {
 		if (login_timeout > 0 && is->is_timeout > login_timeout) {
-			ISCSI_SESSION_WARN(is, "login timed out after %d seconds; "
-			    "reconnecting", is->is_timeout);
+			if (fast_timer)
+				snprintf(tmpstr, sizeof(tmpstr), ".%d",
+					is->is_timeout % 10);
+			ISCSI_SESSION_WARN(is, "login timed out after %d%s seconds; "
+			    "reconnecting", is->is_timeout/10, tmpstr);
 			reconnect_needed = true;
 		}
 		goto out;
 	}
 
-	if (ping_timeout <= 0) {
+	if (is->is_ping_timeout <= 0) {
 		/*
 		 * Pings are disabled.  Don't send NOP-Out in this case.
 		 * Reset the timeout, to avoid triggering reconnection,
@@ -591,9 +706,12 @@ iscsi_callout(void *context)
 		goto out;
 	}
 
-	if (is->is_timeout >= ping_timeout) {
-		ISCSI_SESSION_WARN(is, "no ping reply (NOP-In) after %d seconds; "
-		    "reconnecting", ping_timeout);
+	if (is->is_timeout >= is->is_ping_timeout) {
+		if (fast_timer)
+			snprintf(tmpstr, sizeof(tmpstr), ".%d",
+				is->is_ping_timeout % 10);
+		ISCSI_SESSION_WARN(is, "no ping reply (NOP-In) after %d%s seconds; "
+		    "reconnecting", is->is_ping_timeout/10, tmpstr);
 		reconnect_needed = true;
 		goto out;
 	}
@@ -1506,6 +1624,12 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 	is->is_waiting_for_iscsid = false;
 	is->is_login_phase = false;
 	is->is_timeout = 0;
+	is->is_ping_timeout = handoff->idh_ping_timeout;
+	if (is->is_ping_timeout < 0)
+		is->is_ping_timeout = ping_timeout;
+	    is->is_login_timeout = handoff->idh_login_timeout;
+	if (is->is_login_timeout < 0)
+		is->is_login_timeout = login_timeout;
 	is->is_connected = true;
 	is->is_reason[0] = '\0';
 
@@ -1835,6 +1959,7 @@ iscsi_ioctl_session_add(struct iscsi_softc *sc, struct iscsi_session_add *isa)
 	struct iscsi_session *is;
 	const struct iscsi_session *is2;
 	int error;
+	bool fast_timer;
 
 	iscsi_sanitize_session_conf(&isa->isa_conf);
 	if (iscsi_valid_session_conf(&isa->isa_conf) == false)
@@ -1911,8 +2036,16 @@ iscsi_ioctl_session_add(struct iscsi_softc *sc, struct iscsi_session_add *isa)
 		sx_xunlock(&sc->sc_lock);
 		return (error);
 	}
+	is->is_ping_timeout = is->is_conf.isc_ping_timeout;
+	if (is->is_ping_timeout < 0)
+		is->is_ping_timeout = ping_timeout;
+	is->is_login_timeout = is->is_conf.isc_login_timeout;
+	if (is->is_login_timeout < 0)
+		is->is_login_timeout = login_timeout;
 
-	callout_reset(&is->is_callout, 1 * hz, iscsi_callout, is);
+	fast_timer = ((is->is_ping_timeout <= 20) ||
+			(is->is_ping_timeout <= 20));
+	callout_reset(&is->is_callout, (fast_timer ? hz / 10 : 1 * hz), iscsi_callout, is);
 	TAILQ_INSERT_TAIL(&sc->sc_sessions, is, is_next);
 
 	ISCSI_SESSION_LOCK(is);
