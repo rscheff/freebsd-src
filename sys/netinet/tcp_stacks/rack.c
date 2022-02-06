@@ -50,7 +50,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
 #include <sys/systm.h>
-#include <sys/syslog.h>
 #ifdef STATS
 #include <sys/qmath.h>
 #include <sys/tree.h>
@@ -18507,12 +18506,7 @@ send:
 	 * are on a retransmit, we may resend those bits a number of times
 	 * as per RFC 3168.
 	 */
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-	log(LOG_CRIT, "rack.c$%d\n", __LINE__);
-
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG)
-	log(LOG_CRIT, "rack.c$%d\n", __LINE__);
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}
 	/* Also handle parallel SYN for ECN */
@@ -18533,12 +18527,6 @@ send:
 			ip->ip_tos &= ~IPTOS_ECN_MASK;
 			ip->ip_tos |= ect;
 		}
-	}
-	if (tp->t_inpcb->inp_socket->so_options & SO_DEBUG) {
-	log(LOG_CRIT, "rack.c$%d\n", __LINE__);
-	log(LOG_CRIT, "\tstate:%d\n", tp->t_state);
-	log(LOG_CRIT, "\tflags2:%x\n", tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT));
-	log(LOG_CRIT, "\tiptos:%b\n", 1<<(ip->ip_tos & IPTOS_ECN_MASK), "\20\1NO\2ECT1\3ECT0\4CE");
 	}
 	/*
 	 * If we are doing retransmissions, then snd_nxt will not reflect
