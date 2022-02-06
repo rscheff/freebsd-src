@@ -104,7 +104,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/ip6_var.h>
 #include <netinet6/nd6.h>
 #include <netinet/tcp.h>
-#include <netinet/tcp_ecn.h>
 #include <netinet/tcp_fsm.h>
 #include <netinet/tcp_log_buf.h>
 #include <netinet/tcp_seq.h>
