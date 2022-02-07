@@ -890,6 +890,17 @@ send:
 			to.to_flags |= TOF_SIGNATURE;
 #endif /* TCP_SIGNATURE */
 
+		/* AccECN option */
+		if ((tp->t_flags2 & TF2_ACE_PERMIT) ||
+		    (V_tcp_do_ecn == 3)) {
+			to.to_flags |= TOF_ACCECNOPT;
+			to.to_ee0b = 0;
+			to.to_ee1b = 0;
+			to.to_eceb = 0;
+			if (flags & TH_SYN)
+				to.to_acceflags = TOF_ACCE_SYN;
+		}
+
 		/* Processing the options. */
 		hdrlen += optlen = tcp_addoptions(&to, opt);
 		/*
@@ -1933,6 +1944,191 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 			}
 			optlen += total_len;
 			break;
+			}
+		case TOF_ACCECNOPT:
+			{
+			int max_len = TCP_MAXOLEN - optlen;
+			if (max_len < TCPOLEN_ACCECN_EMPTY) {
+				to->to_flags &= ~TOF_ACCECNOPT;
+				continue;
+			}
+			if (max_len < (TCPOLEN_ACCECN_EMPTY +
+					TCPOLEN_ACCECN_COUNTER)) {
+				if (to->to_acceflags & TOF_ACCE_SYN) {
+					*optp++ = TCPOPT_ACCECN_0;
+					*optp++ = TCPOLEN_ACCECN_EMPTY;
+					optlen += TCPOLEN_ACCECN_EMPTY;
+					continue;
+				} else {
+					to->to_flags &= ~TOF_ACCECNOPT;
+					continue;
+				}
+			}
+			if (max_len < (TCPOLEN_ACCECN_EMPTY +
+					2 * TCPOLEN_ACCECN_COUNTER)) {
+				if (to->to_acceflags & TOF_ACCE_E0) {
+					*optp++ = TCPOPT_ACCECN_0;
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee0b >> 16;
+					*optp++ = (char)to->to_ee0b >> 8;
+					*optp++ = (char)to->to_ee0b;
+					continue;
+				}
+				if (to->to_acceflags & TOF_ACCE_E1) {
+					*optp++ = TCPOPT_ACCECN_1;
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee1b >> 16;
+					*optp++ = (char)to->to_ee1b >> 8;
+					*optp++ = (char)to->to_ee1b;
+					continue;
+				}
+				to->to_flags &= ~TOF_ACCECNOPT;
+				continue;
+			}
+			if (max_len < (TCPOLEN_ACCECN_EMPTY +
+					3 * TCPOLEN_ACCECN_COUNTER)) {
+				if (to->to_acceflags & TOF_ACCE_E1) {
+					*optp++ = TCPOPT_ACCECN_1;
+					if (to->to_acceflags & TOF_ACCE_CE) {
+						*optp++ = TCPOLEN_ACCECN_EMPTY +
+							2 * TCPOLEN_ACCECN_COUNTER;
+						optlen += TCPOLEN_ACCECN_EMPTY +
+							2 * TCPOLEN_ACCECN_COUNTER;
+					} else {
+						*optp++ = TCPOLEN_ACCECN_EMPTY +
+							1 * TCPOLEN_ACCECN_COUNTER;
+						optlen += TCPOLEN_ACCECN_EMPTY +
+							1 * TCPOLEN_ACCECN_COUNTER;
+					}
+					*optp++ = (char)to->to_ee1b >> 16;
+					*optp++ = (char)to->to_ee1b >> 8;
+					*optp++ = (char)to->to_ee1b;
+					if (to->to_acceflags & TOF_ACCE_CE) {
+						*optp++ = (char)to->to_eceb >> 16;
+						*optp++ = (char)to->to_eceb >> 8;
+						*optp++ = (char)to->to_eceb;
+					}
+					continue;
+				}
+				if (to->to_acceflags & (TOF_ACCE_E1 | TOF_ACCE_CE)) {
+					*optp++ = TCPOPT_ACCECN_0;
+					if (to->to_acceflags & TOF_ACCE_CE) {
+						*optp++ = TCPOLEN_ACCECN_EMPTY +
+							2 * TCPOLEN_ACCECN_COUNTER;
+						optlen += TCPOLEN_ACCECN_EMPTY +
+							2 * TCPOLEN_ACCECN_COUNTER;
+					} else {
+						*optp++ = TCPOLEN_ACCECN_EMPTY +
+							1 *TCPOLEN_ACCECN_COUNTER;
+						optlen += TCPOLEN_ACCECN_EMPTY +
+							1 * TCPOLEN_ACCECN_COUNTER;
+					}
+					*optp++ = (char)to->to_ee0b >> 16;
+					*optp++ = (char)to->to_ee0b >> 8;
+					*optp++ = (char)to->to_ee0b;
+					if (to->to_acceflags & TOF_ACCE_CE) {
+						*optp++ = (char)to->to_eceb >> 16;
+						*optp++ = (char)to->to_eceb >> 8;
+						*optp++ = (char)to->to_eceb;
+					}
+					continue;
+				}
+				to->to_flags &= ~TOF_ACCECNOPT;
+				continue;
+			}
+			if (to->to_acceflags & TOF_ACCE_E1) {
+				*optp++ = TCPOPT_ACCECN_1;
+				switch (to->to_acceflags & (TOF_ACCE_CE | TOF_ACCE_E0)) {
+				default:
+					{
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						1 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						1 * TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee1b >> 16;
+					*optp++ = (char)to->to_ee1b >> 8;
+					*optp++ = (char)to->to_ee1b;
+					break;
+					}
+				case (TOF_ACCE_CE):
+					{
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee1b >> 16;
+					*optp++ = (char)to->to_ee1b >> 8;
+					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)to->to_eceb >> 16;
+					*optp++ = (char)to->to_eceb >> 8;
+					*optp++ = (char)to->to_eceb;
+					break;
+					}
+				case (TOF_ACCE_E0):
+					/* Fallthrough */
+				case (TOF_ACCE_CE | TOF_ACCE_E0):
+					{
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						3 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						3 * TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee1b >> 16;
+					*optp++ = (char)to->to_ee1b >> 8;
+					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)to->to_eceb >> 16;
+					*optp++ = (char)to->to_eceb >> 8;
+					*optp++ = (char)to->to_eceb;
+					*optp++ = (char)to->to_ee0b >> 16;
+					*optp++ = (char)to->to_ee0b >> 8;
+					*optp++ = (char)to->to_ee0b;
+					break;
+					}
+				}
+				continue;
+			} else {
+				if (!(to->to_acceflags & (TOF_ACCE_E0 | 
+							  TOF_ACCE_CE))) {
+					to->to_flags &= ~TOF_ACCECNOPT;
+					continue;
+				}
+				*optp++ = TCPOPT_ACCECN_0;
+				switch (to->to_acceflags & (TOF_ACCE_CE | TOF_ACCE_E0)) {
+				default:
+					{
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						1 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						1 * TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee0b >> 16;
+					*optp++ = (char)to->to_ee0b >> 8;
+					*optp++ = (char)to->to_ee0b;
+					break;
+					}
+				case (TOF_ACCE_CE):
+					/* Fallthrough */
+				case (TOF_ACCE_CE | TOF_ACCE_E0):
+					{
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
+					*optp++ = (char)to->to_ee0b >> 16;
+					*optp++ = (char)to->to_ee0b >> 8;
+					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)to->to_eceb >> 16;
+					*optp++ = (char)to->to_eceb >> 8;
+					*optp++ = (char)to->to_eceb;
+					break;
+					}
+				}
+				continue;
+			}
 			}
 		default:
 			panic("%s: unknown TCP option type", __func__);

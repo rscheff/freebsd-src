@@ -587,7 +587,8 @@ struct tcpopt {
 #define	TOF_SIGNATURE	0x0040		/* TCP-MD5 signature option (RFC2385) */
 #define	TOF_SACK	0x0080		/* Peer sent SACK option */
 #define	TOF_FASTOPEN	0x0100		/* TCP Fast Open (TFO) cookie */
-#define	TOF_MAXOPT	0x0200
+#define	TOF_ACCECNOPT	0x0200		/* AccECN Option */
+#define	TOF_MAXOPT	0x0400
 	u_int32_t	to_tsval;	/* new timestamp */
 	u_int32_t	to_tsecr;	/* reflected timestamp */
 	u_char		*to_sacks;	/* pointer to the first SACK blocks */
@@ -597,7 +598,14 @@ struct tcpopt {
 	u_int8_t	to_wscale;	/* window scaling */
 	u_int8_t	to_nsacks;	/* number of SACK blocks */
 	u_int8_t	to_tfo_len;	/* TFO cookie length */
-	u_int32_t	to_spare;	/* UTO */
+	u_int8_t	to_acceflags;	/* AccECN option flags */
+#define	TOF_ACCE_SYN	0x01		/* send empty option */
+#define	TOF_ACCE_CE	0x02		/* CE counter changed */
+#define	TOF_ACCE_E0	0x04		/* E0 counter changed */
+#define	TOF_ACCE_E1	0x08		/* E1 counter changed */
+	u_int32_t	to_ee0b;	/* AccECN E0 marked bytes */
+	u_int32_t	to_ee1b;	/* AccECN E1 marked bytes */
+	u_int32_t	to_eceb;	/* AccECN CE marked bytes */
 };
 
 /*
