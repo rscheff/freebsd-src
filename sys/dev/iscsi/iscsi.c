@@ -579,7 +579,7 @@ iscsi_callout(void *context)
 		return;
 	}
 
-	sbt = mstosbt(995);
+	sbt = mstosbt((ping_timeout * 1000) / 3) - 5);
 	pr  = mstosbt(10);
 	callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 
@@ -589,7 +589,7 @@ iscsi_callout(void *context)
 	is->is_timeout++;
 
 	if (is->is_waiting_for_iscsid) {
-		if (iscsid_timeout > 0 && is->is_timeout > iscsid_timeout) {
+		if (iscsid_timeout > 0 && is->is_timeout > 0) {
 			ISCSI_SESSION_WARN(is, "timed out waiting for iscsid(8) "
 			    "for %d seconds; reconnecting",
 			    is->is_timeout);
@@ -617,7 +617,7 @@ iscsi_callout(void *context)
 		goto out;
 	}
 
-	if (is->is_timeout >= is->is_ping_timeout) {
+	if (is->is_timeout >= 3) {
 		ISCSI_SESSION_WARN(is, "no ping reply (NOP-In) after %d seconds; "
 		    "reconnecting", is->is_ping_timeout);
 		reconnect_needed = true;
@@ -1427,6 +1427,12 @@ iscsi_ioctl_daemon_wait(struct iscsi_softc *sc,
 
 		is->is_waiting_for_iscsid = false;
 		is->is_login_phase = true;
+		is->is_timeout = 0;
+		sbt = mstosbt(995);
+		pr = mstosbt(10);
+		if (login_timeout > 0)
+			sbt = mstosbt(login_timeout * 1000 - 5);
+		callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 		is->is_reason[0] = '\0';
 		ISCSI_SESSION_UNLOCK(is);
 
@@ -1539,6 +1545,11 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 	if (is->is_login_timeout < 0)
 		is->is_login_timeout = login_timeout;
 	is->is_connected = true;
+	sbt = mstosbt(995);
+	pr = mstosbt(10);
+	if (ping_timeout > 0)
+		sbt = mstosbt((ping_timeout * 1000) / 3) - 5);
+	callout_schedule(&is->is_callout, sbt, pr, 0);
 	is->is_reason[0] = '\0';
 
 	ISCSI_SESSION_UNLOCK(is);
@@ -1648,6 +1659,7 @@ iscsi_ioctl_daemon_connect(struct iscsi_softc *sc,
 	struct iscsi_session *is;
 	struct sockaddr *from_sa, *to_sa;
 	int error;
+	sbintime_t sbt, pr;
 
 	sx_slock(&sc->sc_lock);
 	TAILQ_FOREACH(is, &sc->sc_sessions, is_next) {
@@ -1686,6 +1698,11 @@ iscsi_ioctl_daemon_connect(struct iscsi_softc *sc,
 	is->is_waiting_for_iscsid = false;
 	is->is_login_phase = true;
 	is->is_timeout = 0;
+	sbt = mstosbt(995);
+	pr = mstosbt(10);
+	if (login_timeout > 0)
+		sbt = mstosbt(login_timeout * 1000 - 5);
+	callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 	ISCSI_SESSION_UNLOCK(is);
 
 	error = icl_conn_connect(is->is_conn, idc->idc_domain,
@@ -1953,6 +1970,9 @@ iscsi_ioctl_session_add(struct iscsi_softc *sc, struct iscsi_session_add *isa)
 
 	sbt = mstosbt(995);
 	pr = mstosbt(10);
+	if (iscsid_timeout > 0) {
+		sbt = mstosbt(iscsid_timeout * 1000 -  5);
+	}
 	callout_reset_sbt(&is->is_callout, sbt, pr, iscsi_callout, is, 0);
 	TAILQ_INSERT_TAIL(&sc->sc_sessions, is, is_next);
 
