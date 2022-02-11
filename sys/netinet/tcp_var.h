@@ -251,6 +251,11 @@ struct tcpcb {
 	int	t_loglimit;		/* Maximum number of log entries */
 	uint32_t t_rcep;		/* Number of received CE marked pkts */
 	uint32_t t_scep;		/* Synced number of delivered CE pkts */
+#if defined(TCP_ACCECNOPT)
+	uint32_t 
+	uint32_t 
+	uint32_t 
+#endif /* TCP_ACCECNOPT) */
 	int64_t	t_pacing_rate;		/* bytes / sec, -1 => unlimited */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
 	struct tcp_log_id_node *t_lin;
@@ -587,8 +592,12 @@ struct tcpopt {
 #define	TOF_SIGNATURE	0x0040		/* TCP-MD5 signature option (RFC2385) */
 #define	TOF_SACK	0x0080		/* Peer sent SACK option */
 #define	TOF_FASTOPEN	0x0100		/* TCP Fast Open (TFO) cookie */
+#if defined(TCP_ACCECNOPT)
 #define	TOF_ACCECNOPT	0x0200		/* AccECN Option */
 #define	TOF_MAXOPT	0x0400
+#else
+#define	TOF_MAXOPT	0x0200
+#endif /* TCP_ACCECNOPT */
 	u_int32_t	to_tsval;	/* new timestamp */
 	u_int32_t	to_tsecr;	/* reflected timestamp */
 	u_char		*to_sacks;	/* pointer to the first SACK blocks */
@@ -598,6 +607,7 @@ struct tcpopt {
 	u_int8_t	to_wscale;	/* window scaling */
 	u_int8_t	to_nsacks;	/* number of SACK blocks */
 	u_int8_t	to_tfo_len;	/* TFO cookie length */
+#if defined(TCP_ACCECNOPT)
 	u_int8_t	to_acceflags;	/* AccECN option flags */
 #define	TOF_ACCE_SYN	0x01		/* send empty option */
 #define	TOF_ACCE_CE	0x02		/* CE counter changed */
@@ -606,6 +616,9 @@ struct tcpopt {
 	u_int32_t	to_ee0b;	/* AccECN E0 marked bytes */
 	u_int32_t	to_ee1b;	/* AccECN E1 marked bytes */
 	u_int32_t	to_eceb;	/* AccECN CE marked bytes */
+#else
+	u_int32_t       to_spare;       /* UTO */
+#endif /* TCP_ACCECNOPT */
 };
 
 /*

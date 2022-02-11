@@ -104,10 +104,12 @@ struct tcphdr {
 #define	   TCPOLEN_SIGNATURE		18
 #define	TCPOPT_FAST_OPEN	34
 #define	   TCPOLEN_FAST_OPEN_EMPTY	2
+#if defined(TCP_ACCECNOPT)
 #define	TCPOPT_ACCECN_0		174
 #define	TCPOPT_ACCECN_1		175
 #define	   TCPOLEN_ACCECN_EMPTY		2
 #define	   TCPOLEN_ACCECN_COUNTER	3
+#endif /* TCP_ACCECNOPT */
 
 #define	MAX_TCPOPTLEN		40	/* Absolute maximum TCP options len */
 
