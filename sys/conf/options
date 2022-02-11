@@ -475,6 +475,7 @@ TCP_RFC7413		opt_inet.h
 TCP_RFC7413_MAX_KEYS	opt_inet.h
 TCP_RFC7413_MAX_PSKS	opt_inet.h
 TCP_SIGNATURE		opt_ipsec.h
+TCP_ACCECNOPT		opt_accecn.h
 VLAN_ARRAY		opt_vlan.h
 XDR
 XBONEHACK

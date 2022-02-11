@@ -32,6 +32,8 @@ opt_inet6.h:
 opt_ipsec.h:
 	@echo "#define IPSEC_SUPPORT 1" > ${.TARGET}
 .endif
+opt_accecn.h:
+	@echo "#define TCP_ACCECNOPT 1" > ${.TARGET}
 .if ${MK_RATELIMIT} != "no"
 opt_ratelimit.h:
 	@echo "#define RATELIMIT 1" > ${.TARGET}
