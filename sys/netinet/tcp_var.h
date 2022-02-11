@@ -252,9 +252,9 @@ struct tcpcb {
 	uint32_t t_rcep;		/* Number of received CE marked pkts */
 	uint32_t t_scep;		/* Synced number of delivered CE pkts */
 #if defined(TCP_ACCECNOPT)
-	uint32_t 
-	uint32_t 
-	uint32_t 
+	uint32_t t_ee0b;
+	uint32_t t_ee1b;
+	uint32_t t_eceb;
 #endif /* TCP_ACCECNOPT) */
 	int64_t	t_pacing_rate;		/* bytes / sec, -1 => unlimited */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
@@ -574,7 +574,12 @@ tcp_unlock_or_drop(struct tcpcb *tp, int tcp_output_retval)
 #define	TF2_ECN_SND_CWR		0x00000040 /* ECN CWR in queue */
 #define	TF2_ECN_SND_ECE		0x00000080 /* ECN ECE in queue */
 #define	TF2_ACE_PERMIT		0x00000100 /* Accurate ECN mode */
-#define TF2_FBYTES_COMPLETE	0x00000400 /* We have first bytes in and out */
+#if defined(TCP_ACCECNOPT)
+#define	TF2_ACO_E0		0x00000200 /* EE0 counter changed */
+#define	TF2_ACO_E1		0x00000400 /* EE1 counter changed */
+#define	TF2_ACO_CE		0x00000800 /* ECE counter changed */
+#endif /* TCP_ACCECNOPT */
+#define	TF2_FBYTES_COMPLETE	0x00001000 /* We have first bytes in and out */
 /*
  * Structure to hold TCP options that are only used during segment
  * processing (in tcp_input), but not held in the tcpcb.
@@ -613,6 +618,7 @@ struct tcpopt {
 #define	TOF_ACCE_CE	0x02		/* CE counter changed */
 #define	TOF_ACCE_E0	0x04		/* E0 counter changed */
 #define	TOF_ACCE_E1	0x08		/* E1 counter changed */
+#define	TOF_ACCE_ACKNOW	0x10		/* send full option */
 	u_int32_t	to_ee0b;	/* AccECN E0 marked bytes */
 	u_int32_t	to_ee1b;	/* AccECN E1 marked bytes */
 	u_int32_t	to_eceb;	/* AccECN CE marked bytes */

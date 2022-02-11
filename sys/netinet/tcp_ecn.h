@@ -43,7 +43,11 @@
 
 void	 tcp_ecn_input_syn_sent(struct tcpcb *, uint16_t, int);
 void	 tcp_ecn_input_parallel_syn(struct tcpcb *, uint16_t, int);
+#if defined(TCP_ACCECNOPT)
+int	 tcp_ecn_input_segment(struct tcpcb *, uint16_t, int, int);
+#else
 int	 tcp_ecn_input_segment(struct tcpcb *, uint16_t, int);
+#endif /* TCP_ACCECNOPT */
 uint16_t tcp_ecn_output_syn_sent(struct tcpcb *);
 int	 tcp_ecn_output_established(struct tcpcb *, uint16_t *, int, bool);
 void	 tcp_ecn_syncache_socket(struct tcpcb *, struct syncache *);

@@ -107,7 +107,7 @@ struct tcphdr {
 #if defined(TCP_ACCECNOPT)
 #define	TCPOPT_ACCECN_0		174
 #define	TCPOPT_ACCECN_1		175
-#define	   TCPOLEN_ACCECN_EMPTY		2
+#define	   TCPOLEN_ACCECN_EMPTY		5 /* 3 bytes exp opt */
 #define	   TCPOLEN_ACCECN_COUNTER	3
 #endif /* TCP_ACCECNOPT */
 

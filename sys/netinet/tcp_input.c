@@ -56,6 +56,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet6.h"
 #include "opt_ipsec.h"
 #include "opt_tcpdebug.h"
+#include "opt_accecn.h"
 
 #include <sys/param.h>
 #include <sys/arb.h>
@@ -1627,7 +1628,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	/*
 	 * TCP ECN processing.
 	 */
+#if defined(TCP_ACCECNOPT)
+	if (tcp_ecn_input_segment(tp, thflags, tlen, iptos))
+#else
 	if (tcp_ecn_input_segment(tp, thflags, iptos))
+#endif /* TCP_ACCECNOPT */
 		cc_cong_signal(tp, th, CC_ECN);
 
 	/*

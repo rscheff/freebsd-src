@@ -62,6 +62,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_tcpdebug.h"
+#include "opt_accecn.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -260,19 +261,35 @@ tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t thflags, int iptos)
  * TCP ECN processing.
  */
 int
+#if defined(TCP_ACCECNOPT)
+tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int tlen, int iptos)
+#else
 tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
+#endif /* TCP_ACCECNOPT */
 {
 	int delta_ace = 0;
 
 	if (tp->t_flags2 & (TF2_ECN_PERMIT | TF2_ACE_PERMIT)) {
 		switch (iptos & IPTOS_ECN_MASK) {
 		case IPTOS_ECN_CE:
+#if defined(TCP_ACCECNOPT)
+			tp->t_flags2 |= TF2_ACO_CE;
+			tp->t_eceb += tlen;
+#endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ce);
 			break;
 		case IPTOS_ECN_ECT0:
+#if defined(TCP_ACCECNOPT)
+			tp->t_flags2 |= TF2_ACO_E0;
+			tp->t_ee0b += tlen;
+#endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ect0);
 			break;
 		case IPTOS_ECN_ECT1:
+#if defined(TCP_ACCECNOPT)
+			tp->t_flags2 |= TF2_ACO_E1;
+			tp->t_ee1b += tlen;
+#endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ect1);
 			break;
 		}
