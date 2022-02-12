@@ -423,6 +423,11 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 			} else {
 				tp->t_rcep = 5;
 			}
+#if defined(TCP_ACCECNOPT)
+			tp->t_ee0b += 1;
+			tp->t_ee1b += 0;
+			tp->t_eceb += 0;
+#endif /* TCP_ACCECNOPT */
 			tp->t_flags2 |= TF2_ECN_PERMIT;
 		}
 	} else {

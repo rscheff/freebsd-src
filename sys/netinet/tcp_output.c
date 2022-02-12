@@ -892,8 +892,9 @@ send:
 #endif /* TCP_SIGNATURE */
 #if defined(TCP_ACCECNOPT)
 		/* AccECN option */
-		if ((tp->t_flags2 & TF2_ACE_PERMIT) ||
-		    (V_tcp_do_ecn == 3)) {
+		if (((V_tcp_do_ecn == 3) || (V_tcp_do_ecn == 4)) &&
+		    ((tp->t_flags2 & TF2_ACE_PERMIT) ||
+		    (flags & TH_SYN))) {
 			to.to_flags |= TOF_ACCECNOPT;
 			to.to_ee0b = tp->t_ee0b;
 			to.to_ee1b = tp->t_ee1b;
@@ -1964,6 +1965,7 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 #if defined(TCP_ACCECNOPT)
 		case TOF_ACCECNOPT:
 			{
+			log(2, "aco - flags %b\n", to->to_acceflags, "\20\1SYN\2CE\3E0\4E1\5NOW");
 			int max_len = TCP_MAXOLEN - optlen;
 			if (max_len < TCPOLEN_ACCECN_EMPTY) {
 				log(2, "aco: not enough space\n");
@@ -2000,9 +2002,9 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_1;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
 					continue;
 				} else
@@ -2016,9 +2018,9 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_0;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
 					continue;
 				}
@@ -2045,14 +2047,14 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_1;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
 					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = (char)to->to_eceb >> 16;
-						*optp++ = (char)to->to_eceb >> 8;
-						*optp++ = (char)to->to_eceb;
+						*optp++ = (char)(to->to_eceb >> 16);
+						*optp++ = (char)(to->to_eceb >> 8);
+						*optp++ = (char)(to->to_eceb);
 						to->to_acceflags &= ~TOF_ACCE_CE;
 					}
 					continue;
@@ -2074,14 +2076,14 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_0;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
 					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = (char)to->to_eceb >> 16;
-						*optp++ = (char)to->to_eceb >> 8;
-						*optp++ = (char)to->to_eceb;
+						*optp++ = (char)(to->to_eceb >> 16);
+						*optp++ = (char)(to->to_eceb >> 8);
+						*optp++ = (char)(to->to_eceb);
 						to->to_acceflags &= ~TOF_ACCE_CE;
 					}
 					continue;
@@ -2109,9 +2111,9 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_1;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
 					break;
 					}
@@ -2124,13 +2126,13 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_1;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
-					*optp++ = (char)to->to_eceb >> 16;
-					*optp++ = (char)to->to_eceb >> 8;
-					*optp++ = (char)to->to_eceb;
+					*optp++ = (char)(to->to_eceb >> 16);
+					*optp++ = (char)(to->to_eceb >> 8);
+					*optp++ = (char)(to->to_eceb);
 					to->to_acceflags &= ~TOF_ACCE_CE;
 					break;
 					}
@@ -2145,17 +2147,17 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_1;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
-					*optp++ = (char)to->to_eceb >> 16;
-					*optp++ = (char)to->to_eceb >> 8;
-					*optp++ = (char)to->to_eceb;
+					*optp++ = (char)(to->to_eceb >> 16);
+					*optp++ = (char)(to->to_eceb >> 8);
+					*optp++ = (char)(to->to_eceb);
 					to->to_acceflags &= ~TOF_ACCE_CE;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
 					break;
 					}
@@ -2185,17 +2187,17 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_0;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
-					*optp++ = (char)to->to_eceb >> 16;
-					*optp++ = (char)to->to_eceb >> 8;
-					*optp++ = (char)to->to_eceb;
+					*optp++ = (char)(to->to_eceb >> 16);
+					*optp++ = (char)(to->to_eceb >> 8);
+					*optp++ = (char)(to->to_eceb);
 					to->to_acceflags &= ~TOF_ACCE_CE;
-					*optp++ = (char)to->to_ee1b >> 16;
-					*optp++ = (char)to->to_ee1b >> 8;
-					*optp++ = (char)to->to_ee1b;
+					*optp++ = (char)(to->to_ee1b >> 16);
+					*optp++ = (char)(to->to_ee1b >> 8);
+					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
 					break;
 					}
@@ -2211,13 +2213,13 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_0;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
-					*optp++ = (char)to->to_eceb >> 16;
-					*optp++ = (char)to->to_eceb >> 8;
-					*optp++ = (char)to->to_eceb;
+					*optp++ = (char)(to->to_eceb >> 16);
+					*optp++ = (char)(to->to_eceb >> 8);
+					*optp++ = (char)(to->to_eceb);
 					to->to_acceflags &= ~TOF_ACCE_CE;
 					break;
 					}
@@ -2231,9 +2233,9 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					*optp++ = 0xAC;
 					*optp++ = 0xCE;
 					*optp++ = TCPOPT_ACCECN_0;
-					*optp++ = (char)to->to_ee0b >> 16;
-					*optp++ = (char)to->to_ee0b >> 8;
-					*optp++ = (char)to->to_ee0b;
+					*optp++ = (char)(to->to_ee0b >> 16);
+					*optp++ = (char)(to->to_ee0b >> 8);
+					*optp++ = (char)(to->to_ee0b);
 					to->to_acceflags &= ~TOF_ACCE_E0;
 					break;
 					}
