@@ -1971,7 +1971,7 @@ iscsi_ioctl_session_add(struct iscsi_softc *sc, struct iscsi_session_add *isa)
 	sbt = mstosbt(995);
 	pr = mstosbt(10);
 	if (iscsid_timeout > 0) {
-		sbt = mstosbt(iscsid_timeout * 1000 -  5);
+		sbt = mstosbt(iscsid_timeout * 1000 - 5);
 	}
 	callout_reset_sbt(&is->is_callout, sbt, pr, iscsi_callout, is, 0);
 	TAILQ_INSERT_TAIL(&sc->sc_sessions, is, is_next);
