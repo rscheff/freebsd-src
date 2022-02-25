@@ -3056,7 +3056,6 @@ db_print_tflags2(u_int t_flags2)
 		db_printf("%sTF2_ECN_PERMIT", comma ? ", " : "");
 		comma = 1;
 	}
-<<<<<<< HEAD
 	if (t_flags2 & TF2_ECN_SND_CWR) {
 		db_printf("%sTF2_ECN_SND_CWR", comma ? ", " : "");
 		comma = 1;
@@ -3069,12 +3068,12 @@ db_print_tflags2(u_int t_flags2)
 		db_printf("%sTF2_ACE_PERMIT", comma ? ", " : "");
 		comma = 1;
 	}
-	if (t_flags2 & TF2_FBYTES_COMPLETE) {
-		db_printf("%sTF2_FBYTES_COMPLETE", comma ? ", " : "");
-=======
 	if (t_flags2 & TF2_ECN_PLUSPLUS) {
 		db_printf("%sTF2_ECN_PLUSPLUS", comma ? ", " : "");
->>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
+		comma = 1;
+	}
+	if (t_flags2 & TF2_FBYTES_COMPLETE) {
+		db_printf("%sTF2_FBYTES_COMPLETE", comma ? ", " : "");
 		comma = 1;
 	}
 }

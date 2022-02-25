@@ -11127,19 +11127,9 @@ rack_do_syn_sent(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			tp->t_flags |= TF_ACKNOW;
 			rack->rc_dack_toggle = 0;
 		}
-<<<<<<< HEAD
 
 		tcp_ecn_input_syn_sent(tp, thflags, iptos);
 
-=======
-		if (((thflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
-		    (V_tcp_do_ecn == 1)) {
-			tp->t_flags2 |= TF2_ECN_PERMIT;
-			if (V_tcp_ecn_generalized)
-				tp->t_flags2 |= TF2_ECN_PLUSPLUS;
-			KMOD_TCPSTAT_INC(tcps_ecn_shs);
-		}
->>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 		if (SEQ_GT(th->th_ack, tp->snd_una)) {
 			/*
 			 * We advance snd_una for the
@@ -14199,19 +14189,7 @@ rack_do_segment_nounlock(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		 */
 		if (tp->t_state == TCPS_SYN_SENT && (thflags & TH_SYN)) {
 			/* Handle parallel SYN for ECN */
-<<<<<<< HEAD
 			tcp_ecn_input_parallel_syn(tp, thflags, iptos);
-=======
-			if (!(thflags & TH_ACK) &&
-			    ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) &&
-			    ((V_tcp_do_ecn == 1) || (V_tcp_do_ecn == 2))) {
-				tp->t_flags2 |= TF2_ECN_PERMIT;
-				tp->t_flags2 |= TF2_ECN_SND_ECE;
-				if (V_tcp_ecn_generalized)
-					tp->t_flags2 |= TF2_ECN_PLUSPLUS;
-				TCPSTAT_INC(tcps_ecn_shs);
-			}
->>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 			if ((to.to_flags & TOF_SCALE) &&
 			    (tp->t_flags & TF_REQ_SCALE)) {
 				tp->t_flags |= TF_RCVD_SCALE;
@@ -18297,47 +18275,14 @@ send:
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 	/* Also handle parallel SYN for ECN */
-	if (TCPS_HAVERCVDSYN(tp->t_state) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
+	if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
+	    (TCPS_HAVERCVDSYN(tp->t_state) &&
+	    (tp->t_flags2 & TF2_ECN_PERMIT))) {
 		int ect = tcp_ecn_output_established(tp, &flags, len);
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
 			tp->t_flags2 &= ~TF2_ECN_SND_ECE;
-=======
-	if ((tp->t_state == TCPS_ESTABLISHED &&
-=======
-	if (TCPS_HAVEESTABLISHED(tp->t_state) &&
->>>>>>> e0bf79388f56... streamline fastpath check
-=======
-	if ((TCPS_HAVEESTABLISHED(tp->t_state) &&
->>>>>>> 8a74650218a4... have to explicitly check for ECN SYN
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) ||
-	    /*
-	     * Send ECN SYN segments as ECN-capable transport
-	     * when ecn.generalized is set. This can not be
-	     * futher simplified, as a fall-back to non-ECN
-	     * may occur.
-	     */
-	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
-	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|       TH_ECE|TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|TH_ACK|       TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|TH_ACK|TH_ECE       ))))) {
-		/*
-		 * If the peer has ECN, mark data packets with ECN capable
-		 * transmission (ECT). Ignore pure ack packets,
-		 * retransmissions unless doing generalized ECN.
-		 */
-		if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
-		   ((len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-		    (sack_rxmit == 0)))) {
->>>>>>> 1c2dd027d946... rebase
 #ifdef INET6
 		if (isipv6) {
 			ip6->ip6_flow &= ~htonl(IPTOS_ECN_MASK << 20);
@@ -18345,27 +18290,9 @@ send:
 		}
 		else
 #endif
-<<<<<<< HEAD
 		{
 			ip->ip_tos &= ~IPTOS_ECN_MASK;
 			ip->ip_tos |= ect;
-=======
-			{
-				ip->ip_tos &= ~IPTOS_ECN_MASK;
-				ip->ip_tos |= IPTOS_ECN_ECT0;
-			}
-			KMOD_TCPSTAT_INC(tcps_ecn_ect0);
-			/*
-			 * Reply with proper ECN notifications.
-			 * Only set CWR on new data segments.
-			 */
-			if ((tp->t_flags2 & TF2_ECN_SND_CWR) &&
-			    (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-			    (sack_rxmit == 0))) {
-				flags |= TH_CWR;
-				tp->t_flags2 &= ~TF2_ECN_SND_CWR;
-			}
->>>>>>> 1c2dd027d946... rebase
 		}
 	}
 	/*

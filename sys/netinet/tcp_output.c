@@ -1203,43 +1203,14 @@ send:
 	if (tp->t_state == TCPS_SYN_SENT && V_tcp_do_ecn) {
 		flags |= tcp_ecn_output_syn_sent(tp);
 	}
-<<<<<<< HEAD
 	/* Also handle parallel SYN for ECN */
-	if ((TCPS_HAVERCVDSYN(tp->t_state)) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) {
+	if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
+	    (TCPS_HAVERCVDSYN(tp->t_state) &&
+	    (tp->t_flags2 & TF2_ECN_PERMIT))) {
 		int ect = tcp_ecn_output_established(tp, &flags, len);
 		if ((tp->t_state == TCPS_SYN_RECEIVED) &&
 		    (tp->t_flags2 & TF2_ECN_SND_ECE))
 			tp->t_flags2 &= ~TF2_ECN_SND_ECE;
-=======
-
-	if ((TCPS_HAVEESTABLISHED(tp->t_state) &&
-	    (tp->t_flags2 & TF2_ECN_PERMIT)) ||
-	    /*
-	     * Send ECN SYN segments as ECN-capable transport
-	     * when ecn.generalized is set. This can not be
-	     * futher simplified, as a fall-back to non-ECN
-	     * may occur.
-	     */
-	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
-	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|       TH_ECE|TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|TH_ACK|       TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
-			(TH_SYN|TH_ACK|TH_ECE       ))))) {
-		/*
-		 * If the peer has ECN, mark new data packets
-		 * with ECN capable transmission (ECT).
-		 * Ignore pure ack packets, retransmissions and
-		 * window probes unless doing generalized ECN.
-		 */
-		if ((tp->t_flags2 & TF2_ECN_PLUSPLUS) ||
-		    (len > 0 && (sack_rxmit == 0) &&
-		    SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-		    !((tp->t_flags & TF_FORCEDATA) && len == 1 &&
-		    SEQ_LT(tp->snd_una, tp->snd_max)))) {
->>>>>>> 1c2dd027d946... rebase
 #ifdef INET6
 		if (isipv6) {
 			ip6->ip6_flow &= ~htonl(IPTOS_ECN_MASK << 20);
@@ -1247,29 +1218,9 @@ send:
 		}
 		else
 #endif
-<<<<<<< HEAD
 		{
 			ip->ip_tos &= ~IPTOS_ECN_MASK;
 			ip->ip_tos |= ect;
-=======
-			{
-				ip->ip_tos &= ~IPTOS_ECN_MASK;
-				ip->ip_tos |= IPTOS_ECN_ECT0;
-			}
-			TCPSTAT_INC(tcps_ecn_ect0);
-			/*
-			 * Reply with proper ECN notifications.
-			 * Only set CWR on new data segments.
-			 */
-			if (tp->t_flags2 & TF2_ECN_SND_CWR &&
-			    (len > 0 && (sack_rxmit == 0) &&
-			    SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
-			    !((tp->t_flags & TF_FORCEDATA) && len == 1 &&
-			    SEQ_LT(tp->snd_una, tp->snd_max)))) {
-				flags |= TH_CWR;
-				tp->t_flags2 &= ~TF2_ECN_SND_CWR;
-			}
->>>>>>> 1c2dd027d946... rebase
 		}
 	}
 

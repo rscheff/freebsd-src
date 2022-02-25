@@ -111,9 +111,11 @@ tcp_ecn_input_syn_sent(struct tcpcb *tp, uint16_t thflags, int iptos)
 {
 	thflags &= (TH_CWR|TH_ECE);
 
-	if (((thflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
+	if ((thflags == TH_ECE) &&
 	    V_tcp_do_ecn) {
 		tp->t_flags2 |= TF2_ECN_PERMIT;
+		if (V_tcp_ecn_generalized)
+			tp->t_flags2 |= TF2_ECN_PLUSPLUS;
 		TCPSTAT_INC(tcps_ecn_shs);
 	}
 }
@@ -133,6 +135,8 @@ tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t thflags, int iptos)
 		if ((thflags & (TH_CWR | TH_ECE)) == (TH_CWR | TH_ECE)) {
 			tp->t_flags2 |= TF2_ECN_PERMIT;
 			tp->t_flags2 |= TF2_ECN_SND_ECE;
+			if (V_tcp_ecn_generalized)
+				tp->t_flags2 |= TF2_ECN_PLUSPLUS;
 			TCPSTAT_INC(tcps_ecn_shs);
 		}
 	}
@@ -214,7 +218,20 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len)
 	 */
 	newdata = (len > 0 && SEQ_GEQ(tp->snd_nxt, tp->snd_max) &&
 		    !((tp->t_flags & TF_FORCEDATA) && len == 1));
-	if (newdata) {
+	if (newdata ||
+	    /*
+	     * Send ECN SYN segments as ECN-capable transport
+	     * when ecn.generalized is set. This can not be
+	     * futher simplified, as a fall-back to non-ECN
+	     * may occur.
+	     */
+	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
+	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+			(TH_SYN|       TH_ECE|TH_CWR)) ||
+	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+			(TH_SYN|TH_ACK|       TH_CWR)) ||
+	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+			(TH_SYN|TH_ACK|TH_ECE       ))))) {
 		ipecn = IPTOS_ECN_ECT0;
 		TCPSTAT_INC(tcps_ecn_ect0);
 	}
@@ -243,6 +260,8 @@ tcp_ecn_syncache_socket(struct tcpcb *tp, struct syncache *sc)
 		switch (sc->sc_flags & SCF_ECN_MASK) {
 		case SCF_ECN:
 			tp->t_flags2 |= TF2_ECN_PERMIT;
+			if (V_tcp_ecn_generalized)
+				tp->t_flags2 |= TF2_ECN_PLUSPLUS;
 			break;
 		/* undefined SCF codepoint */
 		default:
@@ -278,20 +297,25 @@ tcp_ecn_syncache_add(uint16_t thflags, int iptos)
  * Set up the ECN information for the <SYN,ACK> from
  * syncache information.
  */
-uint16_t
+int
 tcp_ecn_syncache_respond(uint16_t thflags, struct syncache *sc)
 {
+	int ipecn = IPTOS_ECN_NOTECT;
+
 	if ((thflags & TH_SYN) &&
 	    (sc->sc_flags & SCF_ECN_MASK)) {
 		switch (sc->sc_flags & SCF_ECN_MASK) {
 		case SCF_ECN:
 			thflags |= (0 | TH_ECE);
 			TCPSTAT_INC(tcps_ecn_shs);
+			if ((V_tcp_ecn_generalized &&
+				(thflags & TH_ACK)))
+				ipecn = IPTOS_ECN_ECT0;
 			break;
 		/* undefined SCF codepoint */
 		default:
 			break;
 		}
 	}
-	return thflags;
+	return ipecn;
 }

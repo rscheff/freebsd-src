@@ -1028,15 +1028,7 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 			tp->t_flags |= TF_SACK_PERMIT;
 	}
 
-<<<<<<< HEAD
 	tcp_ecn_syncache_socket(tp, sc);
-=======
-	if (sc->sc_flags & SCF_ECN) {
-		tp->t_flags2 |= TF2_ECN_PERMIT;
-		if (V_tcp_ecn_generalized)
-			tp->t_flags2 |= TF2_ECN_PLUSPLUS;
-	}
->>>>>>> 3acfc72f0f09... add TF2_ECN_PLUSPLUS flag to reduce cacheline churn in fastpath when checking V_ecn_generalized
 
 	/*
 	 * Set up MSS and get cached values from tcp_hostcache.
@@ -1948,29 +1940,17 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 	th->th_win = htons(sc->sc_wnd);
 	th->th_urp = 0;
 
-<<<<<<< HEAD
-	flags = tcp_ecn_syncache_respond(flags, sc);
-=======
-	if ((flags & TH_SYN) && (sc->sc_flags & SCF_ECN)) {
-		flags |= TH_ECE;
-		TCPSTAT_INC(tcps_ecn_shs);
-
-		if ((V_tcp_ecn_generalized &&
-		    (flags & TH_ACK))) {
+	int ect = tcp_ecn_syncache_respond(&flags, sc);
 #ifdef INET6
-			if (sc->sc_inc.inc_flags & INC_ISIPV6)
-				ip6->ip6_flow |= htonl(IPTOS_ECN_ECT0 << 20);
+	if (sc->sc_inc.inc_flags & INC_ISIPV6)
+		ip6->ip6_flow |= htonl(ect << 20);
 #endif
 #if defined(INET6) && defined(INET)
-			else
+	else
 #endif
 #ifdef INET
-				ip->ip_tos |= IPTOS_ECN_ECT0;
+		ip->ip_tos |= ect;
 #endif
-			TCPSTAT_INC(tcps_ecn_ect0);
-		}
-	}
->>>>>>> 1c2dd027d946... rebase
 	tcp_set_flags(th, flags);
 
 	/* Tack on the TCP options. */
