@@ -579,7 +579,7 @@ iscsi_callout(void *context)
 		return;
 	}
 
-	sbt = mstosbt((ping_timeout * 1000) / 3) - 5);
+	sbt = mstosbt(((is->is_ping_timeout * 1000) / 3) - 5);
 	pr  = mstosbt(10);
 	callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 
@@ -592,7 +592,7 @@ iscsi_callout(void *context)
 		if (iscsid_timeout > 0) {
 			ISCSI_SESSION_WARN(is, "timed out waiting for iscsid(8) "
 			    "for %d seconds; reconnecting",
-			    iscsi_timeout);
+			    iscsid_timeout);
 			reconnect_needed = true;
 		}
 		goto out;
@@ -1393,6 +1393,7 @@ iscsi_ioctl_daemon_wait(struct iscsi_softc *sc,
 	struct iscsi_session *is;
 	struct icl_drv_limits idl;
 	int error;
+	sbintime_t sbt, pr;
 
 	sx_slock(&sc->sc_lock);
 	for (;;) {
@@ -1473,6 +1474,7 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 	struct iscsi_session *is;
 	struct icl_conn *ic;
 	int error;
+	sbintime_t sbt, pr;
 
 	sx_slock(&sc->sc_lock);
 
@@ -1548,8 +1550,8 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 	sbt = mstosbt(995);
 	pr = mstosbt(10);
 	if (is->is_ping_timeout > 0)
-		sbt = mstosbt((is->is_ping_timeout * 1000) / 3) - 5);
-	callout_schedule(&is->is_callout, sbt, pr, 0);
+		sbt = mstosbt(((is->is_ping_timeout * 1000) / 3) - 5);
+	callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 	is->is_reason[0] = '\0';
 
 	ISCSI_SESSION_UNLOCK(is);
