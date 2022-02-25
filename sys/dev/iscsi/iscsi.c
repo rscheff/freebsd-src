@@ -589,19 +589,19 @@ iscsi_callout(void *context)
 	is->is_timeout++;
 
 	if (is->is_waiting_for_iscsid) {
-		if (iscsid_timeout > 0 && is->is_timeout > 0) {
+		if (iscsid_timeout > 0) {
 			ISCSI_SESSION_WARN(is, "timed out waiting for iscsid(8) "
 			    "for %d seconds; reconnecting",
-			    is->is_timeout);
+			    iscsi_timeout);
 			reconnect_needed = true;
 		}
 		goto out;
 	}
 
 	if (is->is_login_phase) {
-		if (is->is_login_timeout > 0 && is->is_timeout > is->is_login_timeout) {
+		if (is->is_login_timeout > 0) {
 			ISCSI_SESSION_WARN(is, "login timed out after %d seconds; "
-			    "reconnecting", is->is_timeout);
+			    "reconnecting", is->is_login_timeout);
 			reconnect_needed = true;
 		}
 		goto out;
@@ -1547,8 +1547,8 @@ iscsi_ioctl_daemon_handoff(struct iscsi_softc *sc,
 	is->is_connected = true;
 	sbt = mstosbt(995);
 	pr = mstosbt(10);
-	if (ping_timeout > 0)
-		sbt = mstosbt((ping_timeout * 1000) / 3) - 5);
+	if (is->is_ping_timeout > 0)
+		sbt = mstosbt((is->is_ping_timeout * 1000) / 3) - 5);
 	callout_schedule(&is->is_callout, sbt, pr, 0);
 	is->is_reason[0] = '\0';
 
@@ -1700,8 +1700,8 @@ iscsi_ioctl_daemon_connect(struct iscsi_softc *sc,
 	is->is_timeout = 0;
 	sbt = mstosbt(995);
 	pr = mstosbt(10);
-	if (login_timeout > 0)
-		sbt = mstosbt(login_timeout * 1000 - 5);
+	if (is->is_login_timeout > 0)
+		sbt = mstosbt(is->is_login_timeout * 1000 - 5);
 	callout_schedule_sbt(&is->is_callout, sbt, pr, 0);
 	ISCSI_SESSION_UNLOCK(is);
 
