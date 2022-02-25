@@ -226,11 +226,11 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len)
 	     * may occur.
 	     */
 	    ((tp->t_flags2 & TF2_ECN_PLUSPLUS) &&
-	     (((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+	     (((*thflags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
 			(TH_SYN|       TH_ECE|TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+	      ((*thflags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
 			(TH_SYN|TH_ACK|       TH_CWR)) ||
-	      ((flags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
+	      ((*thflags & (TH_SYN|TH_ACK|TH_ECE|TH_CWR)) ==
 			(TH_SYN|TH_ACK|TH_ECE       ))))) {
 		ipecn = IPTOS_ECN_ECT0;
 		TCPSTAT_INC(tcps_ecn_ect0);
@@ -298,18 +298,18 @@ tcp_ecn_syncache_add(uint16_t thflags, int iptos)
  * syncache information.
  */
 int
-tcp_ecn_syncache_respond(uint16_t thflags, struct syncache *sc)
+tcp_ecn_syncache_respond(uint16_t *thflags, struct syncache *sc)
 {
 	int ipecn = IPTOS_ECN_NOTECT;
 
-	if ((thflags & TH_SYN) &&
+	if ((*thflags & TH_SYN) &&
 	    (sc->sc_flags & SCF_ECN_MASK)) {
 		switch (sc->sc_flags & SCF_ECN_MASK) {
 		case SCF_ECN:
-			thflags |= (0 | TH_ECE);
+			*thflags |= (0 | TH_ECE);
 			TCPSTAT_INC(tcps_ecn_shs);
 			if ((V_tcp_ecn_generalized &&
-				(thflags & TH_ACK)))
+				(*thflags & TH_ACK)))
 				ipecn = IPTOS_ECN_ECT0;
 			break;
 		/* undefined SCF codepoint */

@@ -132,7 +132,7 @@ SYSCTL_INT(_net_inet_tcp, OID_AUTO, functions_inherit_listen_socket_stack,
 static void	 syncache_drop(struct syncache *, struct syncache_head *);
 static void	 syncache_free(struct syncache *);
 static void	 syncache_insert(struct syncache *, struct syncache_head *);
-static int	 syncache_respond(struct syncache *, const struct mbuf *, int);
+static int	 syncache_respond(struct syncache *, const struct mbuf *, uint16_t);
 static struct	 socket *syncache_socket(struct syncache *, struct socket *,
 		    struct mbuf *m);
 static void	 syncache_timeout(struct syncache *sc, struct syncache_head *sch,
@@ -1816,14 +1816,14 @@ tfo_expanded:
  * i.e. m0 != NULL, or upon 3WHS ACK timeout, i.e. m0 == NULL.
  */
 static int
-syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
+syncache_respond(struct syncache *sc, const struct mbuf *m0, uint16_t flags)
 {
 	struct ip *ip = NULL;
 	struct mbuf *m;
 	struct tcphdr *th = NULL;
 	struct udphdr *udp = NULL;
 	int optlen, error = 0;	/* Make compiler happy */
-	u_int16_t hlen, tlen, mssopt, ulen;
+	uint16_t hlen, tlen, mssopt, ulen;
 	struct tcpopt to;
 #ifdef INET6
 	struct ip6_hdr *ip6 = NULL;
