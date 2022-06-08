@@ -969,17 +969,19 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 			}
 		}
 	}
-	KASSERT(SEQ_LT(hole->start, hole->end), ("%s: hole.start >= hole.end", __func__));
-	if (!(V_tcp_do_newsack)) {
-		KASSERT(SEQ_LT(hole->start, tp->snd_fack), ("%s: hole.start >= snd.fack", __func__));
-		KASSERT(SEQ_LT(hole->end, tp->snd_fack), ("%s: hole.end >= snd.fack", __func__));
-		KASSERT(SEQ_LT(hole->rxmit, tp->snd_fack), ("%s: hole.rxmit >= snd.fack", __func__));
+	{
+		struct socket *so = tp->t_inpcb->inp_socket;
+		tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+		KASSERT(SEQ_LT(hole->start, hole->end), ("%s: hole.start >= hole.end", __func__));
+		KASSERT(SEQ_LEQ(hole->start, top), ("%s: hole.start >= so_snd", __func__));
+		KASSERT(SEQ_LEQ(hole->end,   top), ("%s: hole.end >= so_snd", __func__));
+		KASSERT(SEQ_LEQ(hole->rxmit, top), ("%s: hole.rxmit >= so_snd", __func__));
 		if (SEQ_GEQ(hole->start, hole->end) ||
-		    SEQ_GEQ(hole->start, tp->snd_fack) ||
-		    SEQ_GEQ(hole->end, tp->snd_fack) ||
-		    SEQ_GEQ(hole->rxmit, tp->snd_fack)) {
-			log(LOG_CRIT,"tcp: invalid SACK hole (%u-%u,%u) vs fwd ack %u, ignoring.\n",
-					hole->start, hole->end, hole->rxmit, tp->snd_fack);
+		    SEQ_GT(hole->start, top) ||
+		    SEQ_GT(hole->end,   top) ||
+		    SEQ_GT(hole->rxmit, top)) {
+			log(LOG_CRIT,"tcp: invalid SACK hole (%u-%u,%u) vs so_snd %u ignoring.\n",
+					hole->start, hole->end, hole->rxmit, top);
 			return (NULL);
 		}
 	}
