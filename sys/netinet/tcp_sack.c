@@ -968,6 +968,8 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 				break;
 			}
 		}
+		if (hole == NULL)
+			return (hole);
 	}
 	KASSERT(SEQ_LT(hole->start, hole->end), ("%s: hole.start >= hole.end", __func__));
 	if (!(V_tcp_do_newsack)) {
