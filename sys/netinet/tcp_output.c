@@ -1569,6 +1569,9 @@ out:
 		tp->snd_nxt += len;
 		if (SEQ_GT(tp->snd_nxt, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt;
+			struct socket *so = tp->t_inpcb->inp_socket;
+			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+			KASSERT(SEQ_LEQ(tp->snd_max, top+1), ("%s: snd_max beyond so_snd", __func__));
 			/*
 			 * Time this transmission if not a retransmission and
 			 * not currently timing anything.
@@ -1644,8 +1647,12 @@ timer:
 			++xlen;
 			tp->t_flags |= TF_SENTFIN;
 		}
-		if (SEQ_GT(tp->snd_nxt + xlen, tp->snd_max))
+		if (SEQ_GT(tp->snd_nxt + xlen, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt + xlen;
+			struct socket *so = tp->t_inpcb->inp_socket;
+			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+			KASSERT(SEQ_LEQ(tp->snd_max, top+1), ("%s: snd_max beyond so_snd", __func__));
+		}
 	}
 	if ((error == 0) &&
 	    (TCPS_HAVEESTABLISHED(tp->t_state) &&
