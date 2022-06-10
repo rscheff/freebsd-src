@@ -898,6 +898,12 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 			highdata--;
 		if (th->th_ack != highdata) {
 			tp->snd_fack = th->th_ack;
+			struct socket *so = tp->t_inpcb->inp_socket;
+			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+			KASSERT(SEQ_LEQ(highdata, top),
+				("%s: rescue.end > so_snd, NEEDFIN:%d SENTFIN:%d\n",
+				__func__, (tp->t_flags & TF_NEEDFIN) != 0,
+				(tp->t_flags & TF_SENTFIN) != 0));
 			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
 			    highdata - maxseg), highdata, NULL);
 		}
