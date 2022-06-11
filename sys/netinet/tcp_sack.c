@@ -904,8 +904,14 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 				("%s: rescue.end > so_snd, NEEDFIN:%d SENTFIN:%d\n",
 				__func__, (tp->t_flags & TF_NEEDFIN) != 0,
 				(tp->t_flags & TF_SENTFIN) != 0));
-			(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
-			    highdata - maxseg), highdata, NULL);
+			if (SEQ_GT(highdata, top)) {
+				log(LOG_CRIT,"%s#%d: rescue (%u-%u) > so_snd %u skipping.\n",
+					__func__, __LINE__,
+					SEQ_MAX(th->th_ack, highdata - maxseg),
+					highdata, top);
+			} else
+				(void)tcp_sackhole_insert(tp, SEQ_MAX(th->th_ack,
+				    highdata - maxseg), highdata, NULL);
 		}
 	}
 	(void) tcp_output(tp);
@@ -986,8 +992,8 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 		    SEQ_GT(hole->start, top) ||
 		    SEQ_GT(hole->end,   top) ||
 		    SEQ_GT(hole->rxmit, top)) {
-			log(LOG_CRIT,"tcp: invalid SACK hole (%u-%u,%u) vs so_snd %u ignoring.\n",
-					hole->start, hole->end, hole->rxmit, top);
+			log(LOG_CRIT,"%s#%d: invalid SACK hole (%u-%u,%u) vs so_snd %u ignoring.\n",
+					__func__, __LINE__, hole->start, hole->end, hole->rxmit, top);
 			return (NULL);
 		}
 	}

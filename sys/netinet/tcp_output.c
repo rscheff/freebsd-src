@@ -60,6 +60,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/sysctl.h>
+#include <sys/syslog.h>
 #include <sys/stats.h>
 
 #include <net/if.h>
@@ -1571,7 +1572,13 @@ out:
 			tp->snd_max = tp->snd_nxt;
 			struct socket *so = tp->t_inpcb->inp_socket;
 			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
-			KASSERT(SEQ_LEQ(tp->snd_max, top+1), ("%s: snd_max beyond so_snd", __func__));
+			KASSERT(SEQ_LEQ(tp->snd_max, top+1),
+				("%s: snd_max beyond so_snd", __func__));
+			if (SEQ_GT(tp->snd_max, top + 1)) {
+				log(LOG_CRIT,"%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
+					__func__, __LINE__, tp->snd_max, top + 1);
+				tp->snd_max = top + 1;
+			}
 			/*
 			 * Time this transmission if not a retransmission and
 			 * not currently timing anything.
@@ -1651,7 +1658,13 @@ timer:
 			tp->snd_max = tp->snd_nxt + xlen;
 			struct socket *so = tp->t_inpcb->inp_socket;
 			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
-			KASSERT(SEQ_LEQ(tp->snd_max, top+1), ("%s: snd_max beyond so_snd", __func__));
+			KASSERT(SEQ_LEQ(tp->snd_max, top + 1),
+			    ("%s: snd_max beyond so_snd", __func__));
+			if (SEQ_GT(tp->snd_max, top + 1)) {
+				log(LOG_CRIT,"%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
+					__func__, __LINE__, tp->snd_max, top + 1);
+				tp->snd_max = top + 1;
+			}
 		}
 	}
 	if ((error == 0) &&
