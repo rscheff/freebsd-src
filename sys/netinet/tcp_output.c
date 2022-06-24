@@ -1575,7 +1575,7 @@ out:
 			KASSERT(SEQ_LEQ(tp->snd_max, top + 1),
 				("%s: snd_max beyond so_snd", __func__));
 			if (SEQ_GT(tp->snd_max, top + 1)) {
-				log(LOG_CRIT,"%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
+				log(LOG_CRIT, "%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
 					__func__, __LINE__, tp->snd_max, top + 1);
 				tp->snd_max = top + 1;
 			}
@@ -1660,7 +1660,7 @@ timer:
 			KASSERT(SEQ_LEQ(tp->snd_max, top + 1),
 			    ("%s: snd_max beyond so_snd", __func__));
 			if (SEQ_GT(tp->snd_max, top + 1)) {
-				log(LOG_CRIT,"%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
+				log(LOG_CRIT, "%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
 					__func__, __LINE__, tp->snd_max, top + 1);
 				tp->snd_max = top + 1;
 			}
