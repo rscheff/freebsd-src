@@ -853,7 +853,9 @@ void
 tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 {
 	int num_segs = 1;
+	tcp_seq top;
 	u_int maxseg = tcp_maxseg(tp);
+	struct socket *so = tp->t_inpcb->inp_socket;
 
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 	tcp_timer_activate(tp, TT_REXMT, 0);
@@ -898,8 +900,7 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 			highdata--;
 		if (th->th_ack != highdata) {
 			tp->snd_fack = th->th_ack;
-			struct socket *so = tp->t_inpcb->inp_socket;
-			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+			top = tp->snd_una + sbused(&so->so_snd);
 			KASSERT(SEQ_LEQ(highdata, top),
 				("%s: rescue.end > so_snd, NEEDFIN:%d SENTFIN:%d\n",
 				__func__, (tp->t_flags & TF_NEEDFIN) != 0,
@@ -964,6 +965,8 @@ struct sackhole *
 tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 {
 	struct sackhole *hole = NULL;
+	struct socket *so = tp->t_inpcb->inp_socket;
+	tcp_seq top = tp->snd_una + sbused(&so->so_snd);
 
 	INP_WLOCK_ASSERT(tp->t_inpcb);
 	*sack_bytes_rexmt = tp->sackhint.sack_bytes_rexmit;
@@ -981,21 +984,17 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 			}
 		}
 	}
-	{
-		struct socket *so = tp->t_inpcb->inp_socket;
-		tcp_seq top = tp->snd_una + sbused(&so->so_snd);
-		KASSERT(SEQ_LT(hole->start, hole->end), ("%s: hole.start >= hole.end", __func__));
-		KASSERT(SEQ_LEQ(hole->start, top), ("%s: hole.start >= so_snd", __func__));
-		KASSERT(SEQ_LEQ(hole->end,   top), ("%s: hole.end >= so_snd", __func__));
-		KASSERT(SEQ_LEQ(hole->rxmit, top), ("%s: hole.rxmit >= so_snd", __func__));
-		if (SEQ_GEQ(hole->start, hole->end) ||
-		    SEQ_GT(hole->start, top) ||
-		    SEQ_GT(hole->end,   top) ||
-		    SEQ_GT(hole->rxmit, top)) {
-			log(LOG_CRIT,"%s#%d: invalid SACK hole (%u-%u,%u) vs so_snd %u ignoring.\n",
-					__func__, __LINE__, hole->start, hole->end, hole->rxmit, top);
-			return (NULL);
-		}
+	KASSERT(SEQ_LT(hole->start, hole->end), ("%s: hole.start >= hole.end", __func__));
+	KASSERT(SEQ_LEQ(hole->start, top), ("%s: hole.start >= so_snd", __func__));
+	KASSERT(SEQ_LEQ(hole->end,   top), ("%s: hole.end >= so_snd", __func__));
+	KASSERT(SEQ_LEQ(hole->rxmit, top), ("%s: hole.rxmit >= so_snd", __func__));
+	if (SEQ_GEQ(hole->start, hole->end) ||
+	    SEQ_GT(hole->start, top) ||
+	    SEQ_GT(hole->end,   top) ||
+	    SEQ_GT(hole->rxmit, top)) {
+		log(LOG_CRIT, "%s#%d: invalid SACK hole (%u-%u,%u) vs so_snd %u ignoring.\n",
+			__func__, __LINE__, hole->start, hole->end, hole->rxmit, top);
+		return (NULL);
 	}
 	return (hole);
 }

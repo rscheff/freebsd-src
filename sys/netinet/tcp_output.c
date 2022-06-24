@@ -201,6 +201,7 @@ tcp_default_output(struct tcpcb *tp)
 {
 	struct socket *so = tp->t_inpcb->inp_socket;
 	int32_t len;
+	tcp_seq top;
 	uint32_t recwin, sendwin;
 	uint16_t flags;
 	int off, error = 0;	/* Keep compiler happy */
@@ -1570,9 +1571,8 @@ out:
 		tp->snd_nxt += len;
 		if (SEQ_GT(tp->snd_nxt, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt;
-			struct socket *so = tp->t_inpcb->inp_socket;
-			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
-			KASSERT(SEQ_LEQ(tp->snd_max, top+1),
+			top = tp->snd_una + sbused(&so->so_snd);
+			KASSERT(SEQ_LEQ(tp->snd_max, top + 1),
 				("%s: snd_max beyond so_snd", __func__));
 			if (SEQ_GT(tp->snd_max, top + 1)) {
 				log(LOG_CRIT,"%s#%d: snd_max %u > so_snd+1 %u adjusting.\n",
@@ -1656,8 +1656,7 @@ timer:
 		}
 		if (SEQ_GT(tp->snd_nxt + xlen, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt + xlen;
-			struct socket *so = tp->t_inpcb->inp_socket;
-			tcp_seq top = tp->snd_una + sbused(&so->so_snd);
+			top = tp->snd_una + sbused(&so->so_snd);
 			KASSERT(SEQ_LEQ(tp->snd_max, top + 1),
 			    ("%s: snd_max beyond so_snd", __func__));
 			if (SEQ_GT(tp->snd_max, top + 1)) {
