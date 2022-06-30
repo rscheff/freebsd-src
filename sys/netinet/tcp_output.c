@@ -1704,8 +1704,11 @@ timer:
 				    ("error while FIN with SACK rxmit"));
 			} else {
 				tp->snd_nxt -= len;
-				if (flags & TH_FIN)
+				if (flags & TH_FIN) {
+					log(LOG_CRIT, "%s#%d: rewinding FIN bit after TCP send error\n",
+					    __func__, __LINE__);
 					tp->snd_nxt--;
+				}
 			}
 		}
 		SOCKBUF_UNLOCK_ASSERT(&so->so_snd);	/* Check gotos. */
