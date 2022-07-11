@@ -1545,6 +1545,10 @@ send:
 #endif /* INET */
 
 out:
+	if ((flags & TH_FIN) && (so->so_options & SO_DEBUG))
+		error = ENOBUFS;
+
+
 	if (error == 0)
 		tcp_account_for_send(tp, len, (tp->snd_nxt != tp->snd_max), 0, hw_tls);
 	/*
@@ -1705,9 +1709,13 @@ timer:
 			} else {
 				tp->snd_nxt -= len;
 				if (flags & TH_FIN) {
-					log(LOG_CRIT, "%s#%d: rewinding FIN bit after TCP send error\n",
-					    __func__, __LINE__);
-					tp->snd_nxt--;
+					log(LOG_CRIT, "%s#%d: would rewind FIN bit after TCP send error.\n" \
+							"\tsnd_una: %u snd_nxt:%u snd_max:%u so_snd:%u\n" \
+							"\tTH_SYN:%d TH_FIN:%d TF_SENTFIN:%d\n",
+					    __func__, __LINE__,
+					    tp->snd_una, tp->snd_nxt, tp->snd_max, tp->snd_una + sbused(&so->so_snd),
+					    (flags & TH_SYN), (flags & TH_FIN), (tp->t_flags & TF_SENTFIN));
+//					tp->snd_nxt--;
 				}
 			}
 		}
