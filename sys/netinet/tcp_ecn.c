@@ -122,6 +122,12 @@ tcp_ecn_input_syn_sent(struct tcpcb *tp, uint16_t thflags, int iptos)
 	/* decoding Accurate ECN according to table in section 3.1.1 */
 	if ((V_tcp_do_ecn == 3) ||
 	    (V_tcp_do_ecn == 4)) {
+	    log(2, "accecn %s: thflags: %s%s%s t_scep:%d t_rcep:%d\n",
+		__func__, 
+		thflags & TH_AE ? "A" : " ", 
+		thflags & TH_CWR ? "W" : " ",
+		thflags & TH_ECE ? "E" : " ",
+		tp->t_scep, tp->t_rcep);
 		/*
 		 * on the SYN,ACK, process the AccECN
 		 * flags indicating the state the SYN
@@ -193,6 +199,13 @@ tcp_ecn_input_syn_sent(struct tcpcb *tp, uint16_t thflags, int iptos)
 			tp->t_rcep = 0b110;
 			break;
 		}
+		    log(2, "accecn %s: thflags: %s%s%s t_scep:%d t_rcep:%d\n",
+		__func__, 
+		thflags & TH_AE ? "A" : " ", 
+		thflags & TH_CWR ? "W" : " ",
+		thflags & TH_ECE ? "E" : " ",
+		tp->t_scep, tp->t_rcep);
+
 	}
 }
 
@@ -217,6 +230,12 @@ tcp_ecn_input_parallel_syn(struct tcpcb *tp, uint16_t thflags, int iptos)
 	} else
 	if ((V_tcp_do_ecn == 3) ||
 	    (V_tcp_do_ecn == 4)) {
+	    log(2, "accecn %s: thflags: %s%s%s t_scep:%d t_rcep:%d\n",
+		__func__, 
+		thflags & TH_AE ? "A" : " ", 
+		thflags & TH_CWR ? "W" : " ",
+		thflags & TH_ECE ? "E" : " ",
+		tp->t_scep, tp->t_rcep);
 		/* AccECN handling */
 		switch (thflags & (TH_AE | TH_CWR | TH_ECE)) {
 		default:
@@ -312,6 +331,12 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 				}
 				tp->t_flags2 |= TF2_ECN_PERMIT;
 			}
+			    log(2, "accecn %s: thflags: %s%s%s t_scep:%d t_rcep:%d\n",
+		__func__, 
+		thflags & TH_AE ? "A" : " ", 
+		thflags & TH_CWR ? "W" : " ",
+		thflags & TH_ECE ? "E" : " ",
+		tp->t_scep, tp->t_rcep);
 		} else {
 			/* RFC3168 ECN handling */
 			if (thflags & TH_ECE)
@@ -389,6 +414,12 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 	 * Reply with proper ECN notifications.
 	 */
 	if (tp->t_flags2 & TF2_ACE_PERMIT) {
+		    log(2, "accecn %s: thflags: %s%s%s t_scep:%d t_rcep:%d\n",
+		__func__, 
+		*thflags & TH_AE ? "A" : " ", 
+		*thflags & TH_CWR ? "W" : " ",
+		*thflags & TH_ECE ? "E" : " ",
+		tp->t_scep, tp->t_rcep);
 		*thflags &= ~(TH_AE|TH_CWR|TH_ECE);
 		if (tp->t_rcep & 0x01)
 			*thflags |= TH_ECE;
