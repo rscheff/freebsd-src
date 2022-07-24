@@ -105,8 +105,8 @@ struct tcphdr {
 #define	TCPOPT_FAST_OPEN	34
 #define	   TCPOLEN_FAST_OPEN_EMPTY	2
 #if defined(TCP_ACCECNOPT)
-#define	TCPOPT_ACCECN_0		174
-#define	TCPOPT_ACCECN_1		175
+#define	TCPOPT_ACCECN_0		0xAC
+#define	TCPOPT_ACCECN_1		0XAE
 #define	   TCPOLEN_ACCECN_EMPTY		5 /* 3 bytes exp opt */
 #define	   TCPOLEN_ACCECN_COUNTER	3
 #endif /* TCP_ACCECNOPT */
