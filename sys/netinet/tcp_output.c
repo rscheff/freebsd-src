@@ -1976,12 +1976,9 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					1 * TCPOLEN_ACCECN_COUNTER)) {
 				log(2, "aco: empty option only\n");
 				if (to->to_acceflags & TOF_ACCE_SYN) {
-					/* this is an experimental option */
-					*optp++ = (TCPOPT_ACCECN_0 >> (2*8)) & 0xFF;
+					*optp++ = TCPOPT_ACCECN_0;
 					optlen += TCPOLEN_ACCECN_EMPTY;
 					*optp++ = TCPOLEN_ACCECN_EMPTY;
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
 					continue;
 				} else {
 					to->to_flags &= ~TOF_ACCECNOPT;
@@ -1992,98 +1989,60 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 					2 * TCPOLEN_ACCECN_COUNTER)) {
 				log(2, "aco: 1 couter option\n");
 				if (to->to_acceflags & TOF_ACCE_E1) {
-					/* this is an experimental option */
-					*optp++ = (TCPOPT_ACCECN_1 >> (2*8)) & 0xFF;
+					*optp++ = TCPOPT_ACCECN_1;
 					*optp++ = TCPOLEN_ACCECN_EMPTY +
 						TCPOLEN_ACCECN_COUNTER;
 					optlen += TCPOLEN_ACCECN_EMPTY +
 						TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_1 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_1 >> (0*8)) & 0xFF;
 					*optp++ = (char)(to->to_ee1b >> 16);
 					*optp++ = (char)(to->to_ee1b >> 8);
 					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
 					continue;
-				} else
-				if (to->to_acceflags & TOF_ACCE_E0) {
-					/* this is an experimental option */
-					*optp++ = (TCPOPT_ACCECN_0 >> (2*8)) & 0xFF;
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					continue;
 				}
-				to->to_flags &= ~TOF_ACCECNOPT;
+				*optp++ = TCPOPT_ACCECN_0;
+				*optp++ = TCPOLEN_ACCECN_EMPTY +
+					TCPOLEN_ACCECN_COUNTER;
+				optlen += TCPOLEN_ACCECN_EMPTY +
+					TCPOLEN_ACCECN_COUNTER;
+				*optp++ = (char)(to->to_ee0b >> 16);
+				*optp++ = (char)(to->to_ee0b >> 8);
+				*optp++ = (char)(to->to_ee0b);
+				to->to_acceflags &= ~TOF_ACCE_E0;
 				continue;
 			}
 			if (max_len < (TCPOLEN_ACCECN_EMPTY +
 					3 * TCPOLEN_ACCECN_COUNTER)) {
 				log(2, "aco: 2 couters option\n");
 				if (to->to_acceflags & TOF_ACCE_E1) {
-					/* this is an experimental option */
-					*optp++ = (TCPOPT_ACCECN_1 >> (2*8)) & 0xFF;
-					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = TCPOLEN_ACCECN_EMPTY +
-							2 * TCPOLEN_ACCECN_COUNTER;
-						optlen += TCPOLEN_ACCECN_EMPTY +
-							2 * TCPOLEN_ACCECN_COUNTER;
-					} else {
-						*optp++ = TCPOLEN_ACCECN_EMPTY +
-							1 * TCPOLEN_ACCECN_COUNTER;
-						optlen += TCPOLEN_ACCECN_EMPTY +
-							1 * TCPOLEN_ACCECN_COUNTER;
-					}
-					*optp++ = (TCPOPT_ACCECN_1 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_1 >> (0*8)) & 0xFF;
+					*optp++ = TCPOPT_ACCECN_1;
+					*optp++ = TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
+					optlen += TCPOLEN_ACCECN_EMPTY +
+						2 * TCPOLEN_ACCECN_COUNTER;
 					*optp++ = (char)(to->to_ee1b >> 16);
 					*optp++ = (char)(to->to_ee1b >> 8);
 					*optp++ = (char)(to->to_ee1b);
 					to->to_acceflags &= ~TOF_ACCE_E1;
-					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = (char)(to->to_eceb >> 16);
-						*optp++ = (char)(to->to_eceb >> 8);
-						*optp++ = (char)(to->to_eceb);
-						to->to_acceflags &= ~TOF_ACCE_CE;
-					}
+					*optp++ = (char)(to->to_eceb >> 16);
+					*optp++ = (char)(to->to_eceb >> 8);
+					*optp++ = (char)(to->to_eceb);
+					to->to_acceflags &= ~TOF_ACCE_CE;
 					continue;
 				}
-				if (to->to_acceflags & (TOF_ACCE_E0 | TOF_ACCE_CE)) {
-					/* this is an experimental option */
-					*optp++ = (TCPOPT_ACCECN_0 >> (2*8)) & 0xFF;
-					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = TCPOLEN_ACCECN_EMPTY +
-							2 * TCPOLEN_ACCECN_COUNTER;
-						optlen += TCPOLEN_ACCECN_EMPTY +
-							2 * TCPOLEN_ACCECN_COUNTER;
-					} else {
-						*optp++ = TCPOLEN_ACCECN_EMPTY +
-							1 *TCPOLEN_ACCECN_COUNTER;
-						optlen += TCPOLEN_ACCECN_EMPTY +
-							1 * TCPOLEN_ACCECN_COUNTER;
-					}
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					if (to->to_acceflags & TOF_ACCE_CE) {
-						*optp++ = (char)(to->to_eceb >> 16);
-						*optp++ = (char)(to->to_eceb >> 8);
-						*optp++ = (char)(to->to_eceb);
-						to->to_acceflags &= ~TOF_ACCE_CE;
-					}
-					continue;
-				}
-				to->to_flags &= ~TOF_ACCECNOPT;
+				*optp++ = TCPOPT_ACCECN_0;
+				*optp++ = TCPOLEN_ACCECN_EMPTY +
+					2 * TCPOLEN_ACCECN_COUNTER;
+				optlen += TCPOLEN_ACCECN_EMPTY +
+					2 * TCPOLEN_ACCECN_COUNTER;
+				*optp++ = (char)(to->to_ee0b >> 16);
+				*optp++ = (char)(to->to_ee0b >> 8);
+				*optp++ = (char)(to->to_ee0b);
+				to->to_acceflags &= ~TOF_ACCE_E0;
+				*optp++ = (char)(to->to_eceb >> 16);
+				*optp++ = (char)(to->to_eceb >> 8);
+				*optp++ = (char)(to->to_eceb);
+				to->to_acceflags &= ~TOF_ACCE_CE;
 				continue;
 			}
 			/*
@@ -2094,141 +2053,43 @@ tcp_addoptions(struct tcpopt *to, u_char *optp)
 			log(2, "aco: full option\n");
 			if (to->to_acceflags & TOF_ACCE_E1) {
 				log(2, "aco: e1 set\n");
-				/* this is an experimental option */
-				*optp++ = (TCPOPT_ACCECN_1 >> (2*8)) & 0xFF;
-				switch (to->to_acceflags & (TOF_ACCE_CE | TOF_ACCE_E0)) {
-				default:
-					{
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						1 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						1 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_1 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_1 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee1b >> 16);
-					*optp++ = (char)(to->to_ee1b >> 8);
-					*optp++ = (char)(to->to_ee1b);
-					to->to_acceflags &= ~TOF_ACCE_E1;
-					break;
-					}
-				case (TOF_ACCE_CE):
-					{
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						2 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						2 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_1 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_1 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee1b >> 16);
-					*optp++ = (char)(to->to_ee1b >> 8);
-					*optp++ = (char)(to->to_ee1b);
-					to->to_acceflags &= ~TOF_ACCE_E1;
-					*optp++ = (char)(to->to_eceb >> 16);
-					*optp++ = (char)(to->to_eceb >> 8);
-					*optp++ = (char)(to->to_eceb);
-					to->to_acceflags &= ~TOF_ACCE_CE;
-					break;
-					}
-				case (TOF_ACCE_E0):
-					/* Fallthrough */
-				case (TOF_ACCE_CE | TOF_ACCE_E0):
-					{
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						3 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						3 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_1 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_1 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee1b >> 16);
-					*optp++ = (char)(to->to_ee1b >> 8);
-					*optp++ = (char)(to->to_ee1b);
-					to->to_acceflags &= ~TOF_ACCE_E1;
-					*optp++ = (char)(to->to_eceb >> 16);
-					*optp++ = (char)(to->to_eceb >> 8);
-					*optp++ = (char)(to->to_eceb);
-					to->to_acceflags &= ~TOF_ACCE_CE;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					break;
-					}
-				}
+				*optp++ = TCPOPT_ACCECN_1;
+				*optp++ = TCPOLEN_ACCECN_EMPTY +
+					3 * TCPOLEN_ACCECN_COUNTER;
+				optlen += TCPOLEN_ACCECN_EMPTY +
+					3 * TCPOLEN_ACCECN_COUNTER;
+				*optp++ = (char)(to->to_ee1b >> 16);
+				*optp++ = (char)(to->to_ee1b >> 8);
+				*optp++ = (char)(to->to_ee1b);
+				to->to_acceflags &= ~TOF_ACCE_E1;
+				*optp++ = (char)(to->to_eceb >> 16);
+				*optp++ = (char)(to->to_eceb >> 8);
+				*optp++ = (char)(to->to_eceb);
+				to->to_acceflags &= ~TOF_ACCE_CE;
+				*optp++ = (char)(to->to_ee0b >> 16);
+				*optp++ = (char)(to->to_ee0b >> 8);
+				*optp++ = (char)(to->to_ee0b);
+				to->to_acceflags &= ~TOF_ACCE_E0;
 				continue;
 			} else {
 				log(2, "aco: e1 not set\n");
-				if (!(to->to_acceflags & (TOF_ACCE_E0 |
-							  TOF_ACCE_CE |
-							  TOF_ACCE_ACKNOW))) {
-					to->to_flags &= ~TOF_ACCECNOPT;
-					log(2, "aco: counters unchanged, leave empty\n");
-					continue;
-				}
-				/* this is an experimental option */
-				*optp++ = (TCPOPT_ACCECN_0 >> (2*8)) & 0xFF;
-				switch (to->to_acceflags & (TOF_ACCE_ACKNOW |
-							    TOF_ACCE_CE |
-							    TOF_ACCE_E0)) {
-				default:
-					{
-					log(2, "aco: full counters\n");
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						3 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						3 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					*optp++ = (char)(to->to_eceb >> 16);
-					*optp++ = (char)(to->to_eceb >> 8);
-					*optp++ = (char)(to->to_eceb);
-					to->to_acceflags &= ~TOF_ACCE_CE;
-					*optp++ = (char)(to->to_ee1b >> 16);
-					*optp++ = (char)(to->to_ee1b >> 8);
-					*optp++ = (char)(to->to_ee1b);
-					to->to_acceflags &= ~TOF_ACCE_E1;
-					break;
-					}
-				case (TOF_ACCE_CE):
-					/* Fallthrough */
-				case (TOF_ACCE_CE | TOF_ACCE_E0):
-					{
-					log(2, "aco: ce set\n");
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						2 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						2 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					*optp++ = (char)(to->to_eceb >> 16);
-					*optp++ = (char)(to->to_eceb >> 8);
-					*optp++ = (char)(to->to_eceb);
-					to->to_acceflags &= ~TOF_ACCE_CE;
-					break;
-					}
-				case (TOF_ACCE_E0):
-					{
-					log(2, "aco: e0 set\n");
-					*optp++ = TCPOLEN_ACCECN_EMPTY +
-						1 * TCPOLEN_ACCECN_COUNTER;
-					optlen += TCPOLEN_ACCECN_EMPTY +
-						1 * TCPOLEN_ACCECN_COUNTER;
-					*optp++ = (TCPOPT_ACCECN_0 >> (1*8)) & 0xFF;
-					*optp++ = (TCPOPT_ACCECN_0 >> (0*8)) & 0xFF;
-					*optp++ = (char)(to->to_ee0b >> 16);
-					*optp++ = (char)(to->to_ee0b >> 8);
-					*optp++ = (char)(to->to_ee0b);
-					to->to_acceflags &= ~TOF_ACCE_E0;
-					break;
-					}
-				}
+				*optp++ = TCPOPT_ACCECN_0;
+				*optp++ = TCPOLEN_ACCECN_EMPTY +
+					3 * TCPOLEN_ACCECN_COUNTER;
+				optlen += TCPOLEN_ACCECN_EMPTY +
+					3 * TCPOLEN_ACCECN_COUNTER;
+				*optp++ = (char)(to->to_ee0b >> 16);
+				*optp++ = (char)(to->to_ee0b >> 8);
+				*optp++ = (char)(to->to_ee0b);
+				to->to_acceflags &= ~TOF_ACCE_E0;
+				*optp++ = (char)(to->to_eceb >> 16);
+				*optp++ = (char)(to->to_eceb >> 8);
+				*optp++ = (char)(to->to_eceb);
+				to->to_acceflags &= ~TOF_ACCE_CE;
+				*optp++ = (char)(to->to_ee1b >> 16);
+				*optp++ = (char)(to->to_ee1b >> 8);
+				*optp++ = (char)(to->to_ee1b);
+				to->to_acceflags &= ~TOF_ACCE_E1;
 				continue;
 			}
 			}
