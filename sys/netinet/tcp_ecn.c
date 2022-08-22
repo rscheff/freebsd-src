@@ -463,11 +463,21 @@ tcp_ecn_syncache_socket(struct tcpcb *tp, struct syncache *sc)
 			tp->t_flags2 |= TF2_ACE_PERMIT;
 			tp->t_scep = 5;
 			tp->t_rcep = 5;
+#if defined(TCP_ACCECNOPT)
+			tp->t_ee0b = 1;
+			tp->t_ee1b = 0;
+			tp->t_eceb = 0;
+#endif /* TCP_ACCECNOPT */
 			break;
 		case SCF_ACE_CE:
 			tp->t_flags2 |= TF2_ACE_PERMIT;
 			tp->t_scep = 6;
 			tp->t_rcep = 6;
+#if defined(TCP_ACCECNOPT)
+			tp->t_ee0b = 1;
+			tp->t_ee1b = 0;
+			tp->t_eceb = 0;
+#endif /* TCP_ACCECNOPT */
 			break;
 		/* undefined SCF codepoint */
 		default:

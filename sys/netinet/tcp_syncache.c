@@ -38,6 +38,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_ipsec.h"
+#include "opt_accecn.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -1957,7 +1958,35 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 				/* don't send cookie again when retransmitting response */
 				sc->sc_tfo_cookie = NULL;
 			}
+#if defined(TCP_ACCECNOPT)
+			if ((sc->sc_flags & SCF_ECN_MASK) &&
+			    ((sc->sc_flags & SCF_ECN_MASK) != SCF_ECN)) {
+				to.to_flags |= TOF_ACCECNOPT;
+				to.to_acceflags |= TOF_ACCE_E0 |
+						    TOF_ACCE_E1 |
+						    TOF_ACCE_CE;
+				to.to_ee0b = 1;
+				to.to_ee1b = 0;
+				to.to_eceb = 0;
+				to.to_acceflags |= TOF_ACCE_SYN;
+			}
+#endif
 		}
+#if defined(TCP_ACCECNOPT)
+		  else {
+			log(2, "syncache respond: %x\n", (sc->sc_flags & SCF_ECN_MASK));
+			if ((sc->sc_flags & SCF_ECN_MASK) &&
+			    ((sc->sc_flags & SCF_ECN_MASK) != SCF_ECN)) {
+				to.to_flags |= TOF_ACCECNOPT;
+				to.to_acceflags |= TOF_ACCE_E0 |
+						    TOF_ACCE_E1 |
+						    TOF_ACCE_CE;
+				to.to_ee0b = 1;
+				to.to_ee1b = 0;
+				to.to_eceb = 0;
+			}
+		}
+#endif
 		if (sc->sc_flags & SCF_TIMESTAMP) {
 			to.to_tsval = sc->sc_tsoff + tcp_ts_getticks();
 			to.to_tsecr = sc->sc_tsreflect;
