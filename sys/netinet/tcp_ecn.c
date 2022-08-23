@@ -274,21 +274,21 @@ tcp_ecn_input_segment(struct tcpcb *tp, uint16_t thflags, int iptos)
 		case IPTOS_ECN_CE:
 #if defined(TCP_ACCECNOPT)
 			tp->t_flags2 |= TF2_ACO_CE;
-			tp->t_eceb += tlen;
+			tp->t_rceb += tlen;
 #endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ce);
 			break;
 		case IPTOS_ECN_ECT0:
 #if defined(TCP_ACCECNOPT)
 			tp->t_flags2 |= TF2_ACO_E0;
-			tp->t_ee0b += tlen;
+			tp->t_re0b += tlen;
 #endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ect0);
 			break;
 		case IPTOS_ECN_ECT1:
 #if defined(TCP_ACCECNOPT)
 			tp->t_flags2 |= TF2_ACO_E1;
-			tp->t_ee1b += tlen;
+			tp->t_re1b += tlen;
 #endif /* TCP_ACCECNOPT */
 			TCPSTAT_INC(tcps_ecn_ect1);
 			break;
@@ -423,11 +423,6 @@ tcp_ecn_output_established(struct tcpcb *tp, uint16_t *thflags, int len, bool rx
 			} else {
 				tp->t_rcep = 5;
 			}
-#if defined(TCP_ACCECNOPT)
-			tp->t_ee0b += 1;
-			tp->t_ee1b += 0;
-			tp->t_eceb += 0;
-#endif /* TCP_ACCECNOPT */
 			tp->t_flags2 |= TF2_ECN_PERMIT;
 		}
 	} else {
@@ -463,21 +458,11 @@ tcp_ecn_syncache_socket(struct tcpcb *tp, struct syncache *sc)
 			tp->t_flags2 |= TF2_ACE_PERMIT;
 			tp->t_scep = 5;
 			tp->t_rcep = 5;
-#if defined(TCP_ACCECNOPT)
-			tp->t_ee0b = 1;
-			tp->t_ee1b = 0;
-			tp->t_eceb = 0;
-#endif /* TCP_ACCECNOPT */
 			break;
 		case SCF_ACE_CE:
 			tp->t_flags2 |= TF2_ACE_PERMIT;
 			tp->t_scep = 6;
 			tp->t_rcep = 6;
-#if defined(TCP_ACCECNOPT)
-			tp->t_ee0b = 1;
-			tp->t_ee1b = 0;
-			tp->t_eceb = 0;
-#endif /* TCP_ACCECNOPT */
 			break;
 		/* undefined SCF codepoint */
 		default:

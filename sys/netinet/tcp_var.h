@@ -251,11 +251,9 @@ struct tcpcb {
 	int	t_loglimit;		/* Maximum number of log entries */
 	uint32_t t_rcep;		/* Number of received CE marked pkts */
 	uint32_t t_scep;		/* Synced number of delivered CE pkts */
-#if defined(TCP_ACCECNOPT)
-	uint32_t t_ee0b;
-	uint32_t t_ee1b;
-	uint32_t t_eceb;
-#endif /* TCP_ACCECNOPT) */
+	uint32_t t_re0b;		/* Number of ECT0 marked data bytes */
+	uint32_t t_re1b;		/* Number of ECT1 marked data bytes */
+	uint32_t t_rceb;		/* Number of CE marked data bytes */
 	int64_t	t_pacing_rate;		/* bytes / sec, -1 => unlimited */
 	struct tcp_log_stailq t_logs;	/* Log buffer */
 	struct tcp_log_id_node *t_lin;

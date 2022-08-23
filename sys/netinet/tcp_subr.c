@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_ipsec.h"
 #include "opt_kern_tls.h"
 #include "opt_tcpdebug.h"
+#include "opt_accecn.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -2316,6 +2317,13 @@ tcp_newtcpcb(struct inpcb *inp)
 	tcp_log_tcpcbinit(tp);
 #endif
 	tp->t_pacing_rate = -1;
+	if (V_tcp_do_lrd)
+		tp->t_flags |= TF_LRD;
+#ifdef TCP_ACCECNOPT
+	tp->t_re0b = 1;
+	tp->t_re1b = 1;
+	tp->t_rceb = 0;
+#endif
 	if (tp->t_fb->tfb_tcp_fb_init) {
 		if ((*tp->t_fb->tfb_tcp_fb_init)(tp)) {
 			refcount_release(&tp->t_fb->tfb_refcnt);
@@ -2328,8 +2336,6 @@ tcp_newtcpcb(struct inpcb *inp)
 	if (V_tcp_perconn_stats_enable == 1)
 		tp->t_stats = stats_blob_alloc(V_tcp_perconn_stats_dflt_tpl, 0);
 #endif
-	if (V_tcp_do_lrd)
-		tp->t_flags |= TF_LRD;
 	return (tp);		/* XXX */
 }
 

@@ -891,14 +891,18 @@ send:
 			to.to_flags |= TOF_SIGNATURE;
 #endif /* TCP_SIGNATURE */
 #if defined(TCP_ACCECNOPT)
-		/* AccECN option */
+		/*
+		 * AccECN option
+		 * Don't send on <SYN>, only on <SYN,ACK> or
+		 * when doing an AccECN session
+		 */
 		if (((V_tcp_do_ecn == 3) || (V_tcp_do_ecn == 4)) &&
 		    ((tp->t_flags2 & TF2_ACE_PERMIT) ||
-		    (flags & TH_SYN))) {
+		    ((flags & TH_SYN) && (flags & TH_ACK)))) {
 			to.to_flags |= TOF_ACCECNOPT;
-			to.to_ee0b = tp->t_ee0b;
-			to.to_ee1b = tp->t_ee1b;
-			to.to_eceb = tp->t_eceb;
+			to.to_ee0b = tp->t_re0b;
+			to.to_ee1b = tp->t_re1b;
+			to.to_eceb = tp->t_rceb;
 			to.to_acceflags = ((tp->t_flags2 & TF2_ACO_E0) ? TOF_ACCE_E0 : 0) |
 					  ((tp->t_flags2 & TF2_ACO_E1) ? TOF_ACCE_E1 : 0) |
 					  ((tp->t_flags2 & TF2_ACO_CE) ? TOF_ACCE_CE : 0);

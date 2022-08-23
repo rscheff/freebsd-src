@@ -1966,7 +1966,7 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 						    TOF_ACCE_E1 |
 						    TOF_ACCE_CE;
 				to.to_ee0b = 1;
-				to.to_ee1b = 0;
+				to.to_ee1b = 1;
 				to.to_eceb = 0;
 				to.to_acceflags |= TOF_ACCE_SYN;
 			}
@@ -1974,7 +1974,6 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 		}
 #if defined(TCP_ACCECNOPT)
 		  else {
-			log(2, "syncache respond: %x\n", (sc->sc_flags & SCF_ECN_MASK));
 			if ((sc->sc_flags & SCF_ECN_MASK) &&
 			    ((sc->sc_flags & SCF_ECN_MASK) != SCF_ECN)) {
 				to.to_flags |= TOF_ACCECNOPT;
@@ -1982,7 +1981,7 @@ syncache_respond(struct syncache *sc, const struct mbuf *m0, int flags)
 						    TOF_ACCE_E1 |
 						    TOF_ACCE_CE;
 				to.to_ee0b = 1;
-				to.to_ee1b = 0;
+				to.to_ee1b = 1;
 				to.to_eceb = 0;
 			}
 		}
