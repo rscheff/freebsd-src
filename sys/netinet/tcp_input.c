@@ -1637,6 +1637,36 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	    (th->th_off << 2) - sizeof(struct tcphdr),
 	    (thflags & TH_SYN) ? TO_SYN : 0);
 
+	if (tp->t_logstate) {
+		if (to.to_flags & TOF_SACK)
+			log(2, "%s#%d\t < %s %u:%u(%u) ack %u win %u <nop,nop,sack %u:%u>\n\t\t\t\tsnd_una:%u snd_nxt:%u snd_max:%u dups:%u\n",
+			    __func__, __LINE__,
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN) ? "S" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_ACK) ? "." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN) ? "F" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST) ? "R" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN|TH_ACK) ? "S." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN|TH_ACK) ? "F." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST|TH_ACK) ? "R." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_PUSH|TH_ACK) ? "P." : "X",
+			    th->th_seq-tp->irs, th->th_seq-tp->irs+tlen, tlen, th->th_ack-tp->iss, th->th_win, 
+			    ntohl(((struct sackblk *)(to.to_sacks))->start)-tp->iss, ntohl(((struct sackblk *)(to.to_sacks))->end)-tp->iss,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, tp->t_dupacks);
+		else
+			log(2, "%s#%d\t < %s %u:%u(%u) ack %u win %u\n\t\t\t\tsnd_una:%u snd_nxt:%u snd_max:%u dups:%u\n",
+			    __func__, __LINE__,
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN) ? "S" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_ACK) ? "." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN) ? "F" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST) ? "R" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN|TH_ACK) ? "S." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN|TH_ACK) ? "F." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST|TH_ACK) ? "R." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_PUSH|TH_ACK) ? "P." : "X",
+			    th->th_seq-tp->irs, th->th_seq-tp->irs+tlen, tlen, th->th_ack-tp->iss, th->th_win, 
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, tp->t_dupacks);
+		}
+
 #if defined(IPSEC_SUPPORT) || defined(TCP_SIGNATURE)
 	if ((tp->t_flags & TF_SIGNATURE) != 0 &&
 	    (to.to_flags & TOF_SIGNATURE) == 0) {
@@ -1891,8 +1921,13 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 					tcp_timer_activate(tp, TT_REXMT,
 						      tp->t_rxtcur);
 				sowwakeup(so);
-				if (sbavail(&so->so_snd))
+				if (sbavail(&so->so_snd)) {
+					if (tp->t_logstate)
+						log(2, "%s#%d\t output for in-sequence ack. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+						    __func__, __LINE__,
+						    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 					(void) tcp_output(tp);
+				}
 				goto check_delack;
 			}
 		} else if (th->th_ack == tp->snd_una &&
@@ -1961,6 +1996,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				tp->t_flags |= TF_DELACK;
 			} else {
 				tp->t_flags |= TF_ACKNOW;
+				if (tp->t_logstate)
+					log(2, "%s#%d\t output for in-sequence data. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+					    __func__, __LINE__,
+					    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 				tcp_output(tp);
 			}
 			goto check_delack;
@@ -2590,7 +2629,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 				 * duplicating packets or a possible DoS attack.
 				 */
 				if (th->th_ack != tp->snd_una ||
-				    (tcp_is_sack_recovery(tp, &to) &&
+				    ((tp->t_flags & TF_SACK_PERMIT) &&
+				    (to.to_flags & TOF_SACK) &&
 				    !sack_changed))
 					break;
 				else if (!tcp_timer_active(tp, TT_REXMT))
@@ -2625,6 +2665,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 						}
 					} else
 						tp->snd_cwnd += maxseg;
+					if (tp->t_logstate)
+						log(2, "%s#%d\t output for fast retransmission. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+						    __func__, __LINE__,
+						    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 					(void) tcp_output(tp);
 					goto drop;
 				} else if (tp->t_dupacks == tcprexmtthresh ||
@@ -2692,6 +2736,10 @@ enter_recovery:
 						    tcps_sack_recovery_episode);
 						tp->snd_recover = tp->snd_nxt;
 						tp->snd_cwnd = maxseg;
+						if (tp->t_logstate)
+							log(2, "%s#%d\t output for first SACK retransmission. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+							    __func__, __LINE__,
+							    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 						(void) tcp_output(tp);
 						if (SEQ_GT(th->th_ack, tp->snd_una))
 							goto resume_partialack;
@@ -2699,6 +2747,10 @@ enter_recovery:
 					}
 					tp->snd_nxt = th->th_ack;
 					tp->snd_cwnd = maxseg;
+					if (tp->t_logstate)
+						log(2, "%s#%d\t output for first fast retransmission. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+						    __func__, __LINE__,
+						    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 					(void) tcp_output(tp);
 					KASSERT(tp->snd_limited <= 2,
 					    ("%s: tp->snd_limited too big",
@@ -2746,8 +2798,13 @@ enter_recovery:
 					avail = sbavail(&so->so_snd) -
 					    (tp->snd_nxt - tp->snd_una);
 					SOCKBUF_UNLOCK(&so->so_snd);
-					if (avail > 0 || tp->t_flags & TF_ACKNOW)
+					if (avail > 0 || tp->t_flags & TF_ACKNOW) {
+						if (tp->t_logstate)
+							log(2, "%s#%d\t output for limited transmit. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+							    __func__, __LINE__,
+							    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 						(void) tcp_output(tp);
+					}
 					sent = tp->snd_max - oldsndmax;
 					if (sent > maxseg) {
 						KASSERT((tp->t_dupacks == 2 &&
@@ -2808,6 +2865,10 @@ resume_partialack:
 						tp->t_rtttime = 0;
 						tcp_do_prr_ack(tp, th, &to);
 						tp->t_flags |= TF_ACKNOW;
+						if (tp->t_logstate)
+							log(2, "%s#%d\t output for SACK PRR recovery. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+							    __func__, __LINE__,
+							    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 						(void) tcp_output(tp);
 					} else
 						tcp_sack_partialack(tp, th);
@@ -2821,6 +2882,10 @@ resume_partialack:
 					tp->sackhint.delivered_data = BYTES_THIS_ACK(tp, th);
 					tp->snd_fack = th->th_ack;
 					tcp_do_prr_ack(tp, th, &to);
+					if (tp->t_logstate)
+						log(2, "%s#%d\t output for ECN PRR recovery. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+						    __func__, __LINE__,
+						    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 					(void) tcp_output(tp);
 				}
 			} else
@@ -3299,8 +3364,13 @@ dodata:							/* XXX */
 	/*
 	 * Return any desired output.
 	 */
-	if (needoutput || (tp->t_flags & TF_ACKNOW))
+	if (needoutput || (tp->t_flags & TF_ACKNOW)) {
+		if (tp->t_logstate)
+			log(2, "%s#%d\t output for needoutput or ACKNOW. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+			    __func__, __LINE__,
+			    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 		(void) tcp_output(tp);
+	}
 
 check_delack:
 	INP_WLOCK_ASSERT(tp->t_inpcb);
@@ -3341,6 +3411,10 @@ dropafterack:
 #endif
 	TCP_PROBE3(debug__input, tp, th, m);
 	tp->t_flags |= TF_ACKNOW;
+	if (tp->t_logstate)
+		log(2, "%s#%d\t output for dropafterack. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+		    __func__, __LINE__,
+		    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 	(void) tcp_output(tp);
 	INP_WUNLOCK(tp->t_inpcb);
 	m_freem(m);
@@ -4042,6 +4116,10 @@ tcp_newreno_partial_ack(struct tcpcb *tp, struct tcphdr *th)
 	 */
 	tp->snd_cwnd = maxseg + BYTES_THIS_ACK(tp, th);
 	tp->t_flags |= TF_ACKNOW;
+	if (tp->t_logstate)
+		log(2, "%s#%d\t output for newreno partial ack. snd_una:%u snd_nxt:%u cwnd:%u dups:%u\n",
+		    __func__, __LINE__,
+		    tp->snd_una, tp->snd_nxt, tp->snd_cwnd, tp->t_dupacks);
 	(void) tcp_output(tp);
 	tp->snd_cwnd = ocwnd;
 	if (SEQ_GT(onxt, tp->snd_nxt))

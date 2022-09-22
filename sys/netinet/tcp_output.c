@@ -340,6 +340,10 @@ again:
 		}
 		if (len > 0) {
 			off = SEQ_SUB(p->rxmit, tp->snd_una);
+			if (tp->t_logstate)
+				log(2, "%s#%d\tsack retransmission len:%d, off:%d snd_una:%u snd_nxt:%u\n", 
+				    __func__, __LINE__,
+				    len, off, tp->snd_una, tp->snd_nxt);
 			KASSERT(off >= 0,("%s: sack block to the left of una : %d",
 			    __func__, off));
 			sack_rxmit = 1;
@@ -1538,6 +1542,36 @@ send:
 	/* Save packet, if requested. */
 	tcp_pcap_add(th, m, &(tp->t_outpkts));
 #endif
+
+	if (tp->t_logstate) {
+		if (to.to_flags & TOF_SACK)
+			log(2, "%s#%d\t > %s %u:%u(%u) ack %u win %u <nop,nop,sack %u:%u>\n\t\t\t\tsnd_una:%u snd_nxt:%u snd_max:%u dups:%u\n",
+			    __func__, __LINE__,
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN) ? "S" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_ACK) ? "." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN) ? "F" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST) ? "R" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN|TH_ACK) ? "S." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN|TH_ACK) ? "F." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST|TH_ACK) ? "R." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_PUSH|TH_ACK) ? "P." : "X",
+			    ntohl(th->th_seq)-tp->iss, ntohl(th->th_seq)-tp->iss+len, len, ntohl(th->th_ack)-tp->irs, ntohs(th->th_win),
+			    (((struct sackblk *)(to.to_sacks))->start)-tp->irs, (((struct sackblk *)(to.to_sacks))->end)-tp->irs,
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, tp->t_dupacks);
+		else
+			log(2, "%s#%d\t > %s %u:%u(%u) ack %u win %u\n\t\t\t\tsnd_una:%u snd_nxt:%u snd_max:%u dups:%u\n",
+			    __func__, __LINE__,
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN) ? "S" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_ACK) ? "." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN) ? "F" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST) ? "R" : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_SYN|TH_ACK) ? "S." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_FIN|TH_ACK) ? "F." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_RST|TH_ACK) ? "R." : \
+			    (th->th_flags & (TH_SYN|TH_ACK|TH_FIN|TH_RST|TH_PUSH)) == (TH_PUSH|TH_ACK) ? "P." : "X",
+			    ntohl(th->th_seq)-tp->iss, ntohl(th->th_seq)-tp->iss+len, len, ntohl(th->th_ack)-tp->irs, ntohs(th->th_win),
+			    tp->snd_una-tp->iss, tp->snd_nxt-tp->iss, tp->snd_max-tp->iss, tp->t_dupacks);
+	}
 
 	error = ip_output(m, tp->t_inpcb->inp_options, &tp->t_inpcb->inp_route,
 	    ((so->so_options & SO_DONTROUTE) ? IP_ROUTETOIF : 0), 0,

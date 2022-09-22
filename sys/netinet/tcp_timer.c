@@ -601,6 +601,8 @@ tcp_timer_rexmt(void * xtp)
 #endif
 	inp = tp->t_inpcb;
 	KASSERT(inp != NULL, ("%s: tp %p tp->t_inpcb == NULL", __func__, tp));
+	if (tp->t_logstate)
+		log(2, "%s#%d\tRTO! retransmission timeout number: %d\n", __func__, __LINE__, tp->t_rxtshift+1);
 	INP_WLOCK(inp);
 	if (callout_pending(&tp->t_timers->tt_rexmt) ||
 	    !callout_active(&tp->t_timers->tt_rexmt)) {
