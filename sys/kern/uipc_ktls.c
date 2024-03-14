@@ -331,15 +331,15 @@ ktls_copyin_tls_enable(struct sockopt *sopt, struct tls_enable *tls)
 	if (error != 0)
 		return (error);
 
-	if (en->cipher_key_len < 0 || en->cipher_key_len > TLS_MAX_PARAM_SIZE)
+	if (tls->cipher_key_len < 0 || tls->cipher_key_len > TLS_MAX_PARAM_SIZE)
 		return (EINVAL);
-	if (en->iv_len < 0 || en->iv_len > sizeof(tls->params.iv))
+	if (tls->iv_len < 0 || tls->iv_len > sizeof(((struct ktls_session *)NULL)->params.iv))
 		return (EINVAL);
-	if (en->auth_key_len < 0 || en->auth_key_len > TLS_MAX_PARAM_SIZE)
+	if (tls->auth_key_len < 0 || tls->auth_key_len > TLS_MAX_PARAM_SIZE)
 		return (EINVAL);
 
 	/* All supported algorithms require a cipher key. */
-	if (en->cipher_key_len == 0)
+	if (tls->cipher_key_len == 0)
 		return (EINVAL);
 
 	/*
