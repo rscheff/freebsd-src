@@ -1053,7 +1053,7 @@ TcpAliasIn(struct libalias *la, struct ip *pip)
 
 		/* Monitor TCP connection state */
 		tc = (struct tcphdr *)ip_next(pip);
-		TcpMonitorIn(tcp_get_flags(tc), lnk);
+		TcpMonitorIn(__tcp_get_flags(tc), lnk);
 
 		return (PKT_ALIAS_OK);
 	}
@@ -1142,7 +1142,7 @@ TcpAliasOut(struct libalias *la, struct ip *pip, int maxpacketsize, int create)
 
 		/* Monitor TCP connection state */
 		tc = (struct tcphdr *)ip_next(pip);
-		TcpMonitorOut(tcp_get_flags(tc), lnk);
+		TcpMonitorOut(__tcp_get_flags(tc), lnk);
 
 		/* Walk out chain. */
 		find_handler(OUT, TCP, la, pip, &ad);
