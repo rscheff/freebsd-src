@@ -1308,7 +1308,7 @@ send:
 		tp->t_flags &= ~TF_RXWIN0SENT;
 	if (SEQ_GT(tp->snd_up, tp->snd_nxt)) {
 		th->th_urp = htons((u_short)(tp->snd_up - tp->snd_nxt));
-		th->th_flags |= TH_URG;
+		flags |= TH_URG;
 	} else
 		/*
 		 * If no urgent pointer to send, then we pull
